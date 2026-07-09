@@ -7,6 +7,13 @@ export interface ModelCatalogEntry {
   thinking_values: string[];
   default_thinking_value?: string | null;
   input_modalities: ModelCatalogInputModality[];
+  context_window?: number;
+  pricing_usd_per_million_tokens?: {
+    input: number;
+    output: number;
+    cache_read: number;
+    cache_write?: number | null;
+  };
 }
 
 export interface ProviderCatalogEntry {
@@ -71,6 +78,7 @@ const GEMINI_FLASH_THINKING_VALUES = [
   "8192",
   "24576",
 ] as const;
+const MINIMAX_THINKING_VALUES = ["adaptive", "disabled"] as const;
 
 export const PROVIDER_MODEL_CATALOG: ProviderModelCatalog = {
   holaboss_model_proxy: {
@@ -252,18 +260,19 @@ export const PROVIDER_MODEL_CATALOG: ProviderModelCatalog = {
     source: "local",
     models: [
       {
-        model_id: "MiniMax-M2.7",
-        label: "MiniMax M2.7",
-        reasoning: false,
-        thinking_values: [],
+        model_id: "MiniMax-M3",
+        label: "MiniMax M3",
+        reasoning: true,
+        thinking_values: [...MINIMAX_THINKING_VALUES],
+        default_thinking_value: "adaptive",
         input_modalities: ["text"],
-      },
-      {
-        model_id: "MiniMax-M2.7-highspeed",
-        label: "MiniMax M2.7 Highspeed",
-        reasoning: false,
-        thinking_values: [],
-        input_modalities: ["text"],
+        context_window: 1_000_000,
+        pricing_usd_per_million_tokens: {
+          input: 0.6,
+          output: 2.4,
+          cache_read: 0.12,
+          cache_write: null,
+        },
       },
     ],
   },
@@ -400,5 +409,15 @@ export function catalogConfigShapeForProviderModel(
       ? { default_thinking_value: entry.default_thinking_value }
       : {}),
     input_modalities: [...entry.input_modalities],
+    ...(entry.context_window !== undefined
+      ? { context_window: entry.context_window }
+      : {}),
+    ...(entry.pricing_usd_per_million_tokens
+      ? {
+          pricing_usd_per_million_tokens: {
+            ...entry.pricing_usd_per_million_tokens,
+          },
+        }
+      : {}),
   };
 }

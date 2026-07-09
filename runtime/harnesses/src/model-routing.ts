@@ -36,12 +36,22 @@ export interface HarnessOpenAiCompat {
 
 export interface HarnessCatalogModelEntry {
   contextWindow?: unknown;
+  context_window?: unknown;
   maxTokens?: unknown;
+  max_tokens?: unknown;
   cost?: {
     input?: unknown;
     output?: unknown;
     cacheRead?: unknown;
+    cache_read?: unknown;
     cacheWrite?: unknown;
+    cache_write?: unknown;
+  };
+  pricing_usd_per_million_tokens?: {
+    input?: unknown;
+    output?: unknown;
+    cache_read?: unknown;
+    cache_write?: unknown;
   };
 }
 
@@ -494,48 +504,53 @@ function catalogModelIdCandidates(request: Pick<HarnessModelRoutingRequest, "mod
   return candidates;
 }
 
-function modelBudgetFromCatalogEntry(entry: {
-  contextWindow?: unknown;
-  maxTokens?: unknown;
-} | null | undefined): HarnessModelBudget | null {
+function modelBudgetFromCatalogEntry(entry: HarnessCatalogModelEntry | null | undefined): HarnessModelBudget | null {
+  const contextWindow = entry?.contextWindow ?? entry?.context_window;
+  const maxTokens = entry?.maxTokens ?? entry?.max_tokens ?? UNIFORM_MODEL_MAX_TOKENS;
   if (
-    typeof entry?.contextWindow !== "number" ||
-    !Number.isFinite(entry.contextWindow) ||
-    entry.contextWindow <= 0 ||
-    typeof entry.maxTokens !== "number" ||
-    !Number.isFinite(entry.maxTokens) ||
-    entry.maxTokens <= 0
+    typeof contextWindow !== "number" ||
+    !Number.isFinite(contextWindow) ||
+    contextWindow <= 0 ||
+    typeof maxTokens !== "number" ||
+    !Number.isFinite(maxTokens) ||
+    maxTokens <= 0
   ) {
     return null;
   }
   return {
-    contextWindow: entry.contextWindow,
-    maxTokens: entry.maxTokens,
+    contextWindow,
+    maxTokens,
   };
 }
 
 function modelCostFromCatalogEntry(entry: HarnessCatalogModelEntry | null | undefined): HarnessModelCost | null {
+  const cost = entry?.cost;
+  const pricing = entry?.pricing_usd_per_million_tokens;
+  const input = cost?.input ?? pricing?.input;
+  const output = cost?.output ?? pricing?.output;
+  const cacheRead = cost?.cacheRead ?? cost?.cache_read ?? pricing?.cache_read;
+  const cacheWrite = cost?.cacheWrite ?? cost?.cache_write ?? pricing?.cache_write ?? 0;
   if (
-    typeof entry?.cost?.input !== "number" ||
-    !Number.isFinite(entry.cost.input) ||
-    entry.cost.input < 0 ||
-    typeof entry.cost.output !== "number" ||
-    !Number.isFinite(entry.cost.output) ||
-    entry.cost.output < 0 ||
-    typeof entry.cost.cacheRead !== "number" ||
-    !Number.isFinite(entry.cost.cacheRead) ||
-    entry.cost.cacheRead < 0 ||
-    typeof entry.cost.cacheWrite !== "number" ||
-    !Number.isFinite(entry.cost.cacheWrite) ||
-    entry.cost.cacheWrite < 0
+    typeof input !== "number" ||
+    !Number.isFinite(input) ||
+    input < 0 ||
+    typeof output !== "number" ||
+    !Number.isFinite(output) ||
+    output < 0 ||
+    typeof cacheRead !== "number" ||
+    !Number.isFinite(cacheRead) ||
+    cacheRead < 0 ||
+    typeof cacheWrite !== "number" ||
+    !Number.isFinite(cacheWrite) ||
+    cacheWrite < 0
   ) {
     return null;
   }
   return {
-    input: entry.cost.input,
-    output: entry.cost.output,
-    cacheRead: entry.cost.cacheRead,
-    cacheWrite: entry.cost.cacheWrite,
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
   };
 }
 

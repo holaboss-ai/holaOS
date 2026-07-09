@@ -12,11 +12,13 @@ const chatPaneSourcePath = path.join(
   "src",
   "components",
   "panes",
-  "ChatPane.tsx",
+  "ChatPane",
+  "index.tsx",
 );
 const sharedCatalogPath = path.join(__dirname, "..", "shared", "model-catalog.ts");
 const modelRoutingPath = path.join(
   __dirname,
+  "..",
   "..",
   "..",
   "runtime",
@@ -51,11 +53,26 @@ test("desktop runtime normalizes stale direct-provider model aliases for Anthrop
   assert.match(source, /function upsertRuntimeProviderModel\(/);
 });
 
-test("desktop runtime recognizes minimax provider label and strips minimax token prefix", async () => {
+test("desktop runtime recognizes minimax provider label, base URL, and strips minimax token prefix", async () => {
   const source = await readFile(mainSourcePath, "utf8");
 
+  assert.match(source, /minimax:\s*"https:\/\/api\.minimax\.io\/v1"/);
   assert.match(source, /normalized\.includes\("minimax"\)[\s\S]*?return "MiniMax"/);
   assert.match(source, /normalizedPrefix\.includes\("minimax"\)/);
+});
+
+test("desktop model catalog carries refreshed MiniMax M3 defaults", async () => {
+  const [mainSource, sharedCatalogSource, modelRoutingSource] = await Promise.all([
+    readFile(mainSourcePath, "utf8"),
+    readFile(sharedCatalogPath, "utf8"),
+    readFile(modelRoutingPath, "utf8"),
+  ]);
+
+  assert.match(mainSource, /minimax:\s*"https:\/\/api\.minimax\.io\/v1"/);
+  assert.match(sharedCatalogSource, /minimax_direct:\s*\{[\s\S]*"MiniMax-M3"[\s\S]*context_window: 1_000_000/);
+  assert.match(sharedCatalogSource, /pricing_usd_per_million_tokens:\s*\{[\s\S]*input: 0\.6[\s\S]*output: 2\.4[\s\S]*cache_read: 0\.12[\s\S]*cache_write: null/);
+  assert.match(modelRoutingSource, /entry\?\.contextWindow \?\? entry\?\.context_window/);
+  assert.match(modelRoutingSource, /entry\?\.pricing_usd_per_million_tokens/);
 });
 
 test("desktop model catalog carries reasoning metadata and the composer persists thinking preferences", async () => {
@@ -67,6 +84,7 @@ test("desktop model catalog carries reasoning metadata and the composer persists
 
   assert.match(sharedCatalogSource, /export const PROVIDER_MODEL_CATALOG: ProviderModelCatalog = \{/);
   assert.match(sharedCatalogSource, /openai_codex:\s*\{[\s\S]*"gpt-5\.5"/);
+  assert.match(sharedCatalogSource, /minimax_direct:\s*\{[\s\S]*"MiniMax-M3"[\s\S]*reasoning: true[\s\S]*thinking_values: \[\.\.\.MINIMAX_THINKING_VALUES\]/);
   assert.match(sharedCatalogSource, /openrouter_direct:\s*\{[\s\S]*"qwen\/qwen3\.6-plus"/);
   assert.match(sharedCatalogSource, /openrouter_direct:\s*\{[\s\S]*"xiaomi\/mimo-v2-pro"/);
   assert.match(sharedCatalogSource, /openrouter_direct:\s*\{[\s\S]*"z-ai\/glm-5-turbo"/);
@@ -76,7 +94,7 @@ test("desktop model catalog carries reasoning metadata and the composer persists
   assert.match(mainSource, /function runtimeModelMetadataFromPayload\(/);
   assert.match(chatPaneSource, /CHAT_THINKING_STORAGE_KEY/);
   assert.match(chatPaneSource, /thinking_value: effectiveThinkingValue/);
-  assert.match(chatPaneSource, /function ThinkingValueSelect\(/);
+  assert.match(chatPaneSource, /function runtimeModelThinkingValues\(/);
 });
 
 test("desktop codex wiring includes GPT-5.5 defaults and Codex-specific routing budgets", async () => {

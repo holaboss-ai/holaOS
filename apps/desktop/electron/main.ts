@@ -5491,7 +5491,7 @@ const PROVIDER_DEFAULT_BASE_URL: Record<string, string> = {
   anthropic_direct: "https://api.anthropic.com",
   openrouter_direct: "https://openrouter.ai/api",
   gemini_direct: "https://generativelanguage.googleapis.com/v1beta/openai",
-  minimax: "https://api.minimaxi.chat",
+  minimax: "https://api.minimax.io/v1",
   ollama_local: "http://localhost:11434",
 };
 
