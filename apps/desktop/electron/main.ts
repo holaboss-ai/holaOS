@@ -5491,7 +5491,7 @@ const PROVIDER_DEFAULT_BASE_URL: Record<string, string> = {
   anthropic_direct: "https://api.anthropic.com",
   openrouter_direct: "https://openrouter.ai/api",
   gemini_direct: "https://generativelanguage.googleapis.com/v1beta/openai",
-  minimax: "https://api.minimaxi.chat",
+  minimax_direct: "https://api.minimax.io/v1",
   ollama_local: "http://localhost:11434",
 };
 
@@ -5534,7 +5534,9 @@ async function validateRuntimeProvider(
 
   let url = `${baseUrl}/v1/models`;
   const headers: Record<string, string> = {};
-  if (providerId === "anthropic_direct") {
+  if (providerId === "minimax_direct") {
+    url = `${baseUrl}/models`;
+  } else if (providerId === "anthropic_direct") {
     headers["x-api-key"] = apiKey;
     headers["anthropic-version"] = "2023-06-01";
   } else if (providerId === "ollama_local") {

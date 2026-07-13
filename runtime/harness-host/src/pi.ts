@@ -20,7 +20,16 @@ import {
   type Skill,
   type ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import type { ImageContent, TextContent } from "@mariozechner/pi-ai";
+import {
+  streamSimple,
+  type Api,
+  type AssistantMessageEventStream,
+  type Context,
+  type ImageContent,
+  type Model,
+  type SimpleStreamOptions,
+  type TextContent,
+} from "@mariozechner/pi-ai";
 import type { ResourceDiagnostic } from "@mariozechner/pi-coding-agent";
 import { APIError as OpenAIApiError } from "openai";
 import { createCallResult, createRuntime, type Runtime as McporterRuntime, type ServerDefinition } from "mcporter";
@@ -45,6 +54,7 @@ import {
   createHarnessTodoToolDefinitions,
   discoverHarnessMcpTools,
   hasBlockedPersistedHarnessTodoState,
+  isMiniMaxHarnessRequest,
   normalizeHarnessMcpToolParametersSchema,
   normalizeHarnessModelId,
   noteHarnessWaitingForUserOnToolCompletion,
@@ -223,6 +233,10 @@ const PI_MCP_DISCOVERY_RETRY_INTERVAL_MS = 250;
 const PI_FALLBACK_CONTEXT_WINDOW = 65_536;
 const PI_FALLBACK_MAX_TOKENS = 128_000;
 const PI_COMPACTION_USAGE_THRESHOLD_RATIO = 0.7;
+const PI_MINIMAX_API_PATTERN =
+  /^holaboss-minimax-(openai|anthropic)-(default|adaptive|disabled|always-on)$/;
+
+type PiMiniMaxThinkingMode = "default" | "adaptive" | "disabled" | "always-on";
 const PI_WORKSPACE_SKILLS_RELATIVE_PATH = "skills";
 
 const PI_MODEL_CATALOG = MODELS as Record<string, Record<string, HarnessCatalogModelEntry>>;
@@ -1683,6 +1697,102 @@ function resolvePiModelProfile(request: HarnessHostPiRequest) {
   });
 }
 
+function piMiniMaxApiForRequest(
+  request: HarnessHostPiRequest,
+  profile: ReturnType<typeof resolvePiModelProfile>,
+): Api | null {
+  if (!isMiniMaxHarnessRequest(request)) {
+    return null;
+  }
+
+  const modelId = normalizedPiModelId(request);
+  if (modelId !== "minimax-m3" && modelId !== "minimax-m2.7") {
+    return null;
+  }
+
+  const protocol =
+    profile.api === "openai-completions"
+      ? "openai"
+      : profile.api === "anthropic-messages"
+        ? "anthropic"
+        : null;
+  if (!protocol) {
+    return null;
+  }
+
+  const thinkingMode: PiMiniMaxThinkingMode =
+    modelId === "minimax-m2.7"
+      ? "always-on"
+      : profile.requestedThinkingLevel === null
+        ? "default"
+        : profile.requestedThinkingLevel === "off"
+          ? "disabled"
+          : "adaptive";
+  return `holaboss-minimax-${protocol}-${thinkingMode}`;
+}
+
+function parsePiMiniMaxApi(api: Api): {
+  upstreamApi: "openai-completions" | "anthropic-messages";
+  thinkingMode: PiMiniMaxThinkingMode;
+} | null {
+  const match = PI_MINIMAX_API_PATTERN.exec(api);
+  if (!match) {
+    return null;
+  }
+  return {
+    upstreamApi: match[1] === "openai" ? "openai-completions" : "anthropic-messages",
+    thinkingMode: match[2] as PiMiniMaxThinkingMode,
+  };
+}
+
+function applyPiMiniMaxThinkingPayload(
+  payload: unknown,
+  thinkingMode: PiMiniMaxThinkingMode,
+): unknown {
+  if (!isRecord(payload) || thinkingMode === "default") {
+    return payload;
+  }
+
+  const transformed = { ...payload };
+  if (thinkingMode === "always-on") {
+    delete transformed.thinking;
+    return transformed;
+  }
+
+  transformed.thinking = { type: thinkingMode };
+  return transformed;
+}
+
+function streamPiMiniMax(
+  model: Model<Api>,
+  context: Context,
+  options?: SimpleStreamOptions,
+): AssistantMessageEventStream {
+  const route = parsePiMiniMaxApi(model.api);
+  if (!route) {
+    throw new Error(`Unsupported MiniMax Pi API route: ${model.api}`);
+  }
+
+  const originalOnPayload = options?.onPayload;
+  return streamSimple(
+    { ...model, api: route.upstreamApi },
+    context,
+    {
+      ...options,
+      onPayload: async (payload, payloadModel) => {
+        let transformedPayload = payload;
+        if (originalOnPayload) {
+          const nextPayload = await originalOnPayload(payload, payloadModel);
+          if (nextPayload !== undefined) {
+            transformedPayload = nextPayload;
+          }
+        }
+        return applyPiMiniMaxThinkingPayload(transformedPayload, route.thinkingMode);
+      },
+    },
+  );
+}
+
 function configurePiPromptCacheRetention(request: HarnessHostPiRequest): () => void {
   if (resolvePiModelProfile(request).api !== "openai-responses") {
     return () => {};
@@ -1731,18 +1841,21 @@ export function piCompactionReserveTokens(contextWindow: number): number {
 
 export function buildPiProviderConfig(request: HarnessHostPiRequest) {
   const profile = resolvePiModelProfile(request);
+  const miniMaxApi = piMiniMaxApiForRequest(request, profile);
+  const providerApi = miniMaxApi ?? profile.api;
 
   return {
     baseUrl: profile.baseUrl,
     apiKey: request.model_client.api_key,
-    api: profile.api,
+    api: providerApi,
+    ...(miniMaxApi ? { streamSimple: streamPiMiniMax } : {}),
     headers: profile.headers,
     authHeader: profile.authHeader,
     models: [
       {
         id: request.model_id,
         name: request.model_id,
-        api: profile.api,
+        api: providerApi,
         reasoning: profile.reasoning,
         input: profile.input,
         cost: profile.cost,

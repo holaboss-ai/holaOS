@@ -90,7 +90,8 @@ The shipped fallback catalog currently exposes these reasoning controls:
 | `gemini_direct/gemini-2.5-pro` | `-1`, `128`, `2048`, `8192`, `32768` |
 | `gemini_direct/gemini-2.5-flash` | `0`, `-1`, `128`, `2048`, `8192`, `24576` |
 | `ollama_direct/*` shipped models | no reasoning selector |
-| `minimax_direct/*` shipped models | no reasoning selector |
+| `minimax_direct/MiniMax-M3` | `adaptive`, `disabled` |
+| `minimax_direct/MiniMax-M2.7` | `always_on` |
 
 For holaOS Proxy, the managed catalog can provide explicit reasoning metadata. If it does not, the desktop falls back to provider-mapped metadata for known OpenAI, Anthropic, Gemini, and shipped OpenRouter models.
 
@@ -111,6 +112,68 @@ Runtime URL behavior stays consistent across both modes:
 - Google-compatible direct providers use the Gemini compatibility root, for example `https://generativelanguage.googleapis.com/v1beta/openai`
 - Anthropic native direct providers should use the root host, for example `https://api.anthropic.com`
 - known provider hosts normalize as needed, including Gemini host roots to `/v1beta/openai`
+
+### MiniMax direct endpoints
+
+The built-in `minimax_direct` provider uses the international OpenAI-compatible endpoint. A structured provider catalog can expose every supported region and protocol without adding new configuration fields:
+
+| Region | Protocol | Provider kind | Base URL |
+| --- | --- | --- | --- |
+| International | OpenAI-compatible | `openai_compatible` | `https://api.minimax.io/v1` |
+| International | Anthropic-compatible | `anthropic_native` | `https://api.minimax.io/anthropic` |
+| China | OpenAI-compatible | `openai_compatible` | `https://api.minimaxi.com/v1` |
+| China | Anthropic-compatible | `anthropic_native` | `https://api.minimaxi.com/anthropic` |
+
+Use an Anthropic Base URL that ends at `/anthropic`; the client appends `/v1/messages`. OpenAI-compatible clients append `/chat/completions` to the `/v1` Base URL.
+
+```json
+{
+  "runtime": {
+    "default_provider": "minimax_global_openai",
+    "default_model": "minimax_global_openai/MiniMax-M3"
+  },
+  "providers": {
+    "minimax_global_openai": {
+      "kind": "openai_compatible",
+      "base_url": "https://api.minimax.io/v1",
+      "api_key": "<MINIMAX_API_KEY>"
+    },
+    "minimax_global_anthropic": {
+      "kind": "anthropic_native",
+      "base_url": "https://api.minimax.io/anthropic",
+      "api_key": "<MINIMAX_API_KEY>"
+    },
+    "minimax_cn_openai": {
+      "kind": "openai_compatible",
+      "base_url": "https://api.minimaxi.com/v1",
+      "api_key": "<MINIMAX_API_KEY>"
+    },
+    "minimax_cn_anthropic": {
+      "kind": "anthropic_native",
+      "base_url": "https://api.minimaxi.com/anthropic",
+      "api_key": "<MINIMAX_API_KEY>"
+    }
+  },
+  "models": {
+    "minimax_global_openai/MiniMax-M3": {
+      "provider": "minimax_global_openai",
+      "model": "MiniMax-M3"
+    },
+    "minimax_global_anthropic/MiniMax-M3": {
+      "provider": "minimax_global_anthropic",
+      "model": "MiniMax-M3"
+    },
+    "minimax_cn_openai/MiniMax-M3": {
+      "provider": "minimax_cn_openai",
+      "model": "MiniMax-M3"
+    },
+    "minimax_cn_anthropic/MiniMax-M3": {
+      "provider": "minimax_cn_anthropic",
+      "model": "MiniMax-M3"
+    }
+  }
+}
+```
 
 ## Where the runtime reads model config
 
@@ -177,7 +240,7 @@ The current built-in background task defaults are:
 - `anthropic_direct`: `claude-sonnet-4-6`
 - `openrouter_direct`: `openai/gpt-5.4`
 - `gemini_direct`: `gemini-2.5-flash`
-- `minimax_direct`: `MiniMax-M2.7`
+- `minimax_direct`: `MiniMax-M3`
 - `ollama_direct`: no default; choose a model explicitly
 
 ## Recall embedding defaults

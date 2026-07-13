@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,7 +8,14 @@ import { createRequire } from "node:module";
 
 import JSZip from "jszip";
 import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
-import { fauxAssistantMessage, registerFauxProvider, type Model } from "@mariozechner/pi-ai";
+import {
+  fauxAssistantMessage,
+  registerFauxProvider,
+  type Api,
+  type Context,
+  type Model,
+  type SimpleStreamOptions,
+} from "@mariozechner/pi-ai";
 import { streamOpenAIResponses } from "../node_modules/@mariozechner/pi-ai/dist/providers/openai-responses.js";
 import { generateSummary } from "../node_modules/@mariozechner/pi-coding-agent/dist/core/compaction/compaction.js";
 import { createHarnessSkillWideningState } from "../../harnesses/src/index.js";
@@ -88,6 +96,84 @@ function baseRequest(): HarnessHostPiRequest {
       },
     },
   };
+}
+
+async function captureJsonRequest(
+  startRequest: (origin: string) => void,
+): Promise<{ path: string; body: Record<string, unknown> }> {
+  let resolveCapture: (value: { path: string; body: Record<string, unknown> }) => void;
+  let rejectCapture: (reason: unknown) => void;
+  const captured = new Promise<{ path: string; body: Record<string, unknown> }>(
+    (resolve, reject) => {
+      resolveCapture = resolve;
+      rejectCapture = reject;
+    },
+  );
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("error", rejectCapture);
+    request.on("end", () => {
+      try {
+        const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+        assert.ok(parsed && typeof parsed === "object" && !Array.isArray(parsed));
+        response.writeHead(400, {
+          "content-type": "application/json",
+          connection: "close",
+        });
+        response.end(JSON.stringify({
+          type: "error",
+          error: { type: "invalid_request_error", message: "request captured" },
+        }));
+        resolveCapture({
+          path: request.url ?? "",
+          body: parsed as Record<string, unknown>,
+        });
+      } catch (error) {
+        rejectCapture(error);
+      }
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const timeout = setTimeout(() => rejectCapture(new Error("Timed out capturing provider request")), 2_000);
+  try {
+    startRequest(`http://127.0.0.1:${address.port}`);
+    return await captured;
+  } finally {
+    clearTimeout(timeout);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+function startPiProviderStream(
+  request: HarnessHostPiRequest,
+  context: Context,
+  reasoning?: SimpleStreamOptions["reasoning"],
+): void {
+  const providerConfig = buildPiProviderConfig(request);
+  const templateModel = providerConfig.models[0];
+  assert.ok(templateModel);
+  assert.ok(providerConfig.streamSimple);
+  const model = {
+    ...templateModel,
+    provider: request.provider_id,
+    baseUrl: providerConfig.baseUrl,
+    headers: providerConfig.headers,
+  } as Model<Api>;
+  providerConfig.streamSimple(model, context, {
+    apiKey: request.model_client.api_key,
+    ...(reasoning ? { reasoning } : {}),
+  });
 }
 
 function withoutPiNativeEvents<T extends { event_type: string }>(events: readonly T[]): T[] {
@@ -2227,8 +2313,134 @@ test("buildPiProviderConfig uses Anthropic Messages API for managed Holaboss Cla
   assert.equal(providerConfig.models[0]?.maxTokens, 128_000);
 });
 
+test("buildPiProviderConfig applies current MiniMax profiles across compatible endpoints", () => {
+  const m3OpenAiConfig = buildPiProviderConfig({
+    ...baseRequest(),
+    provider_id: "minimax_direct",
+    model_id: "MiniMax-M3",
+    model_client: {
+      model_proxy_provider: "openai_compatible",
+      api_key: "minimax-test-key",
+      base_url: "https://api.minimax.io/v1",
+    },
+    thinking_value: "adaptive",
+  });
+
+  assert.equal(m3OpenAiConfig.api, "holaboss-minimax-openai-adaptive");
+  assert.equal(m3OpenAiConfig.models[0]?.api, "holaboss-minimax-openai-adaptive");
+  assert.equal(typeof m3OpenAiConfig.streamSimple, "function");
+  assert.equal(m3OpenAiConfig.baseUrl, "https://api.minimax.io/v1");
+  assert.equal(m3OpenAiConfig.models[0]?.contextWindow, 1_000_000);
+  assert.equal(m3OpenAiConfig.models[0]?.maxTokens, 128_000);
+  assert.deepEqual(m3OpenAiConfig.models[0]?.input, ["text", "image"]);
+  assert.deepEqual(m3OpenAiConfig.models[0]?.cost, {
+    input: 0.3,
+    output: 1.2,
+    cacheRead: 0.06,
+    cacheWrite: 0,
+  });
+  assert.equal(m3OpenAiConfig.models[0]?.reasoning, true);
+  assert.equal(m3OpenAiConfig.models[0]?.compat?.supportsReasoningEffort, false);
+
+  const m27AnthropicConfig = buildPiProviderConfig({
+    ...baseRequest(),
+    provider_id: "minimax_cn_anthropic",
+    model_id: "MiniMax-M2.7",
+    model_client: {
+      model_proxy_provider: "anthropic_native",
+      api_key: "minimax-test-key",
+      base_url: "https://api.minimaxi.com/anthropic",
+    },
+    thinking_value: "always_on",
+  });
+
+  assert.equal(m27AnthropicConfig.api, "holaboss-minimax-anthropic-always-on");
+  assert.equal(m27AnthropicConfig.models[0]?.api, "holaboss-minimax-anthropic-always-on");
+  assert.equal(typeof m27AnthropicConfig.streamSimple, "function");
+  assert.equal(m27AnthropicConfig.baseUrl, "https://api.minimaxi.com/anthropic");
+  assert.equal(m27AnthropicConfig.models[0]?.contextWindow, 204_800);
+  assert.equal(m27AnthropicConfig.models[0]?.maxTokens, 128_000);
+  assert.deepEqual(m27AnthropicConfig.models[0]?.input, ["text"]);
+  assert.deepEqual(m27AnthropicConfig.models[0]?.cost, {
+    input: 0.3,
+    output: 1.2,
+    cacheRead: 0.06,
+    cacheWrite: 0.375,
+  });
+  assert.equal(m27AnthropicConfig.models[0]?.reasoning, true);
+});
+
+test("MiniMax provider streams append protocol paths and preserve thinking controls", async () => {
+  const context = {
+    messages: [
+      {
+        role: "user" as const,
+        content: "hello",
+        timestamp: Date.now(),
+      },
+    ],
+  };
+
+  const openAiCapture = await captureJsonRequest((origin) => {
+    const request: HarnessHostPiRequest = {
+      ...baseRequest(),
+      provider_id: "minimax_direct",
+      model_id: "MiniMax-M3",
+      model_client: {
+        model_proxy_provider: "openai_compatible",
+        api_key: "minimax-test-key",
+        base_url: `${origin}/v1`,
+      },
+      thinking_value: "disabled",
+    };
+    startPiProviderStream(request, context);
+  });
+
+  assert.equal(openAiCapture.path, "/v1/chat/completions");
+  assert.deepEqual(openAiCapture.body.thinking, { type: "disabled" });
+
+  const anthropicCapture = await captureJsonRequest((origin) => {
+    const request: HarnessHostPiRequest = {
+      ...baseRequest(),
+      provider_id: "minimax_cn_anthropic",
+      model_id: "MiniMax-M3",
+      model_client: {
+        model_proxy_provider: "anthropic_native",
+        api_key: "minimax-test-key",
+        base_url: `${origin}/anthropic`,
+      },
+      thinking_value: "adaptive",
+    };
+    startPiProviderStream(request, context, "medium");
+  });
+
+  assert.equal(anthropicCapture.path, "/anthropic/v1/messages");
+  assert.deepEqual(anthropicCapture.body.thinking, { type: "adaptive" });
+
+  const alwaysOnCapture = await captureJsonRequest((origin) => {
+    const request: HarnessHostPiRequest = {
+      ...baseRequest(),
+      provider_id: "minimax_global_anthropic",
+      model_id: "MiniMax-M2.7",
+      model_client: {
+        model_proxy_provider: "anthropic_native",
+        api_key: "minimax-test-key",
+        base_url: `${origin}/anthropic`,
+      },
+      thinking_value: "always_on",
+    };
+    startPiProviderStream(request, context, "medium");
+  });
+
+  assert.equal(alwaysOnCapture.path, "/anthropic/v1/messages");
+  assert.equal("thinking" in alwaysOnCapture.body, false);
+});
+
 test("requestedPiThinkingLevel maps provider-native values into Pi thinking levels", () => {
   assert.equal(requestedPiThinkingLevel({ thinking_value: "none" }), "off");
+  assert.equal(requestedPiThinkingLevel({ thinking_value: "disabled" }), "off");
+  assert.equal(requestedPiThinkingLevel({ thinking_value: "adaptive" }), "medium");
+  assert.equal(requestedPiThinkingLevel({ thinking_value: "always_on" }), "medium");
   assert.equal(requestedPiThinkingLevel({ thinking_value: "minimal" }), "minimal");
   assert.equal(requestedPiThinkingLevel({ thinking_value: "8192" }), "medium");
   assert.equal(requestedPiThinkingLevel({ thinking_value: "32768" }), "high");

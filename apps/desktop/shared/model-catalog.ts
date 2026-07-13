@@ -1,5 +1,18 @@
 export type ModelCatalogInputModality = "text" | "image" | "audio" | "video";
 
+export interface ModelCatalogPricing {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write?: number | null;
+}
+
+export interface ModelCatalogPricingTier extends ModelCatalogPricing {
+  service_tier: "standard" | "priority";
+  input_tokens_lte?: number;
+  input_tokens_gt?: number;
+}
+
 export interface ModelCatalogEntry {
   model_id: string;
   label?: string;
@@ -7,6 +20,9 @@ export interface ModelCatalogEntry {
   thinking_values: string[];
   default_thinking_value?: string | null;
   input_modalities: ModelCatalogInputModality[];
+  context_window?: number;
+  pricing_usd_per_million_tokens?: ModelCatalogPricing;
+  pricing_tiers_usd_per_million_tokens?: ModelCatalogPricingTier[];
 }
 
 export interface ProviderCatalogEntry {
@@ -71,6 +87,8 @@ const GEMINI_FLASH_THINKING_VALUES = [
   "8192",
   "24576",
 ] as const;
+const MINIMAX_M3_THINKING_VALUES = ["adaptive", "disabled"] as const;
+const MINIMAX_M27_THINKING_VALUES = ["always_on"] as const;
 
 export const PROVIDER_MODEL_CATALOG: ProviderModelCatalog = {
   holaboss_model_proxy: {
@@ -252,18 +270,68 @@ export const PROVIDER_MODEL_CATALOG: ProviderModelCatalog = {
     source: "local",
     models: [
       {
-        model_id: "MiniMax-M2.7",
-        label: "MiniMax M2.7",
-        reasoning: false,
-        thinking_values: [],
-        input_modalities: ["text"],
+        model_id: "MiniMax-M3",
+        label: "MiniMax M3",
+        reasoning: true,
+        thinking_values: [...MINIMAX_M3_THINKING_VALUES],
+        default_thinking_value: "adaptive",
+        input_modalities: ["text", "image", "video"],
+        context_window: 1_000_000,
+        pricing_usd_per_million_tokens: {
+          input: 0.3,
+          output: 1.2,
+          cache_read: 0.06,
+          cache_write: null,
+        },
+        pricing_tiers_usd_per_million_tokens: [
+          {
+            service_tier: "standard",
+            input_tokens_lte: 512_000,
+            input: 0.3,
+            output: 1.2,
+            cache_read: 0.06,
+            cache_write: null,
+          },
+          {
+            service_tier: "standard",
+            input_tokens_gt: 512_000,
+            input: 0.6,
+            output: 2.4,
+            cache_read: 0.12,
+            cache_write: null,
+          },
+          {
+            service_tier: "priority",
+            input_tokens_lte: 512_000,
+            input: 0.45,
+            output: 1.8,
+            cache_read: 0.09,
+            cache_write: null,
+          },
+          {
+            service_tier: "priority",
+            input_tokens_gt: 512_000,
+            input: 0.9,
+            output: 3.6,
+            cache_read: 0.18,
+            cache_write: null,
+          },
+        ],
       },
       {
-        model_id: "MiniMax-M2.7-highspeed",
-        label: "MiniMax M2.7 Highspeed",
-        reasoning: false,
-        thinking_values: [],
+        model_id: "MiniMax-M2.7",
+        label: "MiniMax M2.7",
+        reasoning: true,
+        thinking_values: [...MINIMAX_M27_THINKING_VALUES],
+        default_thinking_value: "always_on",
         input_modalities: ["text"],
+        context_window: 204_800,
+        pricing_usd_per_million_tokens: {
+          input: 0.3,
+          output: 1.2,
+          cache_read: 0.06,
+          cache_write: 0.375,
+        },
       },
     ],
   },
@@ -400,5 +468,23 @@ export function catalogConfigShapeForProviderModel(
       ? { default_thinking_value: entry.default_thinking_value }
       : {}),
     input_modalities: [...entry.input_modalities],
+    ...(entry.context_window !== undefined
+      ? { context_window: entry.context_window }
+      : {}),
+    ...(entry.pricing_usd_per_million_tokens
+      ? {
+          pricing_usd_per_million_tokens: {
+            ...entry.pricing_usd_per_million_tokens,
+          },
+        }
+      : {}),
+    ...(entry.pricing_tiers_usd_per_million_tokens
+      ? {
+          pricing_tiers_usd_per_million_tokens:
+            entry.pricing_tiers_usd_per_million_tokens.map((tier) => ({
+              ...tier,
+            })),
+        }
+      : {}),
   };
 }

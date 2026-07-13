@@ -209,7 +209,12 @@ function harnessThinkingSelection(thinkingValue: string | null | undefined): Har
       level: null,
     };
   }
-  if (normalizedValue === "off" || normalizedValue === "none" || normalizedValue === "false") {
+  if (
+    normalizedValue === "off" ||
+    normalizedValue === "none" ||
+    normalizedValue === "false" ||
+    normalizedValue === "disabled"
+  ) {
     return {
       rawValue,
       level: "off",
@@ -239,7 +244,12 @@ function harnessThinkingSelection(thinkingValue: string | null | undefined): Har
       level: "low",
     };
   }
-  if (normalizedValue === "true" || normalizedValue === "enabled") {
+  if (
+    normalizedValue === "true" ||
+    normalizedValue === "enabled" ||
+    normalizedValue === "adaptive" ||
+    normalizedValue === "always_on"
+  ) {
     return {
       rawValue,
       level: "medium",
@@ -316,11 +326,30 @@ function requestedOpenAiCompat(
   return openAiCompatForThinkingSelection(harnessThinkingSelection(request.thinking_value));
 }
 
+export function isMiniMaxHarnessRequest(
+  request: Pick<HarnessModelRoutingRequest, "provider_id" | "model_client">,
+): boolean {
+  const providerId = request.provider_id.trim().toLowerCase();
+  const baseUrl = firstNonEmptyString(request.model_client.base_url)?.toLowerCase() ?? "";
+  return (
+    providerId.includes("minimax") ||
+    baseUrl.includes("api.minimax.io") ||
+    baseUrl.includes("api.minimaxi.com")
+  );
+}
+
 function openAiCompatForRequest(request: HarnessModelRoutingRequest): HarnessOpenAiCompat | undefined {
   const modelProxyProvider = request.model_client.model_proxy_provider.trim().toLowerCase();
   const providerId = request.provider_id.trim().toLowerCase();
   const baseUrl = firstNonEmptyString(request.model_client.base_url)?.toLowerCase() ?? "";
   if (providerId.includes("ollama") || baseUrl.includes("localhost:11434") || baseUrl.includes("ollama")) {
+    return {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+    };
+  }
+  if (isMiniMaxHarnessRequest(request)) {
     return {
       supportsStore: false,
       supportsDeveloperRole: false,
@@ -367,9 +396,11 @@ function mergeOpenAiCompat(
 function inputModalitiesForRequest(request: HarnessModelRoutingRequest): Array<"text" | "image"> {
   const providerId = request.provider_id.trim().toLowerCase();
   const modelId = request.model_id.trim().toLowerCase();
+  if (isMiniMaxHarnessRequest(request)) {
+    return modelId === "minimax-m3" ? ["text", "image"] : ["text"];
+  }
   if (
     providerId.includes("ollama") ||
-    providerId.includes("minimax") ||
     modelId.startsWith("llama") ||
     modelId.startsWith("qwen3:") ||
     modelId.startsWith("gpt-oss:")
@@ -380,10 +411,26 @@ function inputModalitiesForRequest(request: HarnessModelRoutingRequest): Array<"
 }
 
 function knownModelBudgetOverride(
-  request: Pick<HarnessModelRoutingRequest, "model_id">,
+  request: HarnessModelRoutingRequest,
   api: HarnessModelApi,
 ): HarnessModelBudget | null {
   const normalizedModelId = normalizeHarnessModelId(request.model_id);
+  if (isMiniMaxHarnessRequest(request)) {
+    switch (normalizedModelId.toLowerCase()) {
+      case "minimax-m3":
+        return {
+          contextWindow: 1_000_000,
+          maxTokens: 128_000,
+        };
+      case "minimax-m2.7":
+        return {
+          contextWindow: 204_800,
+          maxTokens: 128_000,
+        };
+      default:
+        break;
+    }
+  }
   if (api !== "openai-responses" && api !== "openai-codex-responses") {
     return null;
   }
@@ -539,6 +586,30 @@ function modelCostFromCatalogEntry(entry: HarnessCatalogModelEntry | null | unde
   };
 }
 
+function knownModelCostOverride(request: HarnessModelRoutingRequest): HarnessModelCost | null {
+  if (!isMiniMaxHarnessRequest(request)) {
+    return null;
+  }
+  switch (normalizeHarnessModelId(request.model_id).toLowerCase()) {
+    case "minimax-m3":
+      return {
+        input: 0.3,
+        output: 1.2,
+        cacheRead: 0.06,
+        cacheWrite: 0,
+      };
+    case "minimax-m2.7":
+      return {
+        input: 0.3,
+        output: 1.2,
+        cacheRead: 0.06,
+        cacheWrite: 0.375,
+      };
+    default:
+      return null;
+  }
+}
+
 function catalogModelBudgetForRequest(params: {
   request: HarnessModelRoutingRequest;
   api: HarnessModelApi;
@@ -661,6 +732,7 @@ export function resolveHarnessModelProfile(
   const requestedCompat = api === "openai-completions" ? requestedOpenAiCompat(request) : undefined;
   const budget = resolveHarnessModelBudget(request, options);
   const cost =
+    knownModelCostOverride(request) ??
     catalogModelCostForRequest({
       request,
       api,
