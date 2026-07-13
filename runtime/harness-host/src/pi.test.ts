@@ -184,6 +184,53 @@ function onlyPiNativeEvents<T extends { event_type: string; payload: Record<stri
   return events.filter((event) => event.event_type === "pi_native_event");
 }
 
+function captureRunnerEventWrites(
+  events: Array<{ event_type: string; payload: Record<string, unknown> }>,
+  originalWrite: typeof process.stdout.write,
+): typeof process.stdout.write {
+  return ((chunk: string | Uint8Array, ...args: unknown[]) => {
+    if (typeof chunk !== "string") {
+      return Reflect.apply(originalWrite, process.stdout, [chunk, ...args]) as boolean;
+    }
+
+    const captured: Array<{ event_type: string; payload: Record<string, unknown> }> = [];
+    for (const line of chunk.trim().split("\n").filter(Boolean)) {
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        if (
+          typeof parsed.event_type !== "string" ||
+          !parsed.payload ||
+          typeof parsed.payload !== "object" ||
+          Array.isArray(parsed.payload)
+        ) {
+          return Reflect.apply(originalWrite, process.stdout, [chunk, ...args]) as boolean;
+        }
+        captured.push(parsed as { event_type: string; payload: Record<string, unknown> });
+      } catch {
+        return Reflect.apply(originalWrite, process.stdout, [chunk, ...args]) as boolean;
+      }
+    }
+    events.push(...captured);
+    return true;
+  }) as typeof process.stdout.write;
+}
+
+test("captureRunnerEventWrites forwards binary output and captures runner JSONL", () => {
+  const events: Array<{ event_type: string; payload: Record<string, unknown> }> = [];
+  const forwarded: Array<string | Uint8Array> = [];
+  const originalWrite = ((chunk: string | Uint8Array) => {
+    forwarded.push(chunk);
+    return false;
+  }) as typeof process.stdout.write;
+  const write = captureRunnerEventWrites(events, originalWrite);
+  const binary = Uint8Array.from([0xff, 0x0f, 0x00]);
+
+  assert.equal(write(binary), false);
+  assert.deepEqual(forwarded, [binary]);
+  assert.equal(write(`${JSON.stringify({ event_type: "run_started", payload: { status: "running" } })}\n`), true);
+  assert.deepEqual(events, [{ event_type: "run_started", payload: { status: "running" } }]);
+});
+
 function derivedPiEvents(...args: Parameters<typeof mapPiSessionEvent>) {
   return withoutPiNativeEvents(mapPiSessionEvent(...args));
 }
@@ -2900,15 +2947,7 @@ test("runPi emits run_started and terminal success when the session completes", 
     listener: undefined as ((event: unknown) => void) | undefined,
   };
 
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    const lines = String(chunk)
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { event_type: string; payload: Record<string, unknown> });
-    events.push(...lines);
-    return true;
-  }) as typeof process.stdout.write;
+  process.stdout.write = captureRunnerEventWrites(events, originalWrite);
 
   try {
     const exitCode = await runPi(request, {
@@ -3002,15 +3041,7 @@ test("runPi emits terminal failure from assistant error messages and suppresses 
     listener: undefined as ((event: unknown) => void) | undefined,
   };
 
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    const lines = String(chunk)
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { event_type: string; payload: Record<string, unknown> });
-    events.push(...lines);
-    return true;
-  }) as typeof process.stdout.write;
+  process.stdout.write = captureRunnerEventWrites(events, originalWrite);
 
   try {
     const exitCode = await runPi(request, {
@@ -3089,15 +3120,7 @@ test("runPi suppresses post-run PI auto-compaction while preserving pre-prompt s
     listener: undefined as ((event: unknown) => void) | undefined,
   };
 
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    const lines = String(chunk)
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { event_type: string; payload: Record<string, unknown> });
-    events.push(...lines);
-    return true;
-  }) as typeof process.stdout.write;
+  process.stdout.write = captureRunnerEventWrites(events, originalWrite);
 
   try {
     const exitCode = await runPi(request, {
@@ -3196,15 +3219,7 @@ test("runPi emits waiting_user and blocks the active todo when the question tool
     listener: undefined as ((event: unknown) => void) | undefined,
   };
 
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    const lines = String(chunk)
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { event_type: string; payload: Record<string, unknown> });
-    events.push(...lines);
-    return true;
-  }) as typeof process.stdout.write;
+  process.stdout.write = captureRunnerEventWrites(events, originalWrite);
 
   try {
     const exitCode = await runPi(request, {
@@ -3293,15 +3308,7 @@ test("runPi emits waiting_user when a persisted todo is still blocked at run com
     listener: undefined as ((event: unknown) => void) | undefined,
   };
 
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    const lines = String(chunk)
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as { event_type: string; payload: Record<string, unknown> });
-    events.push(...lines);
-    return true;
-  }) as typeof process.stdout.write;
+  process.stdout.write = captureRunnerEventWrites(events, originalWrite);
 
   try {
     const exitCode = await runPi(request, {
