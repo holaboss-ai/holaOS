@@ -15,6 +15,8 @@ import { getIntegrationLogo } from "./integrationLogo";
 import {
 	customHolaAppMcpAttachInputs,
 	customHolaAppsAsWebApps,
+	deleteCustomHolaApp,
+	readCustomHolaApps,
 } from "./localCustomHolaApps";
 import {
 	type McpRequiredKey,
@@ -757,6 +759,14 @@ export function createServerMarketplaceSource(): MarketplaceSource {
 			return { mcp: [], skills: [] };
 		},
 		async uninstall(holaAppId) {
+			// A locally-created custom HolaApp isn't a backend app — remove it from
+			// local storage; the catalog refresh that follows re-runs the app-owned MCP
+			// sync, which reconciles (detaches) its now-absent server. Skip the gateway
+			// (a POST there just 404s for a local-only app).
+			if (readCustomHolaApps().some((app) => app.holaAppId === holaAppId)) {
+				deleteCustomHolaApp(holaAppId);
+				return;
+			}
 			const base = await backendBaseUrl();
 			if (!base) {
 				throw new Error(
