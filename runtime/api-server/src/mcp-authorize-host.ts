@@ -76,18 +76,56 @@ export interface AuthorizeMcpServerViaHostOptions {
   reauthorize?: boolean;
 }
 
-export function authorizeMcpServerViaHost(
+// Only ONE authorize flow can run at a time: the OAuth callback binds a FIXED loopback
+// port (MCP_OAUTH_CALLBACK_PORT in mcp-authorize.ts), so a still-running prior attempt —
+// e.g. one the user abandoned in the browser, which keeps waiting out its full consent
+// timeout — holds that port and the next attempt dies with EADDRINUSE. Track the in-flight
+// child and kill it (freeing the port) before spawning a new one.
+let activeAuthorizeChild: ReturnType<typeof spawn> | null = null;
+
+async function terminateActiveAuthorize(): Promise<void> {
+  const prev = activeAuthorizeChild;
+  if (!prev) {
+    return;
+  }
+  activeAuthorizeChild = null;
+  await new Promise<void>((resolve) => {
+    let done = false;
+    const finish = (): void => {
+      if (!done) {
+        done = true;
+        resolve();
+      }
+    };
+    // Wait for the child to actually exit so the OS releases the callback port before we
+    // spawn the next one; cap it so a wedged child can't block authorize forever.
+    prev.once("exit", finish);
+    setTimeout(finish, 1500);
+    try {
+      prev.kill("SIGKILL");
+    } catch {
+      finish();
+    }
+  });
+}
+
+export async function authorizeMcpServerViaHost(
   options: AuthorizeMcpServerViaHostOptions,
 ): Promise<AuthorizeMcpResult> {
   const innerTimeoutMs = options.timeoutMs && options.timeoutMs > 0 ? options.timeoutMs : 180_000;
   const outerTimeoutMs = innerTimeoutMs + 15_000;
   const { entryPath, argsPrefix } = harnessHostEntryPath();
+  // Free the fixed OAuth callback port by killing any prior in-flight authorize first.
+  await terminateActiveAuthorize();
   return new Promise<AuthorizeMcpResult>((resolve) => {
     let settled = false;
     const finish = (result: AuthorizeMcpResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (activeAuthorizeChild === child) {
+        activeAuthorizeChild = null;
+      }
       resolve(result);
     };
 
@@ -111,7 +149,7 @@ export function authorizeMcpServerViaHost(
       spawnArgs.push("--reauthorize");
     }
 
-    let child;
+    let child: ReturnType<typeof spawn> | undefined;
     try {
       child = spawn(runtimeNodeBin(), spawnArgs, {
         cwd: runtimeRootDir(),
@@ -133,6 +171,7 @@ export function authorizeMcpServerViaHost(
       });
       return;
     }
+    activeAuthorizeChild = child;
 
     let stdout = "";
     let stderr = "";
