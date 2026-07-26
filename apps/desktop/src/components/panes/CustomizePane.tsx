@@ -154,15 +154,18 @@ export function CustomizePane({ workspaceId }: { workspaceId: string | null }) {
 								</button>
 							))}
 						</div>
-						<div className="flex shrink-0 items-center gap-3">
+						<div className="flex shrink-0 items-center gap-6">
 							{tab === "apps" ? (
 								<button
-									className="inline-flex items-center gap-1 font-medium text-foreground text-sm transition-colors hover:text-foreground/70"
+									className="inline-flex items-center gap-1.5 font-medium text-foreground text-sm transition-colors hover:text-foreground/70"
 									onClick={() => setCustomAppsOpen(true)}
 									type="button"
 								>
 									<Plus className="size-4" />
 									Create your own app
+									<span className="rounded-full bg-muted px-1.5 py-px font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
+										Beta
+									</span>
 								</button>
 							) : null}
 							<button
