@@ -82,6 +82,9 @@ export interface AuthorizeMcpServerViaHostOptions {
 // timeout — holds that port and the next attempt dies with EADDRINUSE. Track the in-flight
 // child and kill it (freeing the port) before spawning a new one.
 let activeAuthorizeChild: ReturnType<typeof spawn> | null = null;
+// Children we killed to free the callback port for a newer attempt — so their close can
+// report a clear "superseded" reason instead of the generic "produced no result".
+const supersededAuthorizeChildren = new WeakSet<ReturnType<typeof spawn>>();
 
 async function terminateActiveAuthorize(): Promise<void> {
   const prev = activeAuthorizeChild;
@@ -89,6 +92,7 @@ async function terminateActiveAuthorize(): Promise<void> {
     return;
   }
   activeAuthorizeChild = null;
+  supersededAuthorizeChildren.add(prev);
   await new Promise<void>((resolve) => {
     let done = false;
     const finish = (): void => {
@@ -218,7 +222,10 @@ export async function authorizeMcpServerViaHost(
         parseAuthorizeResult(stdout) ?? {
           ok: false,
           tool_count: 0,
-          detail: withTrace("The authorize flow produced no result."),
+          detail:
+            child && supersededAuthorizeChildren.has(child)
+              ? "superseded by a newer sign-in attempt"
+              : withTrace("The authorize flow produced no result."),
         },
       ),
     );
