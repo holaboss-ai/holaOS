@@ -1,0 +1,966 @@
+{
+  "name": "workspace-memory-live-interaction",
+  "description": "Interaction-only live memory eval focused on agent answer correctness, tree quality, and AGENTS boundary behavior for longer sessions.",
+  "batch_size": 3,
+  "include_direct_retrieval": false,
+  "scenarios": [
+    {
+      "id": "customer_pine_harbor_long_session",
+      "kind": "interaction",
+      "description": "Six long Pine Harbor turns should form one clean customer tree across two batches.",
+      "writer_turns": [
+        "Pine Harbor billing escalation contact is Mila Hart. If the finance queue stalls for more than fifteen minutes, route the case to her before opening an external escalation.",
+        "Pine Harbor billing dispute escalation procedure is: 1. Open the ledger case. 2. Confirm the dispute packet and Stripe evidence. 3. Escalate to the billing lead with the packet attached.",
+        "Pine Harbor contract renewal owner is Denver Lane. He wants renewal risks surfaced at least two weeks before the commercial review.",
+        "Pine Harbor refund hold window is 48 hours before escalation, and the hold timer starts only after the dispute packet is complete.",
+        "Pine Harbor settlement dashboard URL is https://dash.example.internal/pine-harbor/settlement and the dashboard owner is still the finance analytics team.",
+        "Pine Harbor urgent finance bridge channel is #pine-harbor-finance-war-room. Use that bridge only for payment-blocking incidents, not for routine invoice questions."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "customer",
+          "canonical_name": "Pine Harbor",
+          "expected_active_leaf_count": 6,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "pine harbor",
+                "billing escalation",
+                "mila hart"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "dispute",
+                "ledger case"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "contract renewal",
+                "denver lane"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "refund hold",
+                "48 hours"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "settlement dashboard"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "finance bridge",
+                "war-room"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the Pine Harbor billing escalation contact?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Mila Hart"
+          ],
+          "expected_retrieve_contains": [
+            "Mila Hart"
+          ]
+        },
+        {
+          "query": "What is the Pine Harbor billing dispute escalation procedure?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Open the ledger case",
+            "Confirm the dispute packet",
+            "Escalate to the billing lead"
+          ],
+          "expected_retrieve_contains": [
+            "Open the ledger case",
+            "billing lead"
+          ]
+        },
+        {
+          "query": "How long is the Pine Harbor refund hold window?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "48 hours"
+          ],
+          "expected_retrieve_contains": [
+            "48 hours"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Pine Harbor",
+        "Mila Hart",
+        "Denver Lane"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "customer_silver_oak_deep_session",
+      "kind": "interaction",
+      "description": "Nine verbose Silver Oak turns should force a deeper single-entity tree instead of a flat leaf bucket.",
+      "batch_cursor_timeout_ms": 120000,
+      "entity_ready_timeout_ms": 120000,
+      "writer_turns": [
+        "Silver Oak billing escalation contact is Amina Rhodes. She owns anything related to disputed wire settlements and overdue credit memos.",
+        "Silver Oak refund hold policy requires a 36 hour cooling period before manual release, and the hold timer resets if finance asks for new evidence.",
+        "Silver Oak renewal forecast owner is Ellis Wu. He wants renewal-risk summaries bundled with open credit issues.",
+        "Silver Oak settlement dashboard lives at https://ops.internal/silver-oak/settlement, and the dashboard is considered the source of truth during payout reviews.",
+        "Silver Oak invoice correction runbook is: 1. Re-open the ledger case. 2. Attach the corrected invoice PDF. 3. Ping the finance lead in #silver-oak-ops.",
+        "Silver Oak urgent bridge channel is #silver-oak-ops. Use the bridge when payouts are blocked or a refund timer is about to expire.",
+        "Silver Oak payment review meeting is every Tuesday at 4pm Eastern, and the finance lead expects unresolved disputes called out first.",
+        "Silver Oak contract legal reviewer is Tara Singh, especially for clauses that mention settlement reserves or chargeback exposure.",
+        "Silver Oak exception approval threshold is $25,000. Requests above that amount require finance director approval before release."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "customer",
+          "canonical_name": "Silver Oak",
+          "expected_active_leaf_count": 9,
+          "expected_summary_count_min": 3,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "silver oak",
+                "amina rhodes"
+              ]
+            },
+            {
+              "all_terms": [
+                "silver oak",
+                "36 hour",
+                "refund hold"
+              ]
+            },
+            {
+              "all_terms": [
+                "silver oak",
+                "ellis wu"
+              ]
+            },
+            {
+              "all_terms": [
+                "silver oak",
+                "settlement dashboard"
+              ]
+            },
+            {
+              "all_terms": [
+                "silver oak",
+                "corrected invoice",
+                "ledger case"
+              ]
+            },
+            {
+              "all_terms": [
+                "silver oak",
+                "#silver-oak-ops"
+              ]
+            },
+            {
+              "all_terms": [
+                "silver oak",
+                "4pm Eastern"
+              ]
+            },
+            {
+              "all_terms": [
+                "silver oak",
+                "tara singh"
+              ]
+            },
+            {
+              "all_terms": [
+                "silver oak",
+                "$25,000"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "How long is the Silver Oak refund hold before manual release?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "36 hour"
+          ],
+          "expected_retrieve_contains": [
+            "36 hour"
+          ]
+        },
+        {
+          "query": "When is the Silver Oak payment review meeting?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "4pm Eastern"
+          ],
+          "expected_retrieve_contains": [
+            "4pm Eastern"
+          ]
+        },
+        {
+          "query": "What is the Silver Oak invoice correction runbook?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Re-open the ledger case",
+            "Attach the corrected invoice PDF",
+            "#silver-oak-ops"
+          ],
+          "expected_retrieve_contains": [
+            "corrected invoice PDF",
+            "#silver-oak-ops"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Silver Oak",
+        "Amina Rhodes",
+        "Tara Singh"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "three_customer_triage_long_session",
+      "kind": "interaction",
+      "description": "Three interleaved customers across three batches should stay separated without duplicate leaves.",
+      "batch_cursor_timeout_ms": 120000,
+      "entity_ready_timeout_ms": 120000,
+      "writer_turns": [
+        "Redwood Care account manager is Paul Reed. He expects payment-status escalations bundled with the current claim summary.",
+        "Juniper Supply escalation contact is Yara Chen. Use her for warehouse billing disputes that block same-day shipment release.",
+        "Delta Marine refund approvals go through Colin Pike, especially when parts returns are linked to warranty credits.",
+        "Redwood Care rebate exception procedure is: 1. Open the care-ops ledger note. 2. Attach the payer exception PDF. 3. Escalate in #redwood-care-revenue.",
+        "Juniper Supply urgent bridge channel is #juniper-supply-ops, and the operations lead expects shipment blockers called out before invoice blockers.",
+        "Delta Marine invoice aging dashboard is at https://ops.internal/delta-marine/aging and it is reviewed before Friday credit holds.",
+        "Redwood Care payment review meeting is every Thursday at 3pm Pacific. The review starts with open payer disputes.",
+        "Juniper Supply account manager is Omar Vale, and he wants unresolved shortage claims surfaced with the billing packet.",
+        "Delta Marine warranty credit reviewer is Nora Hale. She signs off on credits above the routine marine-parts allowance."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "customer",
+          "canonical_name": "Redwood Care",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "redwood care",
+                "paul reed"
+              ]
+            },
+            {
+              "all_terms": [
+                "redwood care",
+                "payer exception PDF"
+              ]
+            },
+            {
+              "all_terms": [
+                "redwood care",
+                "3pm Pacific"
+              ]
+            }
+          ]
+        },
+        {
+          "entity_type": "customer",
+          "canonical_name": "Juniper Supply",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "juniper supply",
+                "yara chen"
+              ]
+            },
+            {
+              "all_terms": [
+                "juniper supply",
+                "#juniper-supply-ops"
+              ]
+            },
+            {
+              "all_terms": [
+                "juniper supply",
+                "omar vale"
+              ]
+            }
+          ]
+        },
+        {
+          "entity_type": "customer",
+          "canonical_name": "Delta Marine",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "delta marine",
+                "colin pike"
+              ]
+            },
+            {
+              "all_terms": [
+                "delta marine",
+                "invoice aging dashboard"
+              ]
+            },
+            {
+              "all_terms": [
+                "delta marine",
+                "nora hale"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the Redwood Care account manager?",
+          "entity_name": "Redwood Care",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Paul Reed"
+          ],
+          "expected_retrieve_contains": [
+            "Paul Reed"
+          ]
+        },
+        {
+          "query": "What is the Juniper Supply urgent bridge channel?",
+          "entity_name": "Juniper Supply",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "#juniper-supply-ops"
+          ],
+          "expected_retrieve_contains": [
+            "#juniper-supply-ops"
+          ]
+        },
+        {
+          "query": "Who approves Delta Marine refund exceptions?",
+          "entity_name": "Delta Marine",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Colin Pike"
+          ],
+          "expected_retrieve_contains": [
+            "Colin Pike"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Redwood Care",
+        "Juniper Supply",
+        "Delta Marine",
+        "Paul Reed",
+        "Yara Chen",
+        "Colin Pike"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "project_beacon_api_long_session",
+      "kind": "interaction",
+      "description": "A six-turn project session should preserve rollout knowledge as project memory instead of leaking it to AGENTS.",
+      "writer_turns": [
+        "Beacon API rollout approver is Keira Tan. She is the final approver once the staging smoke tests and canary metrics are attached.",
+        "Beacon API canary rollback procedure is: 1. Disable the traffic shift. 2. Revert the release flag. 3. Page the platform on-call with the canary diff.",
+        "Beacon API staging endpoint is beacon-staging.internal and the release dashboard is Grafana board beacon-api-rollout-health.",
+        "Beacon API release captain is Noah Bell. He owns the release checklist and the incident bridge invite list.",
+        "Beacon API incident bridge channel is #beacon-api-rollout and the default bridge owner is still the platform release manager.",
+        "Beacon API post-release verification query is \"payments.success_rate by region\" and the metrics team expects it run within fifteen minutes of rollout."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "project",
+          "canonical_name": "Beacon API",
+          "expected_active_leaf_count": 6,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "beacon api",
+                "keira tan"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "disable the traffic shift"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "beacon-staging.internal"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "noah bell"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "#beacon-api-rollout"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "payments.success_rate by region"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who approves Beacon API rollouts?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Keira Tan"
+          ],
+          "expected_retrieve_contains": [
+            "Keira Tan"
+          ]
+        },
+        {
+          "query": "What is the Beacon API canary rollback procedure?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Disable the traffic shift",
+            "Revert the release flag",
+            "Page the platform on-call"
+          ],
+          "expected_retrieve_contains": [
+            "Disable the traffic shift",
+            "platform on-call"
+          ]
+        },
+        {
+          "query": "What is the Beacon API staging endpoint?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "beacon-staging.internal"
+          ],
+          "expected_retrieve_contains": [
+            "beacon-staging.internal"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Beacon API",
+        "Keira Tan",
+        "Noah Bell",
+        "beacon-staging.internal"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "mixed_project_customer_long_session",
+      "kind": "interaction",
+      "description": "A mixed project-and-customer session should keep ownership clean while still answering both kinds of recall questions.",
+      "writer_turns": [
+        "Cedar Hollow billing escalation contact is Priya Shah. She wants all payment blockers bundled with the current dispute note.",
+        "Orbit Console release captain is Liam Park, and he owns the deploy checklist for the next customer-facing rollout.",
+        "Cedar Hollow refund hold procedure is: 1. Open the ledger case. 2. Confirm the Stripe dispute event. 3. Escalate to the finance lead.",
+        "Orbit Console rollback bridge is #orbit-console-rollout and the rollback approver is still Hannah Voss.",
+        "Cedar Hollow contract renewal owner is Helen Cho. Renewal exceptions should be paired with open credit issues.",
+        "Orbit Console staging endpoint is orbit-console-staging.internal and the SLO board is Grafana board orbit-console-health."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "customer",
+          "canonical_name": "Cedar Hollow",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "cedar hollow",
+                "priya shah"
+              ]
+            },
+            {
+              "all_terms": [
+                "cedar hollow",
+                "stripe dispute event"
+              ]
+            },
+            {
+              "all_terms": [
+                "cedar hollow",
+                "helen cho"
+              ]
+            }
+          ]
+        },
+        {
+          "entity_type": "project",
+          "canonical_name": "Orbit Console",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "orbit console",
+                "liam park"
+              ]
+            },
+            {
+              "all_terms": [
+                "orbit console",
+                "#orbit-console-rollout",
+                "hannah voss"
+              ]
+            },
+            {
+              "all_terms": [
+                "orbit console",
+                "orbit-console-staging.internal"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the Cedar Hollow billing escalation contact?",
+          "entity_name": "Cedar Hollow",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Priya Shah"
+          ],
+          "expected_retrieve_contains": [
+            "Priya Shah"
+          ]
+        },
+        {
+          "query": "Who is the Orbit Console release captain?",
+          "entity_name": "Orbit Console",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Liam Park"
+          ],
+          "expected_retrieve_contains": [
+            "Liam Park"
+          ]
+        },
+        {
+          "query": "What is the Orbit Console staging endpoint?",
+          "entity_name": "Orbit Console",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "orbit-console-staging.internal"
+          ],
+          "expected_retrieve_contains": [
+            "orbit-console-staging.internal"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Cedar Hollow",
+        "Orbit Console",
+        "Priya Shah",
+        "Liam Park"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "similar_customer_names_long_session",
+      "kind": "interaction",
+      "description": "Two similarly named customers should remain separated under longer turns and overlapping finance vocabulary.",
+      "writer_turns": [
+        "North Star Care escalation contact is Vera Kim. She handles payer disputes and refund timers for the healthcare line.",
+        "Northstar Logistics escalation contact is Owen Price. He handles freight-credit disputes and missed dock-appointment penalties.",
+        "North Star Care urgent bridge channel is #north-star-care-finance and it is used for payer escalations that threaten same-day release.",
+        "Northstar Logistics urgent bridge channel is #northstar-logistics-ops and it is used for missed dock-appointment disputes that block dispatch.",
+        "North Star Care payment review meeting is every Wednesday at 2pm Eastern with the care-finance lead.",
+        "Northstar Logistics payment review meeting is every Thursday at 11am Central with the freight operations manager."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "customer",
+          "canonical_name": "North Star Care",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "north star care",
+                "vera kim"
+              ]
+            },
+            {
+              "all_terms": [
+                "north star care",
+                "#north-star-care-finance"
+              ]
+            },
+            {
+              "all_terms": [
+                "north star care",
+                "2pm Eastern"
+              ]
+            }
+          ]
+        },
+        {
+          "entity_type": "customer",
+          "canonical_name": "Northstar Logistics",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "northstar logistics",
+                "owen price"
+              ]
+            },
+            {
+              "all_terms": [
+                "northstar logistics",
+                "#northstar-logistics-ops"
+              ]
+            },
+            {
+              "all_terms": [
+                "northstar logistics",
+                "11am Central"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the North Star Care escalation contact?",
+          "entity_name": "North Star Care",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Vera Kim"
+          ],
+          "expected_retrieve_contains": [
+            "Vera Kim"
+          ]
+        },
+        {
+          "query": "What is the Northstar Logistics urgent bridge channel?",
+          "entity_name": "Northstar Logistics",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "#northstar-logistics-ops"
+          ],
+          "expected_retrieve_contains": [
+            "#northstar-logistics-ops"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "North Star Care",
+        "Northstar Logistics",
+        "Vera Kim",
+        "Owen Price"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "vendorish_customer_mercury_payments_session",
+      "kind": "interaction",
+      "description": "A vendor-like customer name should still resolve to a customer tree under longer procedural turns.",
+      "writer_turns": [
+        "Mercury Payments billing escalation contact is Sam Rivera. He owns partner settlement issues and any payout-release blockers tied to reconciliation.",
+        "Mercury Payments refund exception procedure is: 1. Confirm the ledger variance. 2. Reproduce the issue in staging. 3. Escalate to the on-call engineer with the variance screenshot.",
+        "Mercury Payments contract renewal owner is Lila Moreno, and she expects unresolved payout disputes surfaced before commercial review.",
+        "Mercury Payments war-room bridge channel is #mercury-payments-war-room for payout-blocking incidents only.",
+        "Mercury Payments settlement dashboard is https://ops.internal/mercury-payments/settlements and the finance team uses it before manual release.",
+        "Mercury Payments exception approval threshold is $15,000 before finance director sign-off is required."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "customer",
+          "canonical_name": "Mercury Payments",
+          "expected_active_leaf_count": 6,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "mercury payments",
+                "sam rivera"
+              ]
+            },
+            {
+              "all_terms": [
+                "mercury payments",
+                "reproduce the issue in staging"
+              ]
+            },
+            {
+              "all_terms": [
+                "mercury payments",
+                "lila moreno"
+              ]
+            },
+            {
+              "all_terms": [
+                "mercury payments",
+                "#mercury-payments-war-room"
+              ]
+            },
+            {
+              "all_terms": [
+                "mercury payments",
+                "settlement dashboard"
+              ]
+            },
+            {
+              "all_terms": [
+                "mercury payments",
+                "$15,000"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the Mercury Payments billing escalation contact?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Sam Rivera"
+          ],
+          "expected_retrieve_contains": [
+            "Sam Rivera"
+          ]
+        },
+        {
+          "query": "What is the Mercury Payments refund exception procedure?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Confirm the ledger variance",
+            "Reproduce the issue in staging",
+            "Escalate to the on-call engineer"
+          ],
+          "expected_retrieve_contains": [
+            "ledger variance",
+            "staging"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Mercury Payments",
+        "Sam Rivera",
+        "Lila Moreno"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "dual_project_release_session",
+      "kind": "interaction",
+      "description": "Two release programs with overlapping terminology should stay as separate project trees.",
+      "writer_turns": [
+        "RDX Console release captain is Maya Lin, and she owns the staged rollout checklist for the revenue dashboard launch.",
+        "Harbor Admin release captain is Theo Marsh, and he owns the permission-migration checklist for the admin rollout.",
+        "RDX Console rollback bridge channel is #rdx-console-rollout and the rollback approver is Dana Cole.",
+        "Harbor Admin rollback bridge channel is #harbor-admin-release and the rollback approver is Iris Kent.",
+        "RDX Console staging endpoint is rdx-console-staging.internal and the SLO board is Grafana board rdx-console-health.",
+        "Harbor Admin staging endpoint is harbor-admin-staging.internal and the SLO board is Grafana board harbor-admin-health."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "project",
+          "canonical_name": "RDX Console",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "rdx console",
+                "maya lin"
+              ]
+            },
+            {
+              "all_terms": [
+                "rdx console",
+                "#rdx-console-rollout",
+                "dana cole"
+              ]
+            },
+            {
+              "all_terms": [
+                "rdx console",
+                "rdx-console-staging.internal"
+              ]
+            }
+          ]
+        },
+        {
+          "entity_type": "project",
+          "canonical_name": "Harbor Admin",
+          "expected_active_leaf_count": 3,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "harbor admin",
+                "theo marsh"
+              ]
+            },
+            {
+              "all_terms": [
+                "harbor admin",
+                "#harbor-admin-release",
+                "iris kent"
+              ]
+            },
+            {
+              "all_terms": [
+                "harbor admin",
+                "harbor-admin-staging.internal"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the RDX Console release captain?",
+          "entity_name": "RDX Console",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Maya Lin"
+          ],
+          "expected_retrieve_contains": [
+            "Maya Lin"
+          ]
+        },
+        {
+          "query": "What is the Harbor Admin rollback bridge channel?",
+          "entity_name": "Harbor Admin",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "#harbor-admin-release"
+          ],
+          "expected_retrieve_contains": [
+            "#harbor-admin-release"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "RDX Console",
+        "Harbor Admin",
+        "Maya Lin",
+        "Theo Marsh"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "customer_orchid_holdings_dense_session",
+      "kind": "interaction",
+      "description": "A dense Orchid Holdings customer session should preserve multiple operational facts without AGENTS leakage.",
+      "writer_turns": [
+        "Orchid Holdings billing escalation contact is Sam Rivera. He expects a short dispute summary attached before any same-day escalation.",
+        "Orchid Holdings refund hold window is 12 hours after the finance variance is confirmed, and the clock pauses if support is waiting on payer evidence.",
+        "Orchid Holdings contract renewal owner is Priya Desai, and she wants payout-risk items escalated before the renewal draft is circulated.",
+        "Orchid Holdings operations bridge channel is #orchid-holdings-finance and it is used only for payout blockers or expiring refund timers.",
+        "Orchid Holdings exception approval threshold is $18,000 before the finance director must sign off.",
+        "Orchid Holdings invoice review dashboard is https://ops.internal/orchid-holdings/invoices and it is reviewed before every Tuesday payout run."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "customer",
+          "canonical_name": "Orchid Holdings",
+          "expected_active_leaf_count": 6,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "orchid holdings",
+                "sam rivera"
+              ]
+            },
+            {
+              "all_terms": [
+                "orchid holdings",
+                "12 hours"
+              ]
+            },
+            {
+              "all_terms": [
+                "orchid holdings",
+                "priya desai"
+              ]
+            },
+            {
+              "all_terms": [
+                "orchid holdings",
+                "#orchid-holdings-finance"
+              ]
+            },
+            {
+              "all_terms": [
+                "orchid holdings",
+                "$18,000"
+              ]
+            },
+            {
+              "all_terms": [
+                "orchid holdings",
+                "invoice review dashboard"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "How long is the Orchid Holdings refund hold window?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "12 hours"
+          ],
+          "expected_retrieve_contains": [
+            "12 hours"
+          ]
+        },
+        {
+          "query": "What is the Orchid Holdings operations bridge channel?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "#orchid-holdings-finance"
+          ],
+          "expected_retrieve_contains": [
+            "#orchid-holdings-finance"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Orchid Holdings",
+        "Sam Rivera",
+        "Priya Desai"
+      ],
+      "agents_policy": "forbid"
+    }
+  ]
+}

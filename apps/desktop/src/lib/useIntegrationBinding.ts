@@ -1,0 +1,495 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { subscribeComposioConnectionInvalidated } from "@/lib/composioConnectionEvents";
+import { invalidateAllIntegrationConnections } from "@/lib/listAllIntegrationConnections";
+import { toolkitDisplayName } from "@/lib/toolkitDisplay";
+import {
+  composioToolkitMatchesProvider,
+  useWorkspaceDesktop,
+} from "@/lib/workspaceDesktop";
+import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+
+// Shared state machine for the "connect/bind a provider account to an app"
+// interaction. Same logic used by:
+//   - The chat-side `IntegrationConnectCard` (pending_integrations emit)
+//   - The App Surface header bind control (per-installed-app, persistent)
+//
+// Layout/markup stays in each consumer — this hook owns only:
+//   * fetch (connections + bindings)
+//   * derive the state-machine kind
+//   * three actions: connect (OAuth + bind + restart), bind (select existing
+//     connection), refresh (re-read after external change)
+//   * busy/error mutex per action
+
+export type IntegrationBindingState =
+  | { kind: "loading" }
+  | { kind: "no_workspace" }
+  | { kind: "no_connection" }
+  | { kind: "needs_binding"; candidates: IntegrationConnectionPayload[] }
+  | {
+      kind: "bound";
+      activeConnection: IntegrationConnectionPayload;
+      otherActiveConnections: IntegrationConnectionPayload[];
+    };
+
+export type IntegrationBindingBusy =
+  | "connecting"
+  | "binding"
+  | "verifying"
+  | null;
+
+// Result of a `verify()` call — drives a tiny inline status indicator
+// ("Verified just now", "Verified 2m ago", or an error tone).
+export type IntegrationBindingVerifyOutcome =
+  | { ok: true; at: number; changed: boolean }
+  | { ok: false; at: number; reason: string };
+
+/**
+ * Discriminator for the last connect/verify failure. Kept as a union so
+ * we can reintroduce richer error kinds without churning the consumer
+ * type. Currently only "generic" exists — the prior "abandoned" kind
+ * tracked an OAuth-window-close heuristic that produced too many false
+ * positives on slow-flipping providers (Slack, Gmail) and was removed.
+ */
+export type IntegrationBindingErrorKind = "generic" | null;
+
+export interface UseIntegrationBindingResult {
+  state: IntegrationBindingState;
+  busy: IntegrationBindingBusy;
+  errorMessage: string;
+  errorKind: IntegrationBindingErrorKind;
+  /** Last `verify()` result. Null until the user clicks the action. */
+  lastVerify: IntegrationBindingVerifyOutcome | null;
+  refresh: () => Promise<void>;
+  connect: () => Promise<void>;
+  bind: (connectionId: string) => Promise<void>;
+  // Re-probe the bound connection against the upstream provider. Surfaces
+  // `provider_credentials_rejected` so the user finds out the connection is
+  // dead *here* (in the dialog) instead of next time they trigger the app
+  // and it silently fails.
+  verify: () => Promise<void>;
+  // Abort the in-flight `connect()` flow. No-op when nothing is running.
+  // Used by the UI when the user closes the OAuth window or explicitly
+  // clicks the Cancel affordance — without it, a rejected OAuth leaves
+  // the poll loop spinning for the full 5-minute timeout.
+  cancel: () => void;
+}
+
+export interface UseIntegrationBindingArgs {
+  appId: string;
+  // Composio toolkit slug == binding integration_key == OAuth provider id.
+  provider: string;
+  whoami?: PendingIntegrationWhoami | null;
+  // Optional callback fired after a successful connect or bind, so callers
+  // can refresh sibling state (e.g. integrationContext mirror in AppSurfacePane).
+  onAfterBind?: () => void;
+  // When true, treat a workspace-default binding for this provider as
+  // "bound" even if no app-level binding exists. The App Surface uses this
+  // so a previously-connected gmail (workspace-default) shows as bound for
+  // every gmail-shaped app without per-app re-bind. The chat-side Connect
+  // card leaves this false on purpose — it wants the user to explicitly
+  // bind to the new app the agent just built.
+  considerWorkspaceDefault?: boolean;
+}
+
+function normalizeErrorMessage(error: unknown): string {
+  let message = "";
+  if (error instanceof Error) {
+    message = error.message?.trim() ?? "";
+  } else if (typeof error === "string") {
+    message = error.trim();
+  }
+  if (!message) {
+    return "Something went wrong. Please try again.";
+  }
+  // Strip Electron's IPC wrapper so the user sees the real reason, not
+  // "Error invoking remote method 'workspace:...': Error: <reason>".
+  message = message
+    .replace(/^Error invoking remote method '[^']*':\s*/i, "")
+    .replace(/^Error:\s*/i, "")
+    .trim();
+  return message || "Something went wrong. Please try again.";
+}
+
+export function useIntegrationBinding({
+  appId,
+  provider,
+  whoami,
+  onAfterBind,
+  considerWorkspaceDefault = false,
+}: UseIntegrationBindingArgs): UseIntegrationBindingResult {
+  const { connectIntegrationProvider } = useWorkspaceDesktop();
+  const { selectedWorkspaceId } = useWorkspaceSelection();
+
+  const [state, setState] = useState<IntegrationBindingState>({ kind: "loading" });
+  const [busy, setBusy] = useState<IntegrationBindingBusy>(null);
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [errorKind, setErrorKind] =
+    useState<IntegrationBindingErrorKind>(null);
+  const [lastVerify, setLastVerify] =
+    useState<IntegrationBindingVerifyOutcome | null>(null);
+  const connectAbortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight connect when the component unmounts so a poll
+  // loop doesn't outlive the surface that started it.
+  useEffect(() => {
+    return () => {
+      connectAbortRef.current?.abort();
+      connectAbortRef.current = null;
+    };
+  }, []);
+
+  const trimmedProvider = provider.trim();
+  const providerKey = trimmedProvider.toLowerCase();
+  const trimmedAppId = appId.trim();
+
+  const refresh = useCallback(async () => {
+    if (!selectedWorkspaceId) {
+      setState({ kind: "no_workspace" });
+      return;
+    }
+    if (!trimmedProvider || !trimmedAppId) {
+      setState({ kind: "no_connection" });
+      return;
+    }
+    try {
+      const [connectionsResp, composioResp, bindingsResp] = await Promise.all([
+        window.electronAPI.workspace.listIntegrationConnections(),
+        window.electronAPI.workspace
+          .composioListConnections()
+          .catch(() => ({ connections: [] })),
+        window.electronAPI.workspace.listIntegrationBindings(selectedWorkspaceId),
+      ]);
+      // Composio connections are the source of truth for composio providers —
+      // the local store only holds bot-token providers now (see IntegrationsPane,
+      // "single source of truth" merge). Map the remote composio accounts for
+      // THIS provider into the connection shape so an account connected anywhere
+      // (web, another surface) is recognized here, not just ones bound locally.
+      const remoteComposio: IntegrationConnectionPayload[] =
+        composioResp.connections
+          .filter((r) => composioToolkitMatchesProvider(r.toolkitSlug, provider))
+          .map((r) => ({
+            connection_id: r.id,
+            provider_id: providerKey,
+            owner_user_id: r.userId ?? "",
+            account_label: r.toolkitName || "Account",
+            account_external_id: r.id,
+            account_handle: null,
+            account_email: null,
+            auth_mode: "composio",
+            granted_scopes: [],
+            status: r.status.toLowerCase() || "active",
+            secret_ref: null,
+            created_at: r.createdAt ?? "",
+            updated_at: r.createdAt ?? "",
+          }));
+      const botTokenLocal = connectionsResp.connections.filter(
+        (c) =>
+          c.auth_mode.toLowerCase() !== "composio" &&
+          c.provider_id.toLowerCase() === providerKey,
+      );
+      const activeConnections = [...botTokenLocal, ...remoteComposio].filter(
+        (c) => c.status === "active",
+      );
+      if (activeConnections.length === 0) {
+        setState({ kind: "no_connection" });
+        return;
+      }
+      const appBinding = bindingsResp.bindings.find(
+        (b) =>
+          b.target_type === "app" &&
+          b.target_id === trimmedAppId &&
+          b.integration_key.toLowerCase() === providerKey,
+      );
+      const workspaceDefaultBinding = considerWorkspaceDefault
+        ? bindingsResp.bindings.find(
+            (b) =>
+              b.target_type === "workspace" &&
+              b.target_id === "default" &&
+              b.integration_key.toLowerCase() === providerKey,
+          )
+        : undefined;
+      const effectiveBinding = appBinding ?? workspaceDefaultBinding;
+      if (effectiveBinding) {
+        const active = activeConnections.find(
+          (c) => c.connection_id === effectiveBinding.connection_id,
+        );
+        if (active) {
+          setState({
+            kind: "bound",
+            activeConnection: active,
+            otherActiveConnections: activeConnections.filter(
+              (c) => c.connection_id !== active.connection_id,
+            ),
+          });
+          return;
+        }
+      }
+      setState({ kind: "needs_binding", candidates: activeConnections });
+    } catch (error) {
+      setErrorMessage(normalizeErrorMessage(error));
+      setState({ kind: "no_connection" });
+    }
+  }, [
+    selectedWorkspaceId,
+    providerKey,
+    trimmedAppId,
+    trimmedProvider,
+    considerWorkspaceDefault,
+  ]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Bindings can change from outside this hook — agent-driven binds (chat
+  // → runtime → main → state-store) and Settings-driven binds don't go
+  // through `connect()` / `bind()` here, so the sidebar's status dot
+  // would otherwise stay stuck on its mount-time value forever. Poll every
+  // 8s as a low-cost catchall: two IPC reads per AppRow per integration,
+  // negligible at typical scale. The 8s cadence is fast enough that a
+  // user finishing a chat-side connect sees the dot flip "ready" before
+  // they look back at the sidebar.
+  useEffect(() => {
+    if (!selectedWorkspaceId || !trimmedProvider || !trimmedAppId) return;
+    const id = setInterval(() => {
+      void refresh();
+    }, 8000);
+    return () => clearInterval(id);
+  }, [selectedWorkspaceId, trimmedProvider, trimmedAppId, refresh]);
+
+  // Real-time Composio invalidation: the cloud BFF webhook handler
+  // broadcasts `connected_account.*` lifecycle events; main pipes them in.
+  // We refresh only when the event targets a connection we already render,
+  // so an unrelated user's expiry on another row doesn't trigger churn.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  useEffect(() => {
+    if (!selectedWorkspaceId || !trimmedProvider || !trimmedAppId) return;
+    return subscribeComposioConnectionInvalidated((event) => {
+      const externalId = event.connection_id;
+      const snapshot = stateRef.current;
+      const matchesActive =
+        snapshot.kind === "bound" &&
+        snapshot.activeConnection.account_external_id === externalId;
+      const matchesCandidate =
+        snapshot.kind === "needs_binding" &&
+        snapshot.candidates.some((c) => c.account_external_id === externalId);
+      if (matchesActive || matchesCandidate) {
+        void refresh();
+      }
+    });
+  }, [selectedWorkspaceId, trimmedProvider, trimmedAppId, refresh]);
+
+  // The running app captured HOLABOSS_APP_GRANT at boot in its bridge
+  // transport. Any bind change is invisible until the app process cycles —
+  // unconditional restart is cheaper than diffing.
+  const rebootAppAfterBindChange = useCallback(async () => {
+    if (!selectedWorkspaceId) return;
+    try {
+      await window.electronAPI.workspace.restartApp(selectedWorkspaceId, trimmedAppId);
+    } catch {
+      // Bind succeeded; restart can fail when the app isn't running yet
+      // (initial connect before first start) or lifecycle is unavailable.
+      // Next agent call surfaces the real error if grant is genuinely stale.
+    }
+  }, [selectedWorkspaceId, trimmedAppId]);
+
+  const cancel = useCallback(() => {
+    const controller = connectAbortRef.current;
+    if (!controller) return;
+    connectAbortRef.current = null;
+    controller.abort();
+  }, []);
+
+  const connect = useCallback(async () => {
+    if (!selectedWorkspaceId || !trimmedProvider || !trimmedAppId) return;
+    // Cancel any prior in-flight connect — the user clicked Connect again
+    // while an earlier attempt was still polling. Don't leak two parallel
+    // poll loops.
+    connectAbortRef.current?.abort();
+    const controller = new AbortController();
+    connectAbortRef.current = controller;
+
+    setBusy("connecting");
+    setErrorMessage("");
+    setErrorKind(null);
+    try {
+      const { connectionId } = await connectIntegrationProvider({
+        provider: trimmedProvider,
+        appId: trimmedAppId,
+        whoami: whoami ?? null,
+        signal: controller.signal,
+      });
+      // If the user clicked Cancel between OAuth success and bind, skip
+      // the bind too — the connection record still exists in Composio
+      // but the user no longer wants it wired into this app.
+      if (controller.signal.aborted) return;
+      // Bind the freshly-issued connection. Prefer the explicit id from
+      // connectIntegrationProvider over a re-list match because brand-new
+      // accounts can race the listIntegrationConnections cache.
+      await window.electronAPI.workspace.upsertIntegrationBinding(
+        selectedWorkspaceId,
+        "app",
+        trimmedAppId,
+        trimmedProvider,
+        { connection_id: connectionId },
+      );
+      await rebootAppAfterBindChange();
+      await refresh();
+      onAfterBind?.();
+      // Bust the shared connection caches (module + main-process) so the store
+      // list and the detail pane re-read the just-connected account instead of a
+      // stale snapshot.
+      invalidateAllIntegrationConnections();
+      toast.success(`Connected ${toolkitDisplayName(trimmedProvider)}`);
+    } catch (error) {
+      // User-driven cancellation (Cancel button or the workspace's
+      // internal IntegrationConnectCancelled sentinel from
+      // workspaceDesktop.tsx). Silent — re-rendering the Connect button
+      // is signal enough; an error banner would be noise.
+      const aborted =
+        controller.signal.aborted ||
+        (error instanceof Error && error.name === "IntegrationConnectCancelled");
+      if (!aborted) {
+        setErrorMessage(normalizeErrorMessage(error));
+        setErrorKind("generic");
+      }
+    } finally {
+      if (connectAbortRef.current === controller) {
+        connectAbortRef.current = null;
+      }
+      setBusy(null);
+    }
+  }, [
+    selectedWorkspaceId,
+    trimmedProvider,
+    trimmedAppId,
+    whoami,
+    connectIntegrationProvider,
+    rebootAppAfterBindChange,
+    refresh,
+    onAfterBind,
+  ]);
+
+  const bind = useCallback(
+    async (connectionId: string) => {
+      if (!selectedWorkspaceId || !trimmedProvider || !trimmedAppId) return;
+      setBusy("binding");
+      setErrorMessage("");
+      try {
+        // The connection id may be a Composio account id (ca_...) — the runtime
+        // binds those directly now (they're remote-only, validated remotely), so
+        // no local finalize step is needed.
+        await window.electronAPI.workspace.upsertIntegrationBinding(
+          selectedWorkspaceId,
+          "app",
+          trimmedAppId,
+          trimmedProvider,
+          { connection_id: connectionId },
+        );
+        await rebootAppAfterBindChange();
+        await refresh();
+        onAfterBind?.();
+        // Bust the shared connection caches (module + main-process) so the store
+        // list and the detail pane re-read the just-connected account instead of
+        // a stale snapshot.
+        invalidateAllIntegrationConnections();
+        toast.success(`Connected ${toolkitDisplayName(trimmedProvider)}`);
+      } catch (error) {
+        setErrorMessage(normalizeErrorMessage(error));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      selectedWorkspaceId,
+      trimmedProvider,
+      trimmedAppId,
+      rebootAppAfterBindChange,
+      refresh,
+      onAfterBind,
+    ],
+  );
+
+  // Re-probe the bound connection against the upstream provider. The
+  // `composioRefreshConnection` IPC returns one of:
+  //   - changed:true            → identity rewritten, treat as healthy
+  //   - reason "no_new_identity" / no reason → still healthy, nothing changed
+  //   - reason "provider_credentials_rejected" → token is dead, user must reauth
+  //   - reason "account_missing" → upstream Composio row is gone
+  //   - reason "no_external_id"  → can't probe (non-OAuth provider)
+  //
+  // Only meaningful when state.kind === "bound" — caller is expected to
+  // hide the action otherwise. The hook still tolerates being called in a
+  // non-bound state so a stale render doesn't crash; it just surfaces a
+  // benign error.
+  const verify = useCallback(async () => {
+    if (state.kind !== "bound") return;
+    if (state.activeConnection.auth_mode === "composio") {
+      // Composio connections are remote-only (Stage 3) — there is no local row
+      // to refresh; the account's live state comes from the remote source, and
+      // composioRefreshConnection would throw "not found" for a composio
+      // account id. Treat this as a benign success.
+      setLastVerify({ ok: true, at: Date.now(), changed: false });
+      return;
+    }
+    const connectionId = state.activeConnection.connection_id;
+    setBusy("verifying");
+    setErrorMessage("");
+    try {
+      const result =
+        await window.electronAPI.workspace.composioRefreshConnection(
+          connectionId,
+        );
+      const at = Date.now();
+      if (result.reason === "provider_credentials_rejected") {
+        const code = result.providerStatus ? ` (HTTP ${result.providerStatus})` : "";
+        setLastVerify({
+          ok: false,
+          at,
+          reason: `Provider rejected the stored token${code}. Reconnect to re-authorize.`,
+        });
+      } else if (result.reason === "account_missing") {
+        setLastVerify({
+          ok: false,
+          at,
+          reason: "Upstream account no longer exists. Disconnect and reconnect.",
+        });
+      } else if (result.reason === "no_external_id") {
+        setLastVerify({
+          ok: false,
+          at,
+          reason: "No identity to verify on this connection.",
+        });
+      } else {
+        setLastVerify({ ok: true, at, changed: Boolean(result.changed) });
+      }
+      // Pull the latest persisted identity so the `bound` label re-renders.
+      await refresh();
+    } catch (error) {
+      setLastVerify({
+        ok: false,
+        at: Date.now(),
+        reason: normalizeErrorMessage(error),
+      });
+    } finally {
+      setBusy(null);
+    }
+  }, [state, refresh]);
+
+  return {
+    state,
+    busy,
+    errorMessage,
+    errorKind,
+    lastVerify,
+    refresh,
+    connect,
+    bind,
+    verify,
+    cancel,
+  };
+}

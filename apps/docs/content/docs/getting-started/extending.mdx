@@ -1,0 +1,60 @@
+---
+title: Extending Your Workspace
+description: Add Apps for platform capabilities, Skills for reusable patterns, and Automations for scheduled work — three ways to expand what your workspace can do.
+---
+
+<p className="eyebrow">Expand capability</p>
+
+A workspace starts with a base set of capabilities — a chat interface, an agent, and the files inside the workspace directory. To go further, you extend it in three distinct ways: Apps bring real platform actions (post to LinkedIn, read a Gmail thread, write to a Sheet); Skills bring reusable instruction packs that the agent loads when relevant; Automations let the workspace run tasks on its own cadence without you typing a message. Each solves a different problem, and you can add any combination.
+
+## Apps
+
+An App is a runtime-managed capability package. Many Apps are platform integrations, but an App can also include local tools, a UI surface, or background jobs alongside its MCP surface. When an App is installed, the agent gains concrete actions for that capability: draft a LinkedIn post, fetch a Reddit thread, open a GitHub issue, append a row to a Sheet.
+
+Available Apps include LinkedIn, Twitter/X, Reddit, Gmail, Sheets, GitHub, and others. Browse the Marketplace catalog and install with one click. Once installed, the App's tools are available to the agent immediately — no restart required.
+
+**Credentials.** Most Apps need access to an external account. After installing, you'll connect credentials — OAuth for platforms that support it, an API key where they don't — and then bind those connections into the workspace or a specific App. In practice, Desktop keeps a shared pool of active connections in Settings, and each workspace decides which connection its installed Apps should use. Two workspaces can reuse the same account, bind different accounts for the same provider, or set a workspace-default binding for that provider.
+
+A practical rule: install only what you need. Every App you add is another credential to manage, and the agent's tool surface grows with each install. A focused workspace is easier to reason about.
+
+## Skills
+
+A Skill is a markdown file — specifically `SKILL.md` inside `skills/<id>/` in the workspace — with a short `description` in its frontmatter and a body of instructions, examples, or process notes. The agent reads every installed Skill's description at the start of a run and loads the ones that are relevant to the current task. Skills are not always-on; they load on demand.
+
+This makes Skills the right place for deep, context-specific guidance: how to structure a post for a particular audience, what tone to use for a specific campaign type, how to handle a particular edge case. If a rule should apply on every single run without exception, put it in `AGENTS.md` instead — that file is read unconditionally. Skills are for knowledge that only matters sometimes.
+
+Browse published Skills in Marketplace and install into your workspace with one click. You can also write Skills directly — create a markdown file under `skills/<id>/SKILL.md`, add a `name` and `description` to the frontmatter, and write the body. The agent will pick it up on the next run.
+
+The runtime can also propose Skill drafts. If it notices a pattern — you repeatedly give the same clarification, or a prompt fragment recurs across runs — it may suggest packaging that into a Skill. You review the draft and decide whether to commit it.
+
+## Automations
+
+An Automation lets the workspace run a task without you initiating it. Instead of typing a message, you define a schedule and the agent wakes up, runs the task, and deposits outputs into the workspace.
+
+Automations run at a fixed cadence. Examples: "Every morning at 9am, scan new emails and draft replies for my review." "Every Friday at 4pm, pull the week's data from a Sheet and generate a summary." "Every Monday, draft three LinkedIn posts based on last week's top-performing content."
+
+Configure Automations in the automations panel inside the workspace. Give each one a name, choose the schedule, and write the task prompt the agent will receive when it fires.
+
+Keep Automations conservative by default. Any automated action that publishes content publicly, sends an email, or spends money should be gated on approval rather than set to fire-and-forget. The agent's approval system works the same way it does in a manual run — see [Working with Your Agent](/docs/getting-started/agent-runs) for how approvals work.
+
+## Want to build your own?
+
+If the marketplace doesn't have what you need, you become a creator. You can write a custom App — an MCP server that exposes tools for an internal API or a private platform — or author Skills and Templates and optionally publish them for others. That path is covered in the Build section.
+
+<Cards>
+  <Card
+    title="Build Your First Template"
+    href="/docs/build/templates/first-template"
+    description="Turn a working workspace into a publishable Template others can fork."
+  />
+  <Card
+    title="Build an App"
+    href="/docs/build/apps"
+    description="Ship a new platform integration — the developer path for ecosystem builders."
+  />
+  <Card
+    title="Concepts: Apps"
+    href="/docs/concepts/apps"
+    description="Why the App layer exists and how it fits into the system."
+  />
+</Cards>

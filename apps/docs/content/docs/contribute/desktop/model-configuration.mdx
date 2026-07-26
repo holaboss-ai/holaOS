@@ -1,0 +1,350 @@
+---
+title: Model Configuration
+description: How holaOS Desktop configures model providers and routing.
+---
+
+![Model Settings](/images/model-settings.png)
+
+holaOS ships with a default model setup. In most cases, you do not need to edit `runtime-config.json` by hand, because the desktop app already exposes the main configuration surfaces for provider connection, managed model catalogs, background tasks, recall embeddings, image generation, and web search.
+
+This page is the configuration reference for operators and builders. For the Electron IPC path, runtime model-catalog refresh flow, queued `thinking_value` handoff, and other execution internals, continue into [Desktop Internals](/docs/contribute/desktop/internals) and [Runtime APIs](/docs/contribute/runtime/apis).
+
+The baseline defaults are:
+
+- default model: `openai/gpt-5.4`
+- built-in fallback provider id when no configured default provider applies: `openai`
+
+## Supported provider styles
+
+The OSS runtime supports the following provider kinds:
+
+| Provider kind | Best fit | Notes |
+| --- | --- | --- |
+| `holaboss_proxy` | holaOS-managed setups | Uses the holaOS runtime binding and managed model catalog instead of a local seed list. |
+| `openai_compatible` | OpenAI-style APIs | Best when you already have an OpenAI-style endpoint. Covers OpenAI, Ollama, MiniMax, and many self-hosted compatible APIs. |
+| `google_compatible` | Gemini via the Google OpenAI-compat path | Uses the Google compatibility surface instead of the generic OpenAI-compatible routing path. |
+| `anthropic_native` | Anthropic accounts and native workflows | Good when you want the provider's own integration path. |
+| `openrouter` | Model experimentation and broad access | Useful when you want to swap models without changing the rest of the setup. |
+
+Desktop currently exposes only holaOS Proxy in `Settings -> Model Providers`. The broader provider kinds below still describe lower-level runtime capabilities and legacy config shapes, but they are no longer first-class desktop provider choices.
+
+## In-app setup
+
+holaOS already provides model configuration in the desktop app:
+
+- open `Settings -> Model Providers`
+- connect holaOS Proxy
+- use the `Background tasks` panel to choose one connected provider and model for recall selection, finalization, and other background LLM tasks
+- use the `Recall embeddings` panel to leave vector-assisted recall on `Automatic` or choose an explicit embedding-capable provider and model
+- use the `Image generation` panel to choose an image-capable provider and model for runtime image generation
+- use the `Defaults` panel to leave `Subagent model` on `Follow composer` or choose a fixed override for hidden delegated and scheduled subagent runs
+- use the `Web search` panel to choose Holaboss Search or Exa and provide a search API key when needed
+- saved changes update `runtime-config.json`, and the chat model picker uses the configured provider models
+
+holaOS-managed sessions can inject managed background, embedding, and image defaults through the runtime binding. The desktop UI now assumes holaOS Proxy is the only provider surface and derives its model suggestions from the managed catalog plus the shipped Holaboss fallback metadata.
+
+## Catalog-driven chat models
+
+The current desktop no longer treats chat models as only freeform strings.
+
+- The shipped fallback catalog in `apps/desktop/shared/model-catalog.ts` now describes holaOS Proxy models only.
+- Signed-in holaOS-managed sessions can also fetch a managed runtime model catalog from the control plane.
+- The desktop merges that managed catalog with the locally persisted `runtime-config.json` and exposes the result as `providerModelGroups` in the runtime-config snapshot.
+- Managed defaults for background tasks, embeddings, and image generation are also carried with that snapshot as `defaultBackgroundModel`, `defaultEmbeddingModel`, and `defaultImageModel`.
+
+In practice, that means the model picker and settings UI are both catalog-aware:
+
+- `Settings -> Model Providers` uses the catalog to seed provider defaults and suggestions.
+- The chat composer uses the resolved provider groups to show only the models that are actually available for the current runtime.
+- Deprecated or unsupported model ids are filtered before they reach the renderer.
+
+## Reasoning effort in chat
+
+Reasoning effort is selected in the chat composer, not in `runtime-config.json`.
+
+The current flow is:
+
+1. select a chat model in the composer
+2. if that model advertises `reasoning: true` and has non-empty `thinkingValues`, the composer shows a `Thinking` selector
+3. the desktop remembers the last selected value per resolved model locally
+4. when the message is queued, the desktop sends both `model` and `thinking_value` to `/api/v1/agent-sessions/queue`
+
+That `thinking_value` is run-scoped metadata. It does not become a new global default model setting.
+
+## Current shipped reasoning-value sets
+
+The shipped fallback catalog currently exposes these reasoning controls:
+
+| Provider / model | Reasoning values |
+| --- | --- |
+| `holaboss_model_proxy/gpt-5.4` | `none`, `low`, `medium`, `high`, `xhigh` |
+| `holaboss_model_proxy/gpt-5.5` | `none`, `low`, `medium`, `high`, `xhigh` |
+| `holaboss_model_proxy/gpt-5.3-codex` | `low`, `medium`, `high`, `xhigh` |
+
+The managed holaOS catalog can provide explicit reasoning metadata. If it does not, the desktop falls back to the shipped Holaboss proxy metadata for known GPT-5 family models.
+
+## Customization mode
+
+You can configure the runtime in either of these modes:
+
+- legacy or proxy shorthand
+  - set `model_proxy_base_url`, `auth_token`, and `default_model`
+- structured provider catalog
+  - define `providers` and `models`, then set `runtime.default_provider` and `runtime.default_model`
+
+Runtime URL behavior stays consistent across both modes:
+
+- if `model_proxy_base_url` is a proxy root, runtime appends provider routes such as `/openai/v1` or `/anthropic/v1`
+- direct mode is enabled when you provide a provider endpoint
+- OpenAI-compatible direct providers typically use a `/v1` endpoint, for example `https://api.openai.com/v1`
+- Google-compatible direct providers use the Gemini compatibility root, for example `https://generativelanguage.googleapis.com/v1beta/openai`
+- Anthropic native direct providers should use the root host, for example `https://api.anthropic.com`
+- known provider hosts normalize as needed, including Gemini host roots to `/v1beta/openai`
+
+## Where the runtime reads model config
+
+The runtime resolves model settings from:
+
+1. `runtime-config.json`
+2. environment variables
+3. built-in defaults
+
+By default, `runtime-config.json` lives at:
+
+- `${HB_SANDBOX_ROOT}/state/runtime-config.json`
+
+You can override that path with:
+
+- `HOLABOSS_RUNTIME_CONFIG_PATH`
+
+## Important settings
+
+- `model_proxy_base_url`
+  - legacy or proxy base URL root
+- `auth_token`
+  - proxy token sent as `X-API-Key`
+- `providers.<id>.base_url`
+  - direct provider endpoint
+- `providers.<id>.api_key`
+  - direct provider credential
+- `runtime.background_tasks.provider`
+  - provider for recall selection, finalization, and other background LLM tasks
+- `runtime.background_tasks.model`
+  - model id used for that background provider
+- `runtime.subagents.model`
+  - optional fixed model token for hidden subagent execution; when unset, subagents use the current composer model if one is available
+- `runtime.recall_embeddings.provider`
+  - optional embedding-capable provider used for vector-assisted recall candidate narrowing
+- `runtime.recall_embeddings.model`
+  - optional embedding model id used for recall embeddings
+- `runtime.image_generation.provider`
+  - provider used for runtime image generation
+- `runtime.image_generation.model`
+  - image model id used for runtime image generation
+- `web_search.provider`
+  - provider used by the native `web_search` runtime tool
+- `web_search.providers.<id>.base_url`
+  - search endpoint URL
+- `web_search.providers.<id>.api_key`
+  - optional search provider credential
+- `runtime.default_provider`
+  - configured default provider for unprefixed model ids
+- `runtime.default_model`
+  - default model selection
+- `HOLABOSS_DEFAULT_MODEL`
+  - environment override for the default model
+
+There is no `runtime.thinking_value` field. Reasoning effort is chosen per run in the chat composer and queued with the session input.
+
+## Background task provider defaults
+
+The current built-in background task defaults are:
+
+- `holaboss_model_proxy`: `gpt-5.4`
+
+## Recall embedding defaults
+
+When `Recall embeddings` is left on `Automatic`, runtime chooses the first configured provider that has a built-in embedding default. If you configure it explicitly, the current built-in embedding defaults are:
+
+- `holaboss_model_proxy`: `text-embedding-3-small`
+
+## Image generation provider defaults
+
+The desktop currently exposes image generation only for the providers that can resolve an image-capable model in the shipped UI:
+
+- `holaboss_model_proxy`: managed catalog / runtime-binding defaults when available
+
+There are no additional desktop-configurable provider surfaces for image generation.
+
+## Web search providers
+
+The native `web_search` tool reads a top-level `web_search` block from `runtime-config.json`. If that block is absent, the runtime keeps the legacy behavior and uses hosted Exa MCP without authentication.
+
+The desktop currently exposes:
+
+- `holaboss_search`
+  - default endpoint: the runtime binding's control-plane base URL plus `/api/v1/search/web`
+  - production fallback endpoint: `https://api.holaboss.ai/api/v1/search/web`
+  - API key is optional when the runtime has a signed-in Holaboss binding
+- `exa`
+  - default endpoint: `https://mcp.exa.ai/mcp`
+  - API key is optional for the hosted MCP path, but can be provided for your own Exa quota
+
+The runtime also accepts legacy config keys `webSearch` and `search`, but the desktop writes the canonical `web_search` key.
+
+## Model string format
+
+Use provider-prefixed model ids when you want to be explicit:
+
+- `openai/gpt-5.4`
+- `anthropic/claude-sonnet-4-6`
+- `openrouter/deepseek/deepseek-chat-v3-0324`
+
+The runtime also treats unprefixed `claude...` model ids as Anthropic models. If a model id is unprefixed and does not start with `claude`, the runtime first tries the configured default provider. If no configured default provider applies, it falls back to `openai/<model>`.
+
+## `runtime-config.json` universal provider example
+
+```json
+{
+  "runtime": {
+    "default_provider": "openai_direct",
+    "default_model": "openai/gpt-5.4",
+    "background_tasks": {
+      "provider": "openai_direct",
+      "model": "gpt-5.4"
+    },
+    "image_generation": {
+      "provider": "openai_direct",
+      "model": "gpt-image-1.5"
+    },
+    "recall_embeddings": {
+      "provider": "openai_direct",
+      "model": "text-embedding-3-small"
+    }
+  },
+  "web_search": {
+    "provider": "holaboss_search",
+    "providers": {
+      "holaboss_search": {
+        "kind": "holaboss_search",
+        "base_url": "https://api.holaboss.ai/api/v1/search/web"
+      },
+      "exa": {
+        "kind": "exa_hosted_mcp",
+        "base_url": "https://mcp.exa.ai/mcp",
+        "api_key": "exa-your-api-key"
+      }
+    }
+  },
+  "providers": {
+    "openai_direct": {
+      "kind": "openai_compatible",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "sk-your-openai-key"
+    },
+    "anthropic_direct": {
+      "kind": "anthropic_native",
+      "base_url": "https://api.anthropic.com",
+      "api_key": "sk-ant-your-anthropic-key"
+    },
+    "openrouter_direct": {
+      "kind": "openrouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "sk-or-your-openrouter-key"
+    },
+    "gemini_direct": {
+      "kind": "google_compatible",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "api_key": "AIza-your-gemini-api-key"
+    },
+    "ollama_direct": {
+      "kind": "openai_compatible",
+      "base_url": "http://localhost:11434/v1",
+      "api_key": "ollama"
+    }
+  },
+  "models": {
+    "openai_direct/gpt-5.4": {
+      "provider": "openai_direct",
+      "model": "gpt-5.4"
+    },
+    "openai_direct/gpt-5.3-codex": {
+      "provider": "openai_direct",
+      "model": "gpt-5.3-codex"
+    },
+    "anthropic_direct/claude-sonnet-4-6": {
+      "provider": "anthropic_direct",
+      "model": "claude-sonnet-4-6"
+    },
+    "openrouter_direct/openai/gpt-5.4": {
+      "provider": "openrouter_direct",
+      "model": "openai/gpt-5.4"
+    },
+    "gemini_direct/gemini-2.5-flash": {
+      "provider": "gemini_direct",
+      "model": "gemini-2.5-flash"
+    },
+    "ollama_direct/llama3.1:8b": {
+      "provider": "ollama_direct",
+      "model": "llama3.1:8b"
+    }
+  }
+}
+```
+
+Provider `kind` values supported by the runtime resolver:
+
+- `holaboss_proxy`
+- `openai_compatible`
+- `google_compatible`
+- `anthropic_native`
+- `openrouter`
+
+## Verify Ollama through the desktop UI
+
+This is the simplest end-to-end check for the local `ollama_direct` path:
+
+1. Install and start Ollama on your machine.
+2. Pull a small local model:
+
+```bash
+ollama pull llama3.1:8b
+```
+
+3. Launch the desktop app.
+4. Open `Settings -> Model Providers`.
+5. Connect `Ollama` with:
+   - base URL: `http://localhost:11434/v1`
+   - API key: `ollama`
+   - models: `llama3.1:8b`
+6. Open a workspace chat and select `ollama_direct/llama3.1:8b`.
+7. Send this prompt:
+
+```text
+Reply with exactly: OK
+```
+
+Expected result:
+
+- the run starts with provider `ollama_direct`
+- the model resolves to `llama3.1:8b`
+- the assistant replies with `OK`
+
+If the model does not show up or the request fails, verify Ollama directly first:
+
+```bash
+curl http://localhost:11434/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer ollama' \
+  -d '{"model":"llama3.1:8b","messages":[{"role":"user","content":"Reply with exactly: OK"}],"temperature":0}'
+```
+
+## Environment overrides
+
+```bash
+export HOLABOSS_MODEL_PROXY_BASE_URL="https://your-proxy.example/api/v1/model-proxy"
+export HOLABOSS_SANDBOX_AUTH_TOKEN="your-proxy-token"
+export HOLABOSS_DEFAULT_MODEL="anthropic/claude-sonnet-4-6"
+```
+
+These environment variables override the file-based values above. `sandbox_id` is still the current field name in `runtime-config.json`.

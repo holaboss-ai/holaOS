@@ -1,0 +1,178 @@
+---
+title: Runtime APIs
+description: HTTP surface exposed by the in-sandbox runtime.
+---
+
+Use this page when you are changing the runtime HTTP surface rather than only the desktop shell.
+
+The source of truth is code:
+
+- `runtime/api-server/src/index.ts`: binds the HTTP server host and port
+- `runtime/api-server/src/app.ts`: registers every route
+- `runtime/api-server/src/app.test.ts`: executable examples for request and response behavior
+- `runtime/state-store/src/store.ts`: durable records returned or mutated by many routes
+
+These APIs are used by the desktop app and by surrounding platform services. They are operational surfaces for running a workspace, not a generic third-party developer platform.
+
+If a route change also changes durable records, continue to [Runtime State Store](/docs/contribute/runtime/state-store). If it changes how a run is compiled or which tools/context the harness receives, continue to [Run Compilation](/docs/contribute/runtime/run-compilation).
+
+## Launch modes and ports
+
+The same API server shows up under different ports depending on how you started it:
+
+- Running `runtime/api-server/dist/index.mjs` directly defaults to `0.0.0.0:3060` unless `SANDBOX_RUNTIME_API_PORT`, `SANDBOX_AGENT_BIND_PORT`, or `PORT` is set.
+- The packaged runtime launcher defaults to `0.0.0.0:8080` through `runtime/deploy/bootstrap/shared.sh`.
+- The embedded desktop runtime binds to `127.0.0.1:<derived-port>`. `apps/desktop/electron/main.ts` resolves that port from `HOLABOSS_RUNTIME_API_PORT` or, when unset, from a hash of the Electron `userData` path. Port `5060` is rejected, and `5160` is only the bootstrap fallback before per-profile derivation runs.
+
+Use the right port before you assume a route is broken.
+
+The examples below use `RUNTIME_PORT` as a placeholder for the desktop runtime port when you are debugging the embedded path.
+
+## Common endpoint families
+
+| Area | Representative routes | Backing modules and usual change points |
+| --- | --- | --- |
+| Health, config, and profile | `/healthz`, `/api/v1/runtime/config`, `/api/v1/runtime/status`, `/api/v1/runtime/profile` | `runtime-config.ts` and the runtime-config service tests |
+| Browser and runtime tools | `/api/v1/capabilities/browser`, `/api/v1/capabilities/browser/tools/:toolId`, `/api/v1/capabilities/runtime-tools/*`, `/api/v1/capabilities/runtime-tools/reports` | `desktop-browser-tools.ts`, `runtime-agent-tools.ts`, and harness/tool projection code |
+| Workspaces and files | `/api/v1/workspaces`, `/api/v1/workspaces/:workspaceId/files/*`, `/apply-template`, `/export`, `/snapshot` | `workspace-apps.ts`, `workspace-snapshot.ts`, and workspace materialization helpers |
+| Agent runs and sessions | `/api/v1/agent-runs`, `/api/v1/agent-runs/stream`, `/api/v1/agent-sessions/*`, `/api/v1/agent-sessions/:sessionId/artifacts`, `/api/v1/agent-sessions/by-workspace/:workspaceId/with-artifacts` | `runner-worker.ts`, `ts-runner.ts`, `turn-result-summary.ts`, and state-store session tables |
+| Integrations and auth flows | `/api/v1/integrations/*`, `/api/v1/integrations/oauth/*`, `/api/v1/integrations/broker/*` | `integrations.ts`, `integration-broker.ts`, `oauth-service.ts`, and `composio-service.ts` |
+| Memory and post-run system state | `/api/v1/memory/*`, `/api/v1/memory-update-proposals*`, `/api/v1/task-proposals*` | `memory.ts`, `user-memory-proposals.ts`, `turn-memory-writeback.ts`, and queue or evolve workers |
+| Apps and resolved-app orchestration | `/api/v1/apps/*`, `/api/v1/apps/:appId/setup-log`, `/api/v1/apps/install-archive`, `/api/v1/internal/workspaces/:workspaceId/resolved-apps/start` | `workspace-apps.ts`, `app-lifecycle-worker.ts`, and `resolved-app-bootstrap.ts` |
+| Outputs, notifications, and cronjobs | `/api/v1/outputs*`, `/api/v1/output-folders*`, `/api/v1/notifications*`, `/api/v1/cronjobs*` | `cron-worker.ts`, state-store output tables, session artifact helpers, and the desktop surfaces that render this state |
+
+## Runtime-tool request metadata
+
+Runtime-tool routes are not generic anonymous helpers. The runtime and harness host now propagate turn-aware headers so the API can associate tool mutations with the current run:
+
+- `x-holaboss-workspace-id`
+- `x-holaboss-session-id`
+- `x-holaboss-input-id`
+- `x-holaboss-selected-model`
+
+That is how `write_report` and other runtime tools can persist outputs with stable session and input context instead of falling back to detached file writes.
+
+Representative `write_report` call:
+
+```bash
+RUNTIME_PORT=39160
+curl -X POST http://127.0.0.1:${RUNTIME_PORT}/api/v1/capabilities/runtime-tools/reports \
+  -H 'x-holaboss-workspace-id: workspace-1' \
+  -H 'x-holaboss-session-id: session-main' \
+  -H 'x-holaboss-input-id: input-1' \
+  -H 'x-holaboss-selected-model: openai_direct/gpt-5.4' \
+  -H 'content-type: application/json' \
+  -d '{
+    "title": "Tariff update brief",
+    "filename": "tariff-update-brief",
+    "summary": "Short research brief on current tariff developments.",
+    "content": "# Tariff update brief\n\n- Court challenges are active.\n- Consumer impact remains debated.\n"
+  }'
+```
+
+## Queue requests can carry model and reasoning overrides
+
+The desktop chat surface does not only queue raw text. `POST /api/v1/agent-sessions/queue` can also carry:
+
+- `model`
+- `thinking_value`
+
+The runtime stores both on the queued input record, then `claimed-input-executor.ts` forwards them into the `TsRunnerRequest`. The important split is:
+
+- `model` is resolved into the run's provider and model client later by the runtime config path
+- `thinking_value` stays as request-scoped execution metadata that the harness host maps onto executor-native reasoning controls
+
+If a run is using the right model but the wrong reasoning effort, inspect both the queue payload and the harness-host mapping instead of only the runtime config file.
+
+Representative queue request:
+
+```http
+POST /api/v1/agent-sessions/queue
+Content-Type: application/json
+
+{
+  "workspace_id": "workspace-1",
+  "session_id": "session-main",
+  "text": "Please review the deploy plan.",
+  "model": "openai_direct/gpt-5.4",
+  "thinking_value": "low"
+}
+```
+
+## Streaming surfaces
+
+The runtime has several streaming endpoints. If you change event shape or long-running execution behavior, trace these paths first:
+
+- `POST /api/v1/agent-runs/stream`
+- `GET /api/v1/task-proposals/unreviewed/stream`
+- `GET /api/v1/agent-sessions/:sessionId/outputs/events`
+- `GET /api/v1/agent-sessions/:sessionId/outputs/stream`
+
+Execution usually crosses `runtime/api-server/src/ts-runner.ts`, the harness registry, the harness host, and the state store before the desktop sees the result.
+
+Representative SSE debug call for session outputs:
+
+```bash
+RUNTIME_PORT=39160
+curl -N \
+  "http://127.0.0.1:${RUNTIME_PORT}/api/v1/agent-sessions/session-main/outputs/stream?include_history=false&stop_on_terminal=true"
+```
+
+If you change a runtime-tool route that creates outputs or artifacts, also inspect:
+
+- `runtime/api-server/src/runtime-agent-tools.ts`
+- `runtime/harness-host/src/pi-runtime-tools.ts`
+- `runtime/api-server/src/claimed-input-executor.ts`
+
+That path now matters for report artifacts because the runtime can persist them during the run and the post-turn file capture path must not duplicate them later.
+
+## App install and setup diagnostics
+
+The app install path has two operational contracts worth treating as API behavior, not implementation detail:
+
+- `POST /api/v1/apps/install-archive` serializes installs per `(workspace_id, app_id)` and returns `409` with `app install already in progress for this id` when a second install races the same target.
+- `GET /api/v1/apps/:appId/setup-log?workspace_id=...` returns the latest setup log tail plus recent structured events from `<workspace>/apps/<appId>/.holaboss/logs/`.
+
+Representative setup-log debug call:
+
+```bash
+RUNTIME_PORT=39160
+curl \
+  "http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/setup-log?workspace_id=workspace-1"
+```
+
+The response includes:
+
+- `log_path` and `log_size_bytes`
+- `log_tail` (bounded tail of `setup.latest.log`)
+- `recent_events` (last lifecycle events from `events.ndjson`)
+
+## How to change the API safely
+
+1. Add or update the route in `runtime/api-server/src/app.ts`.
+2. Keep the backing service, worker, or state-store contract in sync.
+3. Add or adjust tests in `runtime/api-server/src/app.test.ts` or the focused package test file.
+4. If the route is also surfaced through the harness, keep `runtime/harness-host/src/pi-runtime-tools.ts` and the shared runtime-tool definitions in sync.
+5. If the desktop consumes the route, update the Electron IPC bridge and renderer call site too.
+
+## Minimal smoke checks
+
+For a local embedded desktop runtime:
+
+```bash
+RUNTIME_PORT=39160
+curl http://127.0.0.1:${RUNTIME_PORT}/healthz
+curl http://127.0.0.1:${RUNTIME_PORT}/api/v1/runtime/status
+```
+
+For standalone runtime debugging, change the port to the one you actually bound, usually `8080` or `3060`.
+
+## Validation
+
+```bash
+npm run runtime:api-server:typecheck
+npm run runtime:api-server:test
+npm run runtime:test
+```
+
+Use `runtime/api-server/src/app.test.ts` as the fastest executable reference when you are unsure what an endpoint is expected to accept or return.

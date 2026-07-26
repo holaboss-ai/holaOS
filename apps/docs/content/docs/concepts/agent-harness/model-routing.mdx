@@ -1,0 +1,72 @@
+---
+title: Model Routing
+description: How the runtime resolves provider and model configuration before passing the prepared client into the harness.
+---
+
+The harness request includes the model path the runtime has already resolved for this execution. The harness does not own model-provider resolution for the whole environment.
+
+This page explains routing responsibility, not the exact request payload. For the current runtime fields, harness-host request shape, and code seams, continue into [Run Compilation](/docs/contribute/runtime/run-compilation) and [Agent Harness Internals](/docs/contribute/agent-harness/internals).
+
+## What the request carries
+
+The request also carries the selected provider and model client configuration for the run.
+
+That includes:
+
+- provider id
+- model id
+- model proxy provider
+- API key
+- base URL
+- default headers where relevant
+- any run-scoped reasoning preference the operator selected
+
+The runtime chooses this model path before invoking the harness, then passes the prepared client payload into the host request.
+
+## Reasoning effort is adjacent to routing, not part of routing
+
+The current chat path separates two decisions:
+
+- which provider and model client should execute the run
+- how much reasoning effort the selected model should use for this run
+
+The runtime owns the first decision. It resolves provider id, model id, transport kind, and auth headers before the harness starts.
+
+The queued input can also carry a run-scoped reasoning preference, but that value stays request-scoped. It is not a global runtime default and it is not part of `runtime.default_model`.
+
+That matters because the allowed values are model-specific rather than universal:
+
+- OpenAI shipped models use labels such as `none`, `low`, `medium`, `high`, and `xhigh`
+- OpenRouter shipped models use `minimal`, `low`, `medium`, and `high`
+- Anthropic shipped models can use adaptive labels or numeric budgets depending on the model
+- Gemini shipped models use numeric budgets, including sentinel values such as `0` or `-1`
+
+The host then normalizes those values onto executor-native reasoning controls. In the current `pi` path, generic OpenAI-compatible routes can also preserve provider-native labels when the underlying client expects them.
+
+## Currently supported providers
+
+The current desktop path supports this provider id:
+
+- `holaboss_model_proxy` for holaOS Proxy
+
+In user-facing terms, the currently supported provider is:
+
+- holaOS Proxy
+
+## Runtime kinds behind those providers
+
+The desktop runtime currently resolves that provider into this provider kind:
+
+- `holaboss_proxy`
+
+The proxy can still fan out onto different upstream API families internally, but that is no longer an operator-configurable provider choice in the desktop product.
+
+## Model-proxy transport behind the provider kind
+
+The provider kind is not the whole routing story. The runtime also resolves a model-proxy transport path for the actual request:
+
+- `openai_compatible`
+- `anthropic_native`
+- `google_compatible`
+
+Those transport decisions are now internal to holaOS Proxy rather than separate desktop-configurable providers.

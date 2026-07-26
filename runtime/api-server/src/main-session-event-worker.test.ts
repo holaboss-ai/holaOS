@@ -1,0 +1,627 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
+import { afterEach, test as nodeTest } from "node:test";
+
+import { RuntimeStateStore } from "@holaboss/runtime-state-store";
+import { seedWorkspaceRecord } from "./__test-helpers__/seed-workspace.js";
+
+import { RuntimeMainSessionEventWorker } from "./main-session-event-worker.js";
+
+const tempDirs: string[] = [];
+
+function test(
+  name: string,
+  fn: () => void | Promise<void>,
+): ReturnType<typeof nodeTest> {
+  return nodeTest(name, { concurrency: false }, fn);
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function makeTempDir(prefix: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function makeStore(prefix: string): RuntimeStateStore {
+  const root = makeTempDir(prefix);
+  return new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspaces"),
+  });
+}
+
+function seedMainSession(store: RuntimeStateStore) {
+  const workspace = seedWorkspaceRecord(store, {
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.ensureSession({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    kind: "main_session",
+  });
+  store.ensureRuntimeState({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    status: "IDLE",
+  });
+  return workspace;
+}
+
+test("main-session event worker materializes waiting-user events into one queued main-session input", async () => {
+  const store = makeStore("hb-main-session-event-worker-");
+  const workspace = seedMainSession(store);
+  let woke = 0;
+
+  const first = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "waiting_on_user",
+    deliveryBucket: "waiting_on_user",
+    payload: {
+      summary: "Need a repo name.",
+      blocking_question: "Which repo should I inspect?",
+    },
+  });
+  const second = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-2",
+    eventType: "waiting_on_user",
+    deliveryBucket: "waiting_on_user",
+    payload: {
+      summary: "Need project confirmation.",
+      blocking_question: "Should I create a new GCP project?",
+    },
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({
+    store,
+    queueWorker: {
+      async start() {},
+      wake() {
+        woke += 1;
+      },
+      async close() {},
+    },
+  });
+
+  const processed = await worker.processAvailableEventsOnce();
+  const firstUpdated = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: first.eventId });
+  const secondUpdated = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: second.eventId });
+  const batchInput = firstUpdated?.materializedInputId
+    ? store.getInput({ workspaceId: workspace.id, inputId: firstUpdated.materializedInputId })
+    : null;
+
+  assert.equal(processed, 2);
+  assert.equal(woke, 1);
+  assert.ok(batchInput);
+  assert.equal(batchInput?.sessionId, "session-main");
+  assert.equal(batchInput?.priority, -100);
+  const context = batchInput?.payload.context as Record<string, unknown>;
+  assert.equal(context.source, "main_session_event_batch");
+  assert.equal(context.delivery_bucket, "waiting_on_user");
+  assert.deepEqual(
+    [...(context.main_session_event_ids as string[])].sort(),
+    [first.eventId, second.eventId].sort(),
+  );
+  assert.equal(typeof batchInput?.payload.text, "string");
+  assert.match(String(batchInput?.payload.text), /numbered items/i);
+  assert.ok(firstUpdated);
+  assert.ok(secondUpdated);
+  assert.equal(firstUpdated?.status, "materialized");
+  assert.equal(secondUpdated?.status, "materialized");
+  assert.equal(firstUpdated?.materializedInputId, batchInput?.inputId);
+  assert.equal(secondUpdated?.materializedInputId, batchInput?.inputId);
+
+  store.close();
+});
+
+test("main-session event worker carries task references into synthetic background follow-ups", async () => {
+  const store = makeStore("hb-main-session-event-worker-task-ref-");
+  const workspace = seedMainSession(store);
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: {
+      source_type: "delegate_task",
+      source_id: "HOL-7",
+      issue_id: "HOL-7",
+      summary: "Dashboard polish finished.",
+    },
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+  const updatedEvent = store.getMainSessionEvent({
+    workspaceId: workspace.id,
+    eventId: event.eventId,
+  });
+  const batchInput = updatedEvent?.materializedInputId
+    ? store.getInput({
+        workspaceId: workspace.id,
+        inputId: updatedEvent.materializedInputId,
+      })
+    : null;
+  const context = (batchInput?.payload.context ?? {}) as Record<string, unknown>;
+  const queuedEventPayload = ((context.queued_events as Array<Record<string, unknown>>)[0]
+    ?.payload ?? {}) as Record<string, unknown>;
+
+  assert.equal(processed, 1);
+  assert.equal(queuedEventPayload.source_type, "delegate_task");
+  assert.equal(queuedEventPayload.source_id, "HOL-7");
+  assert.equal(queuedEventPayload.issue_id, "HOL-7");
+  assert.match(
+    String(batchInput?.payload.text),
+    /mention that reference naturally so the user can inspect the underlying task/i,
+  );
+
+  store.close();
+});
+
+test("main-session event worker does not materialize when the main session is busy", async () => {
+  const store = makeStore("hb-main-session-event-worker-busy-");
+  const workspace = seedMainSession(store);
+  store.updateRuntimeState({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    status: "BUSY",
+    currentInputId: null,
+    currentWorkerId: "worker-1",
+    leaseUntil: null,
+    heartbeatAt: null,
+    lastError: null,
+  });
+  store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: { summary: "Done." },
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+
+  assert.equal(processed, 0);
+  assert.equal(
+    store.listPendingMainSessionEvents({ workspaceId: workspace.id, ownerMainSessionId: "session-main" })
+      .length,
+    1,
+  );
+
+  store.close();
+});
+
+test("main-session event worker defers its first startup scan until after the initial delay", async () => {
+  const store = makeStore("hb-main-session-event-worker-delay-");
+  const workspace = seedMainSession(store);
+
+  store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: { summary: "Done." },
+  });
+  const initialEvent = store.listPendingMainSessionEvents({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+  })[0];
+
+  const worker = new RuntimeMainSessionEventWorker({
+    store,
+    initialDelayMs: 50,
+  });
+
+  try {
+    await worker.start();
+
+    assert.equal(
+      store.listPendingMainSessionEvents({ workspaceId: workspace.id, ownerMainSessionId: "session-main" })
+        .length,
+      1,
+    );
+    assert.equal(
+      store.hasAvailableInputsForSession({
+        workspaceId: workspace.id,
+        sessionId: "session-main",
+      }),
+      false,
+    );
+
+    await sleep(250);
+
+    const updatedEvent = initialEvent
+      ? store.getMainSessionEvent({ workspaceId: workspace.id, eventId: initialEvent.eventId })
+      : null;
+    assert.equal(updatedEvent?.status, "materialized");
+    assert.ok(updatedEvent?.materializedInputId);
+    assert.equal(
+      store.hasAvailableInputsForSession({
+        workspaceId: workspace.id,
+        sessionId: "session-main",
+      }),
+      true,
+    );
+  } finally {
+    await worker.close();
+    store.close();
+  }
+});
+
+test("main-session event worker inherits the owner main session model and thinking for synthetic follow-ups", async () => {
+  const store = makeStore("hb-main-session-event-worker-model-");
+  const workspace = seedMainSession(store);
+  const latestUserInput = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "hello",
+      model: "openai_codex/gpt-5.4",
+      thinking_value: "medium",
+      context: {},
+    },
+  });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: latestUserInput.inputId,
+    fields: {
+      status: "DONE",
+      claimedBy: null,
+      claimedUntil: null,
+    },
+  });
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: {
+      source_type: "workflow",
+      source_id: "workflow-run-1",
+      title: "Hourly Us News",
+      goal: "Fetch latest US news",
+      context:
+        "Research the latest US news headlines and provide a concise hourly summary with the most important developments.",
+      workflow_name: "Hourly US News",
+      workflow_trigger_kind: "cron",
+      workflow_schedule: "0 * * * *",
+      workflow_first_run: true,
+      summary: "Done.",
+      assistant_text:
+        "Full report body: this is the long-form research writeup that should stay out of the main-session prompt when a deliverable artifact is already attached.",
+      forwardable_deliverables: [
+        {
+          output_id: "output-1",
+          artifact_id: "artifact-1",
+          type: "report",
+          output_type: "document",
+          title: "done-report.md",
+          status: "completed",
+          file_path: "outputs/reports/done-report.md",
+          metadata: {
+            artifact_type: "report",
+          },
+        },
+      ],
+    },
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+  const updatedEvent = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: event.eventId });
+  const batchInput = updatedEvent?.materializedInputId
+    ? store.getInput({ workspaceId: workspace.id, inputId: updatedEvent.materializedInputId })
+    : null;
+
+  assert.equal(processed, 1);
+  assert.equal(batchInput?.payload.model, "openai_codex/gpt-5.4");
+  assert.equal(batchInput?.payload.thinking_value, "medium");
+  assert.match(
+    String(batchInput?.payload.text),
+    /only one update, phrase it as a normal conversational continuation/i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /Only use a clearly separated `Background updates` section when there are multiple distinct updates/i,
+  );
+  assert.match(String(batchInput?.payload.text), /numbered items/i);
+  assert.match(
+    String(batchInput?.payload.text),
+    /supplemental continuation only/i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /If completed work established clearly stable workspace-wide defaults that future runs should obey by default, use `update_workspace_instructions` to record them in `AGENTS\.md` before replying, but only when they are stable, likely to recur, or explicitly confirmed as future defaults\./i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /If a possible `AGENTS\.md` update still needs confirmation about becoming the default for future runs, ask before persisting it\./i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /Use `AGENTS\.md` for rules, defaults, conventions, and recurring commands that should shape behavior by default; keep named-subject facts, one-off deliverables, unresolved hypotheses, partial investigations, and temporary runtime state out of it\./i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /Do not repeat, paraphrase, or re-answer/i,
+  );
+  assert.match(
+    String(batchInput?.payload.text),
+    /Do not start with stock phrases like `Quick follow-up`/i,
+  );
+  assert.match(String(batchInput?.payload.text), /specific automation update/i);
+  assert.match(String(batchInput?.payload.text), /Hourly US News|Hourly Us News/i);
+  assert.match(String(batchInput?.payload.text), /Fetch latest US news/i);
+  assert.match(String(batchInput?.payload.text), /first run/i);
+  assert.match(String(batchInput?.payload.text), /done-report\.md/i);
+  assert.doesNotMatch(String(batchInput?.payload.text), /Full report body:/i);
+
+  store.close();
+});
+
+test("main-session event worker auto-heals session-reset follow-ups by rotating to a fresh coordinator session", async () => {
+  const store = makeStore("hb-main-session-event-worker-session-reset-");
+  const workspace = seedMainSession(store);
+  store.upsertConversationBinding({
+    workspaceId: workspace.id,
+    channel: "desktop",
+    conversationKey: "main_session",
+    role: "main_session",
+    sessionId: "session-main",
+    isActive: true,
+    metadata: {},
+    lastActiveAt: new Date().toISOString(),
+  });
+  const latestUserInput = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "hello",
+      model: "holaboss_model_proxy/xiaomi/mimo-v2-pro",
+      thinking_value: "medium",
+      context: {},
+    },
+  });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: latestUserInput.inputId,
+    fields: {
+      status: "DONE",
+      claimedBy: null,
+      claimedUntil: null,
+    },
+  });
+  store.createSubagentRun({
+    workspaceId: workspace.id,
+    subagentId: "subagent-1",
+    parentSessionId: "session-main",
+    originMainSessionId: "session-main",
+    ownerMainSessionId: "session-main",
+    childSessionId: "child-session-1",
+    goal: "Fetch latest China news",
+    status: "completed",
+    summary: "Done.",
+  });
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: {
+      summary: "Done.",
+      delivery_retry: {
+        attempt_count: 1,
+        retry_delay_ms: 0,
+        next_retry_at: new Date().toISOString(),
+        last_attempt_at: new Date().toISOString(),
+        last_stop_reason: "session_reset_required",
+      },
+    },
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+  const updatedEvent = store.getMainSessionEvent({
+    workspaceId: workspace.id,
+    eventId: event.eventId,
+  });
+  const recoverySessionId = updatedEvent?.ownerMainSessionId ?? null;
+  const recoverySession =
+    recoverySessionId
+      ? store.getSession({
+          workspaceId: workspace.id,
+          sessionId: recoverySessionId,
+        })
+      : null;
+  const conversationBinding = store.getConversationBindingByConversation({
+    workspaceId: workspace.id,
+    channel: "desktop",
+    conversationKey: "main_session",
+    role: "main_session",
+  });
+  const transferredRun = store.getSubagentRun({
+    workspaceId: workspace.id,
+    subagentId: "subagent-1",
+  });
+  const batchInput =
+    updatedEvent?.materializedInputId
+      ? store.getInput({
+          workspaceId: workspace.id,
+          inputId: updatedEvent.materializedInputId,
+        })
+      : null;
+
+  assert.equal(processed, 1);
+  assert.ok(recoverySessionId);
+  assert.notEqual(recoverySessionId, "session-main");
+  assert.equal(recoverySession?.kind, "main_session");
+  assert.equal(recoverySession?.parentSessionId, "session-main");
+  assert.equal(conversationBinding?.sessionId, recoverySessionId);
+  assert.equal(transferredRun?.ownerMainSessionId, recoverySessionId);
+  assert.equal(updatedEvent?.status, "materialized");
+  assert.equal(batchInput?.sessionId, recoverySessionId);
+  assert.equal(
+    batchInput?.payload.model,
+    "holaboss_model_proxy/xiaomi/mimo-v2-pro",
+  );
+  assert.equal(batchInput?.payload.thinking_value, "medium");
+  assert.equal(
+    (updatedEvent?.payload as Record<string, unknown>)?.delivery_retry &&
+      typeof (updatedEvent?.payload as Record<string, unknown>).delivery_retry === "object"
+      ? Number(
+          ((updatedEvent?.payload as Record<string, unknown>).delivery_retry as Record<string, unknown>)
+            .session_reset_recovery_count,
+        )
+      : null,
+    1,
+  );
+
+  store.close();
+});
+
+test("main-session event worker recovers failed materialized events and retries them with a fresh synthetic input", async () => {
+  const store = makeStore("hb-main-session-event-worker-recover-");
+  const workspace = seedMainSession(store);
+  const latestUserInput = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "hello",
+      model: "openai_codex/gpt-5.4",
+      thinking_value: "medium",
+      context: {},
+    },
+  });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: latestUserInput.inputId,
+    fields: {
+      status: "DONE",
+      claimedBy: null,
+      claimedUntil: null,
+    },
+  });
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: { summary: "Done." },
+  });
+  const failedBatchInput = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: {
+      text: "[Holaboss Main Session Event Batch v1]\nSummarize the queued event.",
+      attachments: [],
+      image_urls: [],
+      context: {
+        source: "main_session_event_batch",
+        main_session_event_ids: [event.eventId],
+        delivery_bucket: "background_update",
+      },
+    },
+    idempotencyKey: `main-session-event-batch:${event.eventId}@${event.updatedAt}`,
+  });
+  store.updateInput({
+    workspaceId: workspace.id,
+    inputId: failedBatchInput.inputId,
+    fields: {
+      status: "FAILED",
+      claimedBy: null,
+      claimedUntil: null,
+    },
+  });
+  store.markMainSessionEventsMaterialized({
+    workspaceId: workspace.id,
+    eventIds: [event.eventId],
+    materializedInputId: failedBatchInput.inputId,
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+  const updatedEvent = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: event.eventId });
+  const retriedInput = updatedEvent?.materializedInputId
+    ? store.getInput({ workspaceId: workspace.id, inputId: updatedEvent.materializedInputId })
+    : null;
+
+  assert.equal(processed, 1);
+  assert.ok(updatedEvent);
+  assert.equal(updatedEvent?.status, "materialized");
+  assert.notEqual(updatedEvent?.materializedInputId, failedBatchInput.inputId);
+  assert.equal(retriedInput?.payload.model, "openai_codex/gpt-5.4");
+  assert.equal(retriedInput?.payload.thinking_value, "medium");
+
+  store.close();
+});
+
+test("main-session event worker ignores already materialized events", async () => {
+  const store = makeStore("hb-main-session-event-worker-materialized-");
+  const workspace = seedMainSession(store);
+  const event = store.enqueueMainSessionEvent({
+    workspaceId: workspace.id,
+    ownerMainSessionId: "session-main",
+    originMainSessionId: "session-main",
+    subagentId: "subagent-1",
+    eventType: "completed",
+    deliveryBucket: "background_update",
+    payload: { summary: "Done." },
+  });
+  store.markMainSessionEventsMaterialized({
+    workspaceId: workspace.id,
+    eventIds: [event.eventId],
+    materializedInputId: "main-input-1",
+  });
+
+  const worker = new RuntimeMainSessionEventWorker({ store });
+  const processed = await worker.processAvailableEventsOnce();
+  const updatedEvent = store.getMainSessionEvent({ workspaceId: workspace.id, eventId: event.eventId });
+
+  assert.equal(processed, 0);
+  assert.equal(
+    store.listPendingMainSessionEvents({ workspaceId: workspace.id, ownerMainSessionId: "session-main" })
+      .length,
+    0,
+  );
+  assert.equal(updatedEvent?.status, "materialized");
+  assert.equal(updatedEvent?.materializedInputId, "main-input-1");
+  assert.equal(
+    store.hasAvailableInputsForSession({
+      workspaceId: workspace.id,
+      sessionId: "session-main",
+    }),
+    false,
+  );
+
+  store.close();
+});

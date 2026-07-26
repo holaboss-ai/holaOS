@@ -1,0 +1,417 @@
+---
+title: Workspace Model
+description: The workspace filesystem layout and the split between authored state, runtime-owned state, continuity, and durable memory forests.
+---
+
+Workspaces live under the runtime OS root. In desktop mode that root comes from the local host data directory. In standalone runtime deployments it defaults to `/holaboss`.
+
+<DiagramFileTree
+  root={{
+    name: "os-root/",
+    accent: "brand",
+    children: [
+      {
+        name: "state/",
+        accent: "brand",
+        children: [
+          { name: "runtime-config.json", meta: "Model providers" },
+          {
+            name: "host-state.db",
+            meta: "Host bootstrap · diagnostics · compatibility",
+          },
+          {
+            name: "control-plane.db",
+            meta: "Workspaces · profiles · integrations · catalog",
+          },
+        ],
+      },
+      {
+        name: "workspace/",
+        accent: "engine",
+        children: [
+          {
+            name: "<workspace-id>/",
+            accent: "engine",
+            children: [
+              { name: ".git/", meta: "Local agent checkpoints" },
+              { name: "AGENTS.md", meta: "Standing workspace policy" },
+              {
+                name: "workspace.yaml",
+                meta: "Agent · commands · skills · apps",
+              },
+              { name: "ONBOARD.md", meta: "Onboarding instruction surface" },
+              {
+                name: "skills/",
+                meta: "Workspace-local skills",
+                children: [
+                  {
+                    name: "<skill-id>/",
+                    children: [
+                      { name: "SKILL.md", meta: "Skill instructions" },
+                    ],
+                  },
+                ],
+              },
+              {
+                name: "apps/",
+                meta: "Workspace-local apps",
+                children: [
+                  {
+                    name: "<app-id>/",
+                    children: [
+                      {
+                        name: "app.runtime.yaml",
+                        meta: "Lifecycle + integrations",
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                name: ".holaboss/",
+                meta: "Workspace-owned runtime state and memory",
+                children: [
+                  {
+                    name: "state/",
+                    meta: "Workspace runtime state",
+                    children: [
+                      { name: "workspace_id", meta: "Identity marker" },
+                      {
+                        name: "runtime.db",
+                        meta: "Sessions · turns · queues · outputs · notifications",
+                      },
+                      {
+                        name: "harness-session-state.json",
+                        meta: "Harness session mapping",
+                      },
+                      { name: "data.db", meta: "Shared workspace SQLite" },
+                      {
+                        name: "workspace-mcp-sidecar-state.json",
+                        meta: "Sidecar registry",
+                      },
+                      {
+                        name: "<server>.workspace-mcp-sidecar.stdout.log",
+                        meta: "Sidecar stdout",
+                      },
+                      {
+                        name: "<server>.workspace-mcp-sidecar.stderr.log",
+                        meta: "Sidecar stderr",
+                      },
+                      {
+                        name: "todos/",
+                        meta: "Session todo state",
+                      },
+                      {
+                        name: "scratchpads/",
+                        meta: "Session scratchpads",
+                      },
+                      {
+                        name: "legacy-session-histories/",
+                        meta: "Archived front-session exports",
+                      },
+                      {
+                        name: "tool-results/",
+                        meta: "Preview spillover artifacts",
+                      },
+                    ],
+                  },
+                  {
+                    name: "input-attachments/",
+                    meta: "Staged input payloads",
+                    children: [
+                      { name: "<batch-id>/*", meta: "Attachment batch files" },
+                    ],
+                  },
+                  {
+                    name: "memory/",
+                    meta: "Workspace-scoped memory and continuity",
+                    children: [
+                      {
+                        name: "MEMORY.md",
+                        meta: "Workspace recall manifest · compatibility surface",
+                      },
+                      {
+                        name: "runtime/",
+                        meta: "Resume-only continuity",
+                        children: [
+                          { name: "latest-turn.md", meta: "Last-turn projection" },
+                          {
+                            name: "session-state/",
+                            meta: "Session state projections",
+                          },
+                          {
+                            name: "session-memory/",
+                            meta: "Resume-friendly snapshots",
+                          },
+                          {
+                            name: "recent-turns/",
+                            meta: "Recent turn snapshots",
+                          },
+                          { name: "blockers/", meta: "Operational blockers" },
+                          {
+                            name: "permission-blockers/",
+                            meta: "Permission-gated blockers",
+                          },
+                        ],
+                      },
+                      {
+                        name: "interaction/",
+                        meta: "Durable interaction leaves",
+                        children: [
+                          {
+                            name: "entities/",
+                            meta: "Per-entity leaf and summary storage",
+                            children: [
+                              {
+                                name: "<entity-slug>/",
+                                children: [
+                                  { name: "leaves/", meta: "Durable markdown leaves" },
+                                  { name: "summaries/", meta: "Materialized summaries" },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                      {
+                        name: "semantic/",
+                        meta: "Semantic markdown tree projection",
+                        children: [
+                          {
+                            name: "interaction/",
+                            children: [
+                              {
+                                name: "trees/",
+                                meta: "Browsable interaction forest",
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: "memory/",
+        accent: "context",
+        children: [
+          { name: "MEMORY.md", meta: "Global recall manifest · compatibility surface" },
+          {
+            name: "integration/",
+            meta: "Primary global integration evidence leaves",
+            children: [
+              { name: "trees/", meta: "Per-account or per-connection leaves" },
+            ],
+          },
+          {
+            name: "semantic/",
+            meta: "Global semantic memory trees",
+            children: [
+              {
+                name: "integration/",
+                children: [
+                  { name: "trees/", meta: "Browsable integration forest" },
+                ],
+              },
+            ],
+          },
+          {
+            name: "preference/",
+            meta: "Secondary user-memory docs",
+            children: [
+              { name: "MEMORY.md", meta: "Preference recall manifest" },
+              { name: "*.md", meta: "Preference documents" },
+            ],
+          },
+          {
+            name: "identity/",
+            meta: "Optional secondary identity docs",
+            children: [
+              { name: "MEMORY.md", meta: "Identity recall manifest" },
+              { name: "*.md", meta: "Identity documents" },
+            ],
+          },
+        ],
+      },
+    ],
+  }}
+/>
+
+The workspace model is split deliberately: human-authored policy, runtime contracts, execution truth, and durable memory do not live in the same place.
+
+This page explains what the workspace surfaces mean. It is not the page for runner bootstrap order, compile-stage validation, or reduced harness-request payloads. For those implementation details, continue into [Run Compilation](/docs/contribute/runtime/run-compilation).
+
+The diagram above is the canonical filesystem layout. The sections below explain what each surface is for.
+
+## What each part means
+
+### `workspace.yaml`
+
+`workspace.yaml` is the root runtime plan for the workspace. It describes the active agent, skill ordering, workspace commands, MCP registry, and the apps installed into the workspace.
+
+It does not declare workspace plugins. In the current model:
+
+- `Apps` are declared in `workspace.yaml` under `applications[]`
+- `Plugins` are workspace-native runtime structure stored in the workspace runtime database
+- plugins own one base plus plugin-owned workflows and custom teammates
+- the plugin base owns that plugin's dashboards and objects
+
+For app development, two fields matter immediately:
+
+- `applications[].app_id`
+- `applications[].config_path`
+
+For workspace-level MCP, the main authored surface is `mcp_registry`:
+
+- `mcp_registry.servers.<server-id>` declares local or remote MCP servers
+- `mcp_registry.allowlist.tool_ids` optionally provides explicit `server.tool` refs for servers that should be constrained to a known subset
+- when `mcp_registry.allowlist.tool_ids` is omitted or empty, the runtime exposes all discovered tools from the enabled configured MCP servers for that run
+- when some servers have explicit tool ids and others do not, the runtime keeps the explicit subset for the referenced servers and still allows discovery for the other enabled configured servers
+- remote MCP headers and environment values may use `{env:ENV_VAR_NAME}` placeholders, but the contents must be an environment variable name, not a literal secret
+
+For remote MCP servers, `workspace.yaml` usually declares the server and policy boundary, not the full raw tool catalog. The concrete remote tool list may still be discovered at run time.
+
+For example, this is valid:
+
+```yaml
+headers:
+  CONTEXT7_API_KEY: "{env:CONTEXT7_API_KEY}"
+```
+
+and this is also valid:
+
+```yaml
+headers:
+  CONTEXT7_API_KEY: "ctx7sk-..."
+```
+
+This is invalid:
+
+```yaml
+headers:
+  CONTEXT7_API_KEY: "{env:ctx7sk-...}"
+```
+
+Those entries are how the runtime finds each app manifest under `apps/`. They are not how workspace plugins are registered.
+
+### `.git/`
+
+Desktop-created workspaces are initialized as local git repositories after their scaffold or template is materialized. That repository is intended for agent-owned local version control checkpoints rather than remote sync. Lower-level workspace creation does not make local git initialization a universal runtime invariant by itself.
+
+### `AGENTS.md`
+
+`AGENTS.md` is the human-authored instruction surface. Put standing workspace policy here instead of trying to encode it in runtime state.
+
+### `ONBOARD.md`
+
+`ONBOARD.md` is the onboarding instruction surface for first-run or onboarding-mode workspaces. The file lives with the workspace, while onboarding status and onboarding session state are tracked separately in runtime state.
+
+### `skills/`
+
+Workspace skills live under `skills/`. The runtime loads them from the workspace directory, and each skill directory must contain a `SKILL.md` file.
+
+### `apps/`
+
+Workspace-local apps live under `apps/<app-id>/`. Each app must provide `app.runtime.yaml`, which is the runtime contract for lifecycle and integration behavior.
+
+If you are changing app behavior, continue into [App Anatomy](/docs/build/apps/app-anatomy) rather than treating this page as the full contract reference.
+
+### `.holaboss/`
+
+`<workspace-id>/.holaboss/` now holds the workspace bundle's runtime-owned surfaces:
+
+- `.holaboss/state/`
+  - workspace identity marker, persisted harness-session mapping, shared workspace SQLite, MCP sidecar state, todos, scratchpads, and archived session exports
+- `.holaboss/memory/`
+  - workspace-scoped runtime continuity plus durable interaction memory
+- `.holaboss/input-attachments/`
+  - staged attachment batches referenced by in-flight runs
+
+### `state/host-state.db`
+
+`state/host-state.db` is the sandbox-global host database. It keeps local host/bootstrap state, embedded-runtime diagnostics, and compatibility metadata used while older local installs migrate forward. It is no longer the canonical home for workspace execution truth.
+
+### `state/control-plane.db`
+
+`state/control-plane.db` is the sandbox-global control-plane database. It keeps workspace registry metadata, runtime user profiles, integration connections and bindings, OAuth app config, and app catalog metadata.
+
+### `<workspace-id>/.holaboss/state/runtime.db`
+
+`<workspace-id>/.holaboss/state/runtime.db` is the durable runtime execution database for one workspace. It keeps sessions, bindings, queue state, turn results, request snapshots, output folders, app runtime state, cronjobs, runtime notifications, task proposals, evolve skill candidates, memory update proposals, workspace plugins, plugin-owned bases, plugin-owned workflows, plugin-owned custom teammates, and workspace-scoped memory metadata such as interaction entities, leaves, semantic nodes, and search docs. The workspace identity file still lives alongside it at `<workspace-id>/.holaboss/state/workspace_id` as the on-disk marker for workspace discovery and migration.
+
+### `<workspace-id>/.holaboss/memory/`
+
+`<workspace-id>/.holaboss/memory/` is where workspace-local markdown memory now lives. It contains three different kinds of surfaces:
+
+- `runtime/`
+  - runtime-generated continuity projections such as `latest-turn.md`, `recent-turns/`, `session-state/`, `session-memory/`, and blocker snapshots
+- `interaction/`
+  - durable markdown leaves and materialized summary files written from completed runs
+- `semantic/interaction/trees/`
+  - semantic markdown tree projections rebuilt from the interaction leaves for browsing and recall
+
+The important boundary is that `runtime/` is resume state, while `interaction/` and `semantic/interaction/trees/` are durable recall memory.
+
+### `memory/`
+
+`memory/` is still OS-global, but it is now the configured global memory root rather than the old workspace-local knowledge surface. Its primary durable surface is the global integration forest. It also still carries secondary compatibility and user-memory docs.
+
+- `integration/trees/`
+  - durable integration evidence leaves
+- `semantic/integration/trees/`
+  - semantic integration tree projections for browsing and recall
+- `MEMORY.md`
+  - the global recall manifest and compatibility index
+- `preference/`
+  - secondary durable user-preference docs written from accepted user-memory proposals
+- `identity/`
+  - optional secondary durable user-identity docs
+
+Workspace-scoped markdown memory lives inside each workspace at `<workspace-id>/.holaboss/memory/`, while integration memory and profile-global memory live under the shared `memory/` root.
+
+The memory browser turns those physical and namespaced files into two main forests:
+
+- `interaction/trees/...`
+  - the workspace interaction forest
+- `integration/trees/...`
+  - the visible integration forest
+
+## What the runtime compiles per run
+
+The workspace tree is only the authored input. For each run, the runtime compiles a reduced execution package from:
+
+- `workspace.yaml`
+- `AGENTS.md`
+- workspace commands
+- installed app manifests
+- workspace-local skills
+
+Before the harness starts, the runtime then:
+
+1. projects the visible and callable capability surface for that run, including workspace commands where configured
+2. assembles prompt sections and prompt layers
+3. computes a `prompt_cache_profile`
+4. persists a sanitized request snapshot for replay and debugging
+5. passes a reduced execution package to the harness with the selected model target, composed prompt, capability manifest, and workspace checksum
+
+That split is why the filesystem contract and the runtime continuity contract need to stay separate. The workspace holds authored intent; the runtime compiles per-run execution state from it.
+
+## App manifests
+
+`app.runtime.yaml` is the app-level runtime contract. It tells the runtime how to:
+
+- install or set up the app
+- start and stop it
+- discover its MCP server
+- check its health
+- resolve app-specific ports
+- resolve integration requirements (which external services the app needs access to)
+
+The runtime does not care what framework the app uses internally. It only needs the declared contract. See the [app.runtime.yaml reference](/docs/build/apps/app-runtime-yaml) for the full field guide including integration declarations.
+
+If you are changing workspace creation or reusable scaffolds instead of an installed app, continue into [Template Materialization](/docs/contribute/templates-materialization).

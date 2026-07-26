@@ -1,0 +1,72 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "holaboss-docs",
+  "main": "./workers/app.ts",
+  "compatibility_date": "2025-04-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // We're SSR, not SPA. Assets must return 404 on miss so the Worker can
+  // take over (RR data requests like `/docs/x.data` must NOT fall back to
+  // index.html — that serves HTML where JSON is expected).
+  "assets": {
+    "directory": "./build/client",
+    "binding": "ASSETS",
+    "not_found_handling": "none",
+  },
+
+  "routes": [
+    { "pattern": "www.holaboss.ai/docs/*", "zone_name": "holaboss.ai" },
+    { "pattern": "www.holaos.ai/docs/*", "zone_name": "holaos.ai" },
+  ],
+
+  "env": {
+    "preview": {
+      "name": "holaboss-docs-preview",
+      "main": "./workers/app.ts",
+      "compatibility_date": "2025-04-03",
+      "compatibility_flags": ["nodejs_compat"],
+      "observability": { "enabled": true },
+      "assets": {
+        "directory": "./build/client",
+        "binding": "ASSETS",
+        "not_found_handling": "none",
+      },
+      "routes": [
+        { "pattern": "preview.imerchstaging.com/docs/*", "zone_name": "imerchstaging.com" },
+      ],
+    },
+
+    "staging": {
+      "name": "holaboss-docs-staging",
+      "main": "./workers/app.ts",
+      "compatibility_date": "2025-04-03",
+      "compatibility_flags": ["nodejs_compat"],
+      "observability": { "enabled": true },
+      "assets": {
+        "directory": "./build/client",
+        "binding": "ASSETS",
+        "not_found_handling": "none",
+      },
+      "routes": [
+        { "pattern": "www.imerchstaging.com/docs/*", "zone_name": "imerchstaging.com" },
+      ],
+    },
+
+    "production": {
+      "name": "holaboss-docs-production",
+      "main": "./workers/app.ts",
+      "compatibility_date": "2025-04-03",
+      "compatibility_flags": ["nodejs_compat"],
+      "observability": { "enabled": true },
+      "assets": {
+        "directory": "./build/client",
+        "binding": "ASSETS",
+        "not_found_handling": "none",
+      },
+      "routes": [
+        { "pattern": "www.holaboss.ai/docs/*", "zone_name": "holaboss.ai" },
+        { "pattern": "www.holaos.ai/docs/*", "zone_name": "holaos.ai" },
+      ],
+    },
+  },
+}

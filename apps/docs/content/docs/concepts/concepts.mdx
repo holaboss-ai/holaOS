@@ -1,0 +1,129 @@
+---
+title: Concepts
+description: The shared vocabulary for holaOS — core layers, artifacts, and surfaces that show up across the desktop app, the runtime, and the workspace model.
+---
+
+This page is the shared vocabulary for `holaOS`. It defines the core layers, artifacts, and surfaces that show up across the desktop app, the runtime, and the workspace model.
+
+holaOS Desktop is the operator-facing product surface. `holaOS` is the environment layer underneath it. The concepts below give you the working model for how those pieces fit together, so the rest of the docs are easier to scan and reason about.
+
+This page is intentionally conceptual. It defines responsibilities and boundaries, not exact implementation seams. If you need commands, payload fields, runtime routes, or source-file ownership, continue into [Contribute](/docs/contribute).
+
+## The system at a glance
+
+<DiagramSystemOverview />
+
+Each layer has a distinct job. Keeping those jobs separate makes the system easier to operate and extend.
+
+In this model, `holaOS` is the environment layer: the workspace contract, the runtime services around it, and the harness boundary the runtime controls. holaOS Desktop sits above that layer as the operator-facing product surface. A workspace is not just a folder the harness happens to open; in `holaOS`, it is part of the system contract itself.
+
+<DocDefinition term="Desktop" meta="operator UI">
+  The desktop app is where you create, inspect, and operate workspaces locally. It handles the operator experience: connecting to a runtime, opening workspaces, choosing models, and exposing the state the runtime makes visible.
+</DocDefinition>
+
+<DocDefinition term="Runtime" meta="execution layer">
+  The runtime is the portable service layer inside `holaOS` that actually runs a workspace. It owns execution, memory and continuity services, app orchestration, capability projection, the durable state that keeps a workspace consistent over time, and the harness host that invokes the selected agent harness.
+</DocDefinition>
+
+<DocDefinition term="Agent Harness" meta="execution boundary">
+  The agent harness is the swappable execution and control layer the runtime hands a prepared run to. It does not define the workspace model by itself. The runtime compiles a reduced execution package and passes that package across the harness boundary to the selected harness path. Today the OSS repo ships the `pi` harness path, but the boundary is designed so other harnesses can be added later.
+</DocDefinition>
+
+<DocDefinition term="Workspace" meta="unit of work">
+  A workspace is the operating context for one workflow. It carries the authored files, installed apps, skills, and configuration that define how the workflow should behave. In the `holaOS` model, it is a core environment artifact. Memory and continuity are resolved around the workspace by the runtime rather than collapsed into one file.
+</DocDefinition>
+
+<DocDefinition term="Operator Surface" meta="active work surface">
+  An operator surface is a user-owned or agent-owned place where work is currently happening: a browser tab, file view, terminal, app surface, preview, or similar active context. In `holaOS`, these surfaces matter because the runtime can use them as continuity anchors for references like "here", "this page", or "what I'm looking at right now".
+</DocDefinition>
+
+<DocDefinition term="Memory" meta="durable recall surface">
+  Memory is the durable knowledge surface around the workspace: recalled facts, procedures, preferences, identity, and other information that should survive across runs. In `holaOS`, memory is not the same thing as the workspace root and not the same thing as short-lived run state.
+</DocDefinition>
+
+<DocDefinition term="Continuity" meta="runtime-owned execution truth">
+  Continuity is the runtime-owned state that lets work resume coherently: recent turn state, request snapshots, session mappings, session-memory projections, and other execution artifacts. It is distinct from durable memory and from human-authored workspace policy.
+</DocDefinition>
+
+<DocDefinition term="Template" meta="workspace scaffold">
+  A template is the reusable starting shape for a workspace. It packages the initial files, apps, skills, and conventions that a new workspace should inherit. In `holaOS`, templates are one of the portability surfaces of the environment: they make a known operating context reproducible without collapsing the live workspace into one static archive. The desktop currently materializes workspaces from empty scaffolds, local template folders, or marketplace templates.
+</DocDefinition>
+
+<DocDefinition term="App" meta="capability module">
+  An app is the runtime-managed unit that packages durable capability inside a workspace. It can combine UI, automation, MCP tools, local state, background work, and outputs as one installable module. In the current runtime, the workspace registers it under `applications[]` so the runtime can manage it as one coherent capability boundary.
+</DocDefinition>
+
+<DocDefinition term="Integration" meta="account connection">
+  An integration connects a workspace capability to an external service account such as Gmail, GitHub, or Twitter. Apps declare which integrations they require, and the runtime resolves those requirements through workspace bindings and brokered access. The important concept is that external-account access stays runtime-managed rather than becoming ambient workspace state.
+</DocDefinition>
+
+<DocDefinition term="Skill" meta="instruction pack">
+  A skill is a reusable instruction file that teaches the agent how to perform a narrow task well. Skills live with the workspace so they can be shared, versioned, and recalled consistently.
+</DocDefinition>
+
+<DocDefinition term="Workspace Command" meta="explicit command capability">
+  A workspace command is an explicit runnable command declared in workspace configuration. It is a separate capability surface from apps, skills, MCP tools, and runtime-managed tools. In the shipped harness path today, workspace commands are primarily exposed as workspace-defined command references rather than native callable tool primitives.
+</DocDefinition>
+
+<DocDefinition term="Environment Engineering" meta="systems thesis">
+  The idea that long-horizon agent systems should be defined by their environment contract: workspace structure, durable memory surfaces, retrieval and writeback behavior, capability projection, and harness boundary. In `holaOS`, this means separating the broad industry idea of a "harness" into a durable environment contract plus a swappable execution subsystem.
+</DocDefinition>
+
+<DocDefinition term="MCP" meta="tool surface">
+  MCP is the standardized tool interface the runtime can project from apps and other workspace-level servers. It lets the runtime expose capabilities in a way the agent can call reliably without collapsing every tool surface into app-specific code.
+</DocDefinition>
+
+<DocDefinition term="App Builder SDK" meta="app authoring layer">
+  The App Builder SDK is the TypeScript SDK new Holaboss workspace apps build against. It exposes five orthogonal primitives — `connection`, `resource`, `action`, `sync`, `start` — that compose into any app shape, normalizes upstream HTTP errors into typed `BridgeError` codes, and auto-derives the MCP tool surface from declared actions. The package is `@holaboss/app-builder-sdk`.
+</DocDefinition>
+
+<DocDefinition term="Output" meta="durable result">
+  An output is the persistent result of an agent or app action. Outputs are what users review, reuse, or publish after a run completes.
+</DocDefinition>
+
+## How the pieces relate
+
+1. The desktop opens or creates a workspace (optionally from a template).
+2. The workspace provides the authored contract: instructions, commands, apps, skills, and model settings.
+3. The runtime resolves memory, continuity, capabilities, integrations, and prompt/model configuration for that run.
+4. The runtime passes a reduced execution package to the selected agent harness.
+5. Apps provide tools, UI, and background behavior. Apps that need external access declare integration requirements.
+6. The runtime resolves those requirements by matching them to connected accounts through bindings.
+7. The result is stored as outputs, continuity state, and durable memory where appropriate, so later runs can continue from the same context.
+
+<DiagramWorkspaceTree />
+
+## What to read next
+
+<DocCards>
+  <DocCard
+    title="Environment Engineering"
+    eyebrow="Core thesis"
+    href="/docs/concepts/environment-engineering"
+    description="See how holaOS separates a durable environment contract from the swappable harness path."
+  />
+  <DocCard
+    title="Workspace Model"
+    eyebrow="Environment contract"
+    href="/docs/concepts/workspace-model"
+    description="Understand the authored workspace surface and the runtime-owned state around it."
+  />
+  <DocCard
+    title="Apps in holaOS"
+    eyebrow="Capability Layer"
+    href="/docs/concepts/apps"
+    description="See why holaOS uses apps as the packaged capability unit between the workspace model and the builder path."
+  />
+  <DocCard
+    title="Agent Harness"
+    eyebrow="Execution boundary"
+    href="/docs/concepts/agent-harness"
+    description="See what the runtime passes into the harness, what comes back out, and which capability surfaces the current path exposes."
+  />
+  <DocCard
+    title="Contribute"
+    eyebrow="Developer path"
+    href="/docs/contribute"
+    description="Move from the system vocabulary into the code-truth developer paths for runtime work, apps, and templates."
+  />
+</DocCards>

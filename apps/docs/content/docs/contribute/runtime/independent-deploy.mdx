@@ -1,0 +1,235 @@
+---
+title: Independent Deploy
+description: Deploying the runtime independently from the desktop shell.
+---
+
+Use this page when you want to run the packaged runtime without Electron. The source of truth is `runtime/deploy/`, not the desktop shell.
+
+It is the same runtime, packaged differently:
+
+- the desktop app starts it for local users
+- an independent deployment starts it directly on the target machine
+
+## Bundle shape
+
+Every platform packager produces the same high-level layout:
+
+```text
+<bundle-root>/
+  bin/
+    sandbox-runtime            # or sandbox-runtime.cmd on Windows
+  runtime/
+    api-server/
+    harness-host/
+    state-store/
+    harnesses/
+    bootstrap/
+    metadata.json
+  node-runtime/
+  python-runtime/
+  package-metadata.json
+```
+
+`runtime/deploy/build_runtime_root.sh` and `build_runtime_root.mjs` assemble the built `runtime/` tree. The platform packagers then add the bundled Node runtime, bundled Python runtime, the launcher under `bin/`, and `package-metadata.json`.
+
+## Build the bundle
+
+Linux:
+
+```bash
+bash runtime/deploy/package_linux_runtime.sh out/runtime-linux
+tar -C out -czf out/holaboss-runtime-linux.tar.gz runtime-linux
+```
+
+macOS:
+
+```bash
+bash runtime/deploy/package_macos_runtime.sh out/runtime-macos
+tar -C out -czf out/holaboss-runtime-macos.tar.gz runtime-macos
+```
+
+Windows:
+
+```bash
+node runtime/deploy/package_windows_runtime.mjs out/runtime-windows
+powershell -Command "Compress-Archive -Path out/runtime-windows -DestinationPath out/holaboss-runtime-windows.zip -Force"
+```
+
+`package_windows_runtime.mjs` must run on a Windows host. It intentionally refuses to build a Windows bundle from a non-Windows machine.
+
+## What the launcher does on startup
+
+The packaged launcher under `bin/sandbox-runtime` is thin. The real startup behavior lives in `runtime/deploy/bootstrap/shared.sh` for macOS and Linux and in `runtime/deploy/bootstrap/windows.mjs` for Windows.
+
+At startup it:
+
+1. Resolves `HB_SANDBOX_ROOT` or falls back to `/holaboss` on macOS and Linux and `%LOCALAPPDATA%\\holaboss` on Windows.
+2. Creates `workspace/`, `memory/`, and `state/` under that sandbox root.
+3. Sets `SANDBOX_RUNTIME_API_HOST` and `SANDBOX_RUNTIME_API_PORT` from `SANDBOX_AGENT_BIND_HOST` and `SANDBOX_AGENT_BIND_PORT` if needed.
+4. Sets `HOLABOSS_MODEL_PROXY_BASE_URL_DEFAULT=http://127.0.0.1:3060/api/v1/model-proxy` unless you override it.
+5. Executes `runtime/api-server/dist/index.mjs` from the packaged runtime tree.
+
+## Filesystem contract on the target machine
+
+By default, the runtime owns this directory shape under `HB_SANDBOX_ROOT`:
+
+```text
+$HB_SANDBOX_ROOT/
+  workspace/
+    <workspace-id>/
+      .holaboss/
+        memory/
+          interaction/
+          semantic/
+            interaction/
+              trees/
+          runtime/
+        state/
+          runtime.db
+  memory/
+    integration/
+      trees/
+    semantic/
+      integration/
+        trees/
+  state/
+    host-state.db
+    control-plane.db
+    runtime-config.json
+```
+
+`runtime-config.json` defaults to `HB_SANDBOX_ROOT/state/runtime-config.json` unless `HOLABOSS_RUNTIME_CONFIG_PATH` overrides it.
+
+## Config developers usually care about
+
+| Variable | Why you set it |
+| --- | --- |
+| `HB_SANDBOX_ROOT` | Choose where the runtime keeps workspace bundles, profile-global memory, and runtime state |
+| `HOLABOSS_RUNTIME_CONFIG_PATH` | Override the default `state/runtime-config.json` location |
+| `SANDBOX_AGENT_BIND_HOST` | Bind the runtime to a specific host |
+| `SANDBOX_AGENT_BIND_PORT` | Bind the runtime to a specific port |
+| `SANDBOX_AGENT_HARNESS` | Select the harness path, currently `pi` in OSS |
+| `HOLABOSS_HOST_STATE_DB_PATH` | Override the sandbox-global host-state DB path used for host/bootstrap state |
+| `HOLABOSS_CONTROL_PLANE_DB_PATH` | Override the control-plane DB path used for workspace registry, profiles, and integrations |
+| `HOLABOSS_RUNTIME_DB_PATH` | Legacy alias for `HOLABOSS_HOST_STATE_DB_PATH` |
+| `HOLABOSS_SANDBOX_AUTH_TOKEN` | Provide product auth when you are running against the holaOS-backed model proxy path |
+| `HOLABOSS_USER_ID` | Provide the runtime user identity for auth-backed flows |
+| `HOLABOSS_MODEL_PROXY_BASE_URL` | Override the model-proxy base URL instead of relying on the default |
+| `HOLABOSS_DEFAULT_MODEL` | Change the default selected model |
+
+Optional product-facing env such as `HOLABOSS_RUNTIME_WORKFLOW_BACKEND`, `PROACTIVE_ENABLE_REMOTE_BRIDGE`, and `PROACTIVE_BRIDGE_BASE_URL` are only needed when you want standalone runtime behavior to match the desktop-backed workflow path.
+
+Representative `runtime-config.json` for a product-backed standalone runtime:
+
+```json
+{
+  "runtime": {
+    "mode": "product",
+    "default_model": "openai/gpt-5.4",
+    "default_provider": "holaboss_model_proxy"
+  },
+  "integrations": {
+    "holaboss": {
+      "enabled": true,
+      "auth_token": "hbrt.v1.your-runtime-token",
+      "user_id": "user_123",
+      "sandbox_id": "sandbox_123"
+    }
+  },
+  "providers": {
+    "holaboss_model_proxy": {
+      "kind": "holaboss_proxy",
+      "base_url": "https://runtime.example/api/v1/model-proxy"
+    }
+  }
+}
+```
+
+## Install and run examples
+
+Linux:
+
+```bash
+sudo mkdir -p /opt/holaboss
+sudo tar -C /opt/holaboss -xzf holaboss-runtime-linux.tar.gz
+sudo ln -sf /opt/holaboss/runtime-linux/bin/sandbox-runtime /usr/local/bin/holaboss-runtime
+sudo mkdir -p /var/lib/holaboss
+
+HB_SANDBOX_ROOT=/var/lib/holaboss \
+SANDBOX_AGENT_BIND_HOST=127.0.0.1 \
+SANDBOX_AGENT_BIND_PORT=8080 \
+SANDBOX_AGENT_HARNESS=pi \
+HOLABOSS_RUNTIME_WORKFLOW_BACKEND=remote_api \
+HOLABOSS_HOST_STATE_DB_PATH=/var/lib/holaboss/state/host-state.db \
+HOLABOSS_CONTROL_PLANE_DB_PATH=/var/lib/holaboss/state/control-plane.db \
+PROACTIVE_ENABLE_REMOTE_BRIDGE=1 \
+PROACTIVE_BRIDGE_BASE_URL=https://your-bridge.example \
+holaboss-runtime
+```
+
+macOS:
+
+```bash
+sudo mkdir -p /opt/holaboss
+sudo tar -C /opt/holaboss -xzf holaboss-runtime-macos.tar.gz
+sudo ln -sf /opt/holaboss/runtime-macos/bin/sandbox-runtime /usr/local/bin/holaboss-runtime
+mkdir -p "$HOME/Library/Application Support/HolabossRuntime"
+
+HB_SANDBOX_ROOT="$HOME/Library/Application Support/HolabossRuntime" \
+SANDBOX_AGENT_BIND_HOST=127.0.0.1 \
+SANDBOX_AGENT_BIND_PORT=8080 \
+SANDBOX_AGENT_HARNESS=pi \
+HOLABOSS_RUNTIME_WORKFLOW_BACKEND=remote_api \
+HOLABOSS_HOST_STATE_DB_PATH="$HOME/Library/Application Support/HolabossRuntime/state/host-state.db" \
+HOLABOSS_CONTROL_PLANE_DB_PATH="$HOME/Library/Application Support/HolabossRuntime/state/control-plane.db" \
+PROACTIVE_ENABLE_REMOTE_BRIDGE=1 \
+PROACTIVE_BRIDGE_BASE_URL=https://your-bridge.example \
+holaboss-runtime
+```
+
+Windows:
+
+```powershell
+New-Item -ItemType Directory -Force C:\holaOS | Out-Null
+Expand-Archive -Path .\holaboss-runtime-windows.zip -DestinationPath C:\holaOS -Force
+
+$env:HB_SANDBOX_ROOT="$env:LOCALAPPDATA\holaboss"
+$env:SANDBOX_AGENT_BIND_HOST="127.0.0.1"
+$env:SANDBOX_AGENT_BIND_PORT="8080"
+$env:SANDBOX_AGENT_HARNESS="pi"
+$env:HOLABOSS_RUNTIME_WORKFLOW_BACKEND="remote_api"
+$env:HOLABOSS_HOST_STATE_DB_PATH="$env:LOCALAPPDATA\holaboss\state\host-state.db"
+$env:HOLABOSS_CONTROL_PLANE_DB_PATH="$env:LOCALAPPDATA\holaboss\state\control-plane.db"
+$env:PROACTIVE_ENABLE_REMOTE_BRIDGE="1"
+$env:PROACTIVE_BRIDGE_BASE_URL="https://your-bridge.example"
+
+C:\holaOS\runtime-windows\bin\sandbox-runtime.cmd
+```
+
+## Smoke test a packaged runtime
+
+After extraction, verify the packaged files before you debug app behavior:
+
+```bash
+ls package-metadata.json runtime/metadata.json
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/api/v1/runtime/status
+```
+
+If you changed the bind port, query that port instead.
+
+## What stays the same
+
+Independent deploy does not change the runtime contract:
+
+- workspace layout is still the same
+- `AGENTS.md` is still the instruction surface
+- each workspace still keeps execution truth in `<workspace-id>/.holaboss/state/runtime.db`
+- `state/host-state.db` now keeps sandbox-global host/bootstrap state
+- `state/control-plane.db` keeps workspace registry, runtime profiles, and integration metadata
+- profile-global tree-based integration memory still lives under `memory/integration/trees/`, with derived semantic indexes under `memory/semantic/integration/trees/`
+- workspace-scoped interaction memory still lives under each workspace's `.holaboss/memory/interaction/`, with derived semantic trees under `.holaboss/memory/semantic/interaction/trees/`
+- runtime continuity state remains separate from durable memory under each workspace's `.holaboss/memory/runtime/`
+- app manifests still drive app lifecycle
+
+The main difference is deployment responsibility. Instead of being launched by the desktop app, the runtime is started directly on the machine that will host workspaces.

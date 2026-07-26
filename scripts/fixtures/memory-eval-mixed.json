@@ -1,0 +1,426 @@
+{
+  "name": "workspace-memory-live-mixed",
+  "description": "Mixed live memory eval combining interaction and integration scenarios in one suite, with agent answer correctness as the primary metric.",
+  "batch_size": 3,
+  "include_direct_retrieval": false,
+  "scenarios": [
+    {
+      "id": "customer_pine_harbor_long_session",
+      "kind": "interaction",
+      "description": "Six long Pine Harbor turns should form one clean customer tree across two batches.",
+      "writer_turns": [
+        "Pine Harbor billing escalation contact is Mila Hart. If the finance queue stalls for more than fifteen minutes, route the case to her before opening an external escalation.",
+        "Pine Harbor billing dispute escalation procedure is: 1. Open the ledger case. 2. Confirm the dispute packet and Stripe evidence. 3. Escalate to the billing lead with the packet attached.",
+        "Pine Harbor contract renewal owner is Denver Lane. He wants renewal risks surfaced at least two weeks before the commercial review.",
+        "Pine Harbor refund hold window is 48 hours before escalation, and the hold timer starts only after the dispute packet is complete.",
+        "Pine Harbor settlement dashboard URL is https://dash.example.internal/pine-harbor/settlement and the dashboard owner is still the finance analytics team.",
+        "Pine Harbor urgent finance bridge channel is #pine-harbor-finance-war-room. Use that bridge only for payment-blocking incidents, not for routine invoice questions."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "customer",
+          "canonical_name": "Pine Harbor",
+          "expected_active_leaf_count": 6,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "pine harbor",
+                "billing escalation",
+                "mila hart"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "dispute",
+                "ledger case"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "contract renewal",
+                "denver lane"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "refund hold",
+                "48 hours"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "settlement dashboard"
+              ]
+            },
+            {
+              "all_terms": [
+                "pine harbor",
+                "finance bridge",
+                "war-room"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who is the Pine Harbor billing escalation contact?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Mila Hart"
+          ],
+          "expected_retrieve_contains": [
+            "Mila Hart"
+          ]
+        },
+        {
+          "query": "What is the Pine Harbor billing dispute escalation procedure?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Open the ledger case",
+            "Confirm the dispute packet",
+            "Escalate to the billing lead"
+          ],
+          "expected_retrieve_contains": [
+            "Open the ledger case",
+            "billing lead"
+          ]
+        },
+        {
+          "query": "How long is the Pine Harbor refund hold window?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "48 hours"
+          ],
+          "expected_retrieve_contains": [
+            "48 hours"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Pine Harbor",
+        "Mila Hart",
+        "Denver Lane"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "project_beacon_api_long_session",
+      "kind": "interaction",
+      "description": "A six-turn project session should preserve rollout knowledge as project memory instead of leaking it to AGENTS.",
+      "writer_turns": [
+        "Beacon API rollout approver is Keira Tan. She is the final approver once the staging smoke tests and canary metrics are attached.",
+        "Beacon API canary rollback procedure is: 1. Disable the traffic shift. 2. Revert the release flag. 3. Page the platform on-call with the canary diff.",
+        "Beacon API staging endpoint is beacon-staging.internal and the release dashboard is Grafana board beacon-api-rollout-health.",
+        "Beacon API release captain is Noah Bell. He owns the release checklist and the incident bridge invite list.",
+        "Beacon API incident bridge channel is #beacon-api-rollout and the default bridge owner is still the platform release manager.",
+        "Beacon API post-release verification query is \"payments.success_rate by region\" and the metrics team expects it run within fifteen minutes of rollout."
+      ],
+      "expected_entities": [
+        {
+          "entity_type": "project",
+          "canonical_name": "Beacon API",
+          "expected_active_leaf_count": 6,
+          "expected_summary_count_min": 1,
+          "expected_memories": [
+            {
+              "all_terms": [
+                "beacon api",
+                "keira tan"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "disable the traffic shift"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "beacon-staging.internal"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "noah bell"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "#beacon-api-rollout"
+              ]
+            },
+            {
+              "all_terms": [
+                "beacon api",
+                "payments.success_rate by region"
+              ]
+            }
+          ]
+        }
+      ],
+      "reader_queries": [
+        {
+          "query": "Who approves Beacon API rollouts?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Keira Tan"
+          ],
+          "expected_retrieve_contains": [
+            "Keira Tan"
+          ]
+        },
+        {
+          "query": "What is the Beacon API canary rollback procedure?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "Disable the traffic shift",
+            "Revert the release flag",
+            "Page the platform on-call"
+          ],
+          "expected_retrieve_contains": [
+            "Disable the traffic shift",
+            "platform on-call"
+          ]
+        },
+        {
+          "query": "What is the Beacon API staging endpoint?",
+          "tree_scope": "entity",
+          "expected_answer_contains": [
+            "beacon-staging.internal"
+          ],
+          "expected_retrieve_contains": [
+            "beacon-staging.internal"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "Beacon API",
+        "Keira Tan",
+        "Noah Bell",
+        "beacon-staging.internal"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "integration_live_gmail_profile_fetch",
+      "kind": "integration_live_context_fetch",
+      "description": "A live Gmail context fetch should materialize a visible integration tree and support both integration-only recall and cross recall with interaction memory seeded inside the same scenario.",
+      "provider_id": "gmail",
+      "skip_if_unavailable": true,
+      "interaction_writer_turns": [
+        "Pine Harbor billing escalation contact is Mila Hart. Finance queue stalls longer than fifteen minutes should route to her before external escalation.",
+        "Pine Harbor billing dispute escalation procedure is: 1. Open the ledger case. 2. Confirm the dispute packet and Stripe evidence. 3. Escalate to the billing lead with the packet attached.",
+        "Pine Harbor refund hold window is 48 hours before escalation, and the hold timer starts only after the dispute packet is complete."
+      ],
+      "expected_tree": {
+        "provider": "gmail",
+        "expected_active_leaf_count_min": 2,
+        "expected_summary_count_min": 1,
+        "required_subject_keys": [
+          "profile"
+        ],
+        "required_subject_key_prefixes": [
+          "message:"
+        ],
+        "required_entity_key_prefixes": [
+          "thread:"
+        ],
+        "required_branch_keys": [
+          "profile",
+          "messages"
+        ],
+        "required_relation_types": [
+          "participant"
+        ]
+      },
+      "reader_queries": [
+        {
+          "query": "What Gmail account profile was synced for this workspace?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ],
+          "expected_retrieve_contains_templates": [
+            "{{account_label}}",
+            "gmail"
+          ]
+        },
+        {
+          "query": "Which integration account was most recently fetched into memory?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ]
+        },
+        {
+          "query": "Which Gmail account was synced for this workspace, and how long is the Pine Harbor refund hold window?",
+          "categories": [
+            "interaction",
+            "integration"
+          ],
+          "tree_scope": "global",
+          "expected_answer_contains_templates": [
+            "{{account_label}}",
+            "48 hours"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "{{account_label}}"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "integration_live_github_context_fetch",
+      "kind": "integration_live_context_fetch",
+      "description": "A live GitHub context fetch should materialize repository memory and support cross recall with project interaction memory seeded inside the same scenario.",
+      "provider_id": "github",
+      "skip_if_unavailable": true,
+      "interaction_writer_turns": [
+        "Beacon API rollout approver is Keira Tan. She is the final approver once the staging smoke tests and canary metrics are attached.",
+        "Beacon API canary rollback procedure is: 1. Disable the traffic shift. 2. Revert the release flag. 3. Page the platform on-call with the canary diff.",
+        "Beacon API staging endpoint is beacon-staging.internal and the release dashboard is Grafana board beacon-api-rollout-health."
+      ],
+      "expected_tree": {
+        "provider": "github",
+        "expected_active_leaf_count_min": 2,
+        "expected_summary_count_min": 1,
+        "required_subject_keys": [
+          "profile"
+        ],
+        "required_subject_key_prefixes": [
+          "repository:"
+        ],
+        "required_entity_key_prefixes": [
+          "repo:"
+        ],
+        "required_branch_keys": [
+          "profile",
+          "overview"
+        ]
+      },
+      "reader_queries": [
+        {
+          "query": "What GitHub account profile was synced for this workspace?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ]
+        },
+        {
+          "query": "Name one GitHub repository that was synced into memory.",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{first_repository_title}}"
+          ]
+        },
+        {
+          "query": "Who approves Beacon API rollouts, and name one GitHub repository that was synced into memory.",
+          "categories": [
+            "interaction",
+            "integration"
+          ],
+          "tree_scope": "global",
+          "expected_answer_contains_templates": [
+            "Keira Tan",
+            "{{first_repository_title}}"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "{{account_label}}",
+        "{{first_repository_title}}"
+      ],
+      "agents_policy": "forbid"
+    },
+    {
+      "id": "integration_live_notion_context_fetch",
+      "kind": "integration_live_context_fetch",
+      "description": "A live Notion context fetch should materialize workspace/page memory and support cross recall with interaction memory seeded inside the same scenario.",
+      "provider_id": "notion",
+      "skip_if_unavailable": true,
+      "interaction_writer_turns": [
+        "Pine Harbor billing escalation contact is Mila Hart. Finance queue stalls longer than fifteen minutes should route to her before external escalation.",
+        "Pine Harbor billing dispute escalation procedure is: 1. Open the ledger case. 2. Confirm the dispute packet and Stripe evidence. 3. Escalate to the billing lead with the packet attached.",
+        "Pine Harbor refund hold window is 48 hours before escalation, and the hold timer starts only after the dispute packet is complete."
+      ],
+      "expected_tree": {
+        "provider": "notion",
+        "expected_active_leaf_count_min": 3,
+        "expected_summary_count_min": 1,
+        "required_subject_key_prefixes": [
+          "database:",
+          "page:"
+        ],
+        "required_entity_key_prefixes": [
+          "database:",
+          "page:"
+        ],
+        "required_branch_keys": [
+          "workspace",
+          "overview"
+        ]
+      },
+      "reader_queries": [
+        {
+          "query": "What Notion workspace profile was synced for this workspace?",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{account_label}}"
+          ]
+        },
+        {
+          "query": "Name one Notion page or database that was synced into memory.",
+          "categories": [
+            "integration"
+          ],
+          "tree_scope": "tree",
+          "expected_answer_contains_templates": [
+            "{{first_non_profile_title}}"
+          ]
+        },
+        {
+          "query": "Which Notion workspace was synced for this workspace, and how long is the Pine Harbor refund hold window?",
+          "categories": [
+            "interaction",
+            "integration"
+          ],
+          "tree_scope": "global",
+          "expected_answer_contains_templates": [
+            "{{account_label}}",
+            "48 hours"
+          ]
+        }
+      ],
+      "agents_terms": [
+        "{{account_label}}",
+        "{{first_non_profile_title}}"
+      ],
+      "agents_policy": "forbid"
+    }
+  ]
+}

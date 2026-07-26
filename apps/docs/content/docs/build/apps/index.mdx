@@ -1,0 +1,146 @@
+---
+title: Apps
+description: Apps are the platform capabilities Templates are built with. Build one to extend what agents can do and ship it alongside a Template.
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<p className="eyebrow">For developers</p>
+
+Apps are the component layer Templates are built from. A Template can depend on one or more Apps; an App is an installable capability module that provides a web UI, an MCP tool surface, local state, and a lifecycle the runtime manages.
+
+If you're here to build and publish a Template — not a platform capability — start at **[Templates](/docs/build/templates)** instead. You probably don't need this section.
+
+If you want to extend the platform with a new capability (a new integration, a custom MCP server, a novel module), this is the right place.
+
+## Quick start
+
+Create a workspace-local App and get the runtime to pick it up.
+
+In desktop dev, use the embedded runtime port you actually launched. If you want deterministic local curl commands, start desktop with `export HOLABOSS_RUNTIME_API_PORT=39160` before `npm run desktop:dev`; otherwise use `bash apps/desktop/scripts/check-runtime-status.sh` and substitute the printed port below as `RUNTIME_PORT`.
+
+### 1. Lay out the folders
+
+```text
+<workspace-root>/
+  workspace.yaml
+  apps/
+    my_app/
+      app.runtime.yaml
+      package.json
+      src/
+```
+
+### 2. Install dependencies
+
+```bash title="terminal"
+cd apps/my_app
+npm install
+```
+
+### 3. Write the app manifest
+
+Start with a minimal `app.runtime.yaml`:
+
+```yaml title="apps/my_app/app.runtime.yaml"
+app_id: my_app
+name: My App
+slug: my-app
+
+lifecycle:
+  setup: npm install
+  start: npm run start
+
+healthchecks:
+  mcp:
+    path: /mcp/health
+    timeout_s: 30
+    interval_s: 5
+
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /mcp/sse
+  tools:
+    - create_record
+
+env_contract:
+  - HOLABOSS_WORKSPACE_ID
+```
+
+Rules that matter immediately:
+
+- `app_id` must match the workspace declaration exactly
+- `mcp.port` is required by the current parser
+- use either `lifecycle.start` or top-level `start`, not both
+
+### 4. Register the app in the workspace
+
+```yaml title="workspace.yaml"
+applications:
+  - app_id: my_app
+    config_path: apps/my_app/app.runtime.yaml
+```
+
+Duplicate `app_id` values fail compilation.
+
+### 5. Start through the runtime
+
+```bash title="terminal"
+# Run lifecycle.setup
+curl -X POST http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/setup
+
+# Run lifecycle.start
+curl -X POST http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/start
+
+# Poll build status
+curl http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/build-status
+
+# See the resolved port map
+curl http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/ports
+```
+
+When `mcp.tools: [create_record]` is declared, the runtime reconciles `workspace.yaml` so the allowlisted tool id becomes `my_app.create_record`.
+
+## What a healthy app looks like
+
+The runtime probes these surfaces; any failure keeps the app from being marked healthy.
+
+- `GET /` on the app port returns `2xx` or `3xx`
+- `GET <healthchecks.mcp.path>` on the MCP port returns `200`
+- `app_id` in `app.runtime.yaml` matches `workspace.yaml`
+- `mcp.port` and `mcp.path` are explicit
+
+If setup fails, pull the latest diagnostics:
+
+```bash title="terminal"
+curl "http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/setup-log?workspace_id=workspace-1"
+```
+
+## Runtime endpoints you'll use
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/apps/:appId/setup` | Run setup lifecycle |
+| `POST /api/v1/apps/:appId/start` | Start the app |
+| `GET /api/v1/apps/:appId/build-status` | Poll setup/build status |
+| `GET /api/v1/apps/:appId/setup-log` | Fetch setup diagnostics |
+| `GET /api/v1/apps/ports` | Resolved app ↔ port map |
+| `POST /api/v1/apps/install` | Install from files |
+| `POST /api/v1/apps/install-archive` | Install from archive (serialized per `(workspace_id, app_id)`) |
+
+## Explore further
+
+<Cards>
+  <Card title="Build Your First App" href="/docs/build/apps/first-app" description="End-to-end walkthrough from zero to a runtime-managed App with one MCP tool." />
+  <Card title="App Anatomy" href="/docs/build/apps/app-anatomy" description="The structural contract every App follows." />
+  <Card title="app.runtime.yaml" href="/docs/build/apps/app-runtime-yaml" description="Full manifest reference — lifecycle, MCP, health, integrations, env." />
+  <Card title="MCP Tools" href="/docs/build/apps/mcp-tools" description="Expose and call tools across the workspace." />
+  <Card title="App Builder SDK" href="/docs/build/apps/app-builder-sdk" description="The TypeScript SDK new apps build against — five primitives, typed integration calls, automatic MCP surfacing." />
+  <Card title="Troubleshooting" href="/docs/build/apps/troubleshooting" description="Diagnose failures in the local runtime, desktop, or workspace App flow." />
+</Cards>
+
+## Related
+
+- **[Templates](/docs/build/templates)** — the creator-facing guide. An App on its own doesn't do much; it's usually selected as part of a Template or workspace.
+- **[Contribute](/docs/contribute)** — contributing to the holaOS runtime, desktop, and harness themselves.

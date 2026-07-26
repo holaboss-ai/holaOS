@@ -1,0 +1,193 @@
+---
+title: App Anatomy
+description: How a workspace app is structured in practice — UI, services, manifests, integrations, and outputs.
+---
+
+Use this page when you are building an app the runtime can actually install, start, and health-check inside a workspace.
+
+The runtime contract starts with two files:
+
+- `workspace.yaml` in the workspace root
+- `apps/my_app/app.runtime.yaml` inside the app directory
+
+Everything else is internal implementation detail unless the runtime reads it directly.
+
+## The Minimum Runtime Contract
+
+At the workspace layer, the app must be registered in `workspace.yaml`:
+
+```yaml
+applications:
+  - app_id: my_app
+    config_path: apps/my_app/app.runtime.yaml
+```
+
+From there the runtime:
+
+1. resolves the app directory from `config_path`
+2. parses `app.runtime.yaml`
+3. assigns runtime HTTP and MCP ports
+4. injects runtime and integration environment variables
+5. chooses a lifecycle path
+6. probes the HTTP root and MCP health endpoint
+7. reconciles `workspace.yaml` `mcp_registry` if the app declares MCP tools
+
+The source of truth is:
+
+- `runtime/api-server/src/workspace-apps.ts`
+- `runtime/api-server/src/workspace-runtime-plan.ts`
+- `runtime/api-server/src/app-lifecycle-worker.ts`
+- `runtime/api-server/src/integration-runtime.ts`
+
+## Directory Shape
+
+The runtime does not care which framework you use internally. It only needs the workspace-local shape to be resolvable:
+
+```text
+<workspace-root>/
+  workspace.yaml
+  apps/
+    <app-id>/
+      app.runtime.yaml
+      package.json
+      ...
+```
+
+If `workspace.yaml` points at the manifest, the rest of the app can be organized however you want.
+
+## Fields the Runtime Actually Reads
+
+From `workspace.yaml`:
+
+- `applications[].app_id`
+- `applications[].config_path`
+
+From `app.runtime.yaml`:
+
+- `app_id`
+- `lifecycle.setup`
+- `lifecycle.start`
+- `lifecycle.stop`
+- top-level `start`
+- `mcp.port`
+- `mcp.path`
+- `mcp.transport`
+- `mcp.tools`
+- `healthchecks.*`
+- `env_contract`
+- `integrations` or legacy `integration`
+
+## Lifecycle Selection
+
+The runtime currently supports three launch paths:
+
+1. Docker Compose when `docker-compose.yml` or `docker-compose.yaml` exists and neither `lifecycle.start`/`lifecycle.stop` nor top-level `start` is declared
+2. native shell lifecycle when `lifecycle.start` is declared and top-level `start` is not
+3. native subprocess lifecycle when top-level `start` is declared and `lifecycle.start`/`lifecycle.stop` are not
+
+If the manifest mixes those incompatible modes, startup fails instead of guessing.
+
+`lifecycle.setup` is separate. If present, the runtime runs it before start unless setup was already completed for that build.
+
+## Ports and Health Checks
+
+The runtime assigns two ports per app:
+
+- HTTP: default base `18080 + app index`
+- MCP: default base `13100 + app index`
+
+In embedded desktop mode the state store can allocate workspace-specific ports instead of pure index-based ports.
+
+The health contract is stricter than most app docs imply. A healthy app must satisfy both probes:
+
+- `GET http://localhost:$PORT/` returns `2xx` or `3xx`
+- `GET http://localhost:$MCP_PORT<healthchecks.mcp.path>` returns `200`
+
+That means an app is not healthy if it only starts a process. It must also expose:
+
+- an HTTP root route
+- an MCP health route
+
+If you omit health configuration, the runtime falls back to:
+
+- path: `/health`
+- timeout: `60`
+- interval: `5`
+
+## Environment Injection
+
+Every runtime-managed app gets:
+
+- `PORT`
+- `MCP_PORT`
+- an app-local npm cache from `buildAppSetupEnv()` under `.npm-cache`
+
+If integration bindings resolve, the runtime also injects:
+
+- `HOLABOSS_INTEGRATION_BROKER_URL`
+- `WORKSPACE_API_URL`
+- `HOLABOSS_WORKSPACE_ID`
+- `HOLABOSS_APP_GRANT`
+- provider-specific ids such as `WORKSPACE_GMAIL_INTEGRATION_ID`
+
+`env_contract` is narrower than it sounds. The lifecycle environment builder only uses it to decide whether to inject selected runtime variables such as:
+
+- `HOLABOSS_USER_ID`
+- `HOLABOSS_WORKSPACE_ID` when it was not already set by integration resolution
+
+It is not a generic arbitrary-env declaration system.
+
+## Integration Requirements
+
+The runtime supports:
+
+- `integrations: [...]`
+- legacy `integration: {...}`
+
+Do not declare both in one manifest. The parser rejects that.
+
+Each resolved requirement is runtime-owned. The app receives a signed grant and broker URL, not raw provider credentials.
+
+Current integration requirement fields are:
+
+- `key`
+- `provider`
+- optional `capability`
+- `scopes`
+- `required` with default `true`
+- `credential_source` of `platform`, `manual`, or `broker`
+- `holaboss_user_id_required`
+
+## MCP Registry Side Effects
+
+If the manifest declares:
+
+```yaml
+mcp:
+  tools:
+    - create_post
+    - publish_post
+```
+
+the runtime reconciles `workspace.yaml` so:
+
+- `mcp_registry.servers.my_app` points at the current app MCP URL
+- `mcp_registry.allowlist.tool_ids` contains entries such as `my_app.create_post` and `my_app.publish_post`
+
+This happens on archive install and again after start, so stale app MCP entries can be auto-healed.
+
+## A Production-Ready App Looks Like This
+
+- `workspace.yaml` and `app.runtime.yaml` agree on `app_id`
+- the manifest declares one lifecycle mode unambiguously
+- the app passes both health probes
+- `mcp.path` and `healthchecks.mcp.path` match the server code
+- integration access goes through the broker and grant flow
+- the app can be restarted without manual cleanup
+
+## Validation
+
+```bash
+npm run runtime:api-server:test
+npm run runtime:test
+```

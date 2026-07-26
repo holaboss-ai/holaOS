@@ -1,0 +1,30 @@
+{
+  "name": "@holaboss/runtime-state-store",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "holaboss-state-store": "dist/cli.mjs",
+    "holaboss-runtime": "dist/debug-cli.mjs"
+  },
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "clean": "node ../../scripts/remove-paths.mjs dist",
+    "pretest": "node ../../scripts/ensure-native-sqlite.mjs",
+    "test": "node --import tsx --test --test-force-exit src/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "sqlite-vec": "^0.1.9"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.3.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

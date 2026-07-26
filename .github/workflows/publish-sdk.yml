@@ -1,0 +1,241 @@
+name: Publish SDK
+
+on:
+  push:
+    tags:
+      - "@holaboss/app-sdk@*"
+      - "@holaboss/ui@*"
+
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to publish"
+        required: true
+        type: choice
+        options:
+          - app-sdk
+          - ui
+      dry_run:
+        description: "Dry run (skip actual publish)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    outputs:
+      package_name: ${{ steps.resolve.outputs.package_name }}
+      package_dir: ${{ steps.resolve.outputs.package_dir }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve package
+        id: resolve
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            # Extract package name: @holaboss/app-sdk@1.0.0 -> app-sdk
+            PACKAGE=$(echo "$TAG" | sed 's/@holaboss\///' | sed 's/@.*//')
+            VERSION=$(echo "$TAG" | grep -oP '@[^@]+$' | sed 's/@//')
+          else
+            PACKAGE="${{ inputs.package }}"
+            VERSION=$(node -p "require('./sdk/${PACKAGE}/package.json').version")
+          fi
+
+          echo "package_name=$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "package_dir=sdk/$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "📦 Package: @holaboss/$PACKAGE@$VERSION"
+
+      - name: Verify package exists
+        run: |
+          if [ ! -f "${{ steps.resolve.outputs.package_dir }}/package.json" ]; then
+            echo "❌ Package directory not found: ${{ steps.resolve.outputs.package_dir }}"
+            exit 1
+          fi
+
+  test:
+    name: Test
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # app-sdk uses vitest and works on pure Node; bun is set up so the
+      # install step below works against the monorepo's bun.lock.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        run: |
+          if [ -f package-lock.json ]; then
+            npm install
+          else
+            bun install
+          fi
+
+      - name: Run tests
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        run: npm run test
+
+  build:
+    name: Build
+    needs: [validate, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        run: |
+          if [ -f package-lock.json ]; then
+            npm install
+          else
+            bun install
+          fi
+
+      - name: Build
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        run: npm run build
+
+      - name: Verify dist contents
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        run: |
+          echo "📁 Build output:"
+          ls -la dist
+
+          # Walk package.json `exports` and ensure every referenced file exists.
+          # Generic across single-entry and multi-entry packages.
+          node <<'EOF'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const errors = [];
+          const seen = new Set();
+
+          const walk = (node) => {
+            if (node == null) return;
+            if (typeof node === "string") {
+              if (!node.startsWith("./")) return;
+              if (seen.has(node)) return;
+              seen.add(node);
+              const resolved = path.resolve(node);
+              if (!fs.existsSync(resolved)) {
+                errors.push(node);
+              }
+              return;
+            }
+            if (typeof node === "object") {
+              for (const value of Object.values(node)) walk(value);
+            }
+          };
+
+          walk(pkg.exports);
+          // Also validate main / module / types if present.
+          for (const key of ["main", "module", "types"]) {
+            if (typeof pkg[key] === "string") walk(pkg[key]);
+          }
+
+          console.log(`Checked ${seen.size} referenced files from package.json`);
+          for (const file of seen) console.log("  - " + file);
+
+          if (errors.length > 0) {
+            console.error("\n❌ Missing files referenced by package.json:");
+            for (const file of errors) console.error("  - " + file);
+            process.exit(1);
+          }
+          console.log("\n✅ All referenced files present");
+          EOF
+
+      - name: Pack and inspect
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        run: |
+          npm pack --dry-run 2>&1
+          echo ""
+          echo "📦 Package contents above — verify before publish"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sdk-${{ needs.validate.outputs.package_name }}-dist
+          path: ${{ needs.validate.outputs.package_dir }}/dist/
+          retention-days: 7
+
+  publish:
+    name: Publish to npm
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        run: |
+          if [ -f package-lock.json ]; then
+            npm install
+          else
+            bun install
+          fi
+
+      - name: Build
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        run: npm run build
+
+      - name: Publish
+        working-directory: ${{ needs.validate.outputs.package_dir }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            echo "🏜️ Dry run — skipping publish"
+            npm pack --dry-run
+          else
+            npm publish --access public --provenance
+            echo "✅ Published @holaboss/${{ needs.validate.outputs.package_name }}@${{ needs.validate.outputs.version }}"
+          fi

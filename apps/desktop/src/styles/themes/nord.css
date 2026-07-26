@@ -1,0 +1,92 @@
+/* Nord — arctic, north-bluish, calm.
+   Source: https://github.com/nordtheme/nord */
+
+/* Light mode */
+[data-theme="nord-light"] {
+  --background: #eceff4;
+  --foreground: #2e3440;
+  --primary: #5e81ac;
+  --primary-foreground: #eceff4;
+  --info: #ebcb8b;
+  --success: #a3be8c;
+  --destructive: #bf616a;
+  --destructive-foreground: #eceff4;
+
+  --card: color-mix(in srgb, var(--foreground) 2%, var(--background));
+  --card-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --secondary: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --muted-foreground: color-mix(in srgb, var(--foreground) 55%, var(--background));
+  --accent: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --input: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --ring: var(--primary);
+
+  --sidebar: color-mix(in srgb, var(--foreground) 3%, var(--background));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --sidebar-ring: var(--primary);
+
+  --chart-1: var(--primary);
+  --chart-2: var(--info);
+  --chart-3: var(--success);
+  --chart-4: var(--destructive);
+  --chart-5: color-mix(in srgb, var(--primary) 60%, var(--foreground));
+
+  --radius: 0.5rem;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: "Geist Mono Variable", JetBrains Mono, monospace;
+}
+
+/* Dark mode */
+[data-theme="nord-dark"] {
+  --background: #2e3440;
+  --foreground: #eceff4;
+  --primary: #88c0d0;
+  --primary-foreground: #2e3440;
+  --info: #ebcb8b;
+  --success: #a3be8c;
+  --destructive: #bf616a;
+  --destructive-foreground: #2e3440;
+
+  --card: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --card-foreground: var(--foreground);
+  --popover: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --popover-foreground: var(--foreground);
+  --secondary: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --muted-foreground: color-mix(in srgb, var(--foreground) 60%, var(--background));
+  --accent: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: color-mix(in srgb, var(--foreground) 16%, var(--background));
+  --input: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --ring: var(--primary);
+
+  --sidebar: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: color-mix(in srgb, var(--foreground) 16%, var(--background));
+  --sidebar-ring: var(--primary);
+
+  --chart-1: var(--primary);
+  --chart-2: var(--info);
+  --chart-3: var(--success);
+  --chart-4: var(--destructive);
+  --chart-5: color-mix(in srgb, var(--primary) 60%, var(--foreground));
+
+  --radius: 0.5rem;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: "Geist Mono Variable", JetBrains Mono, monospace;
+}

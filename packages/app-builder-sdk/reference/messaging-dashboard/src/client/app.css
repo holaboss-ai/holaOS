@@ -1,0 +1,13 @@
+/* App-local Tailwind compile entry.
+ *
+ * `@holaboss/ui/styles.css` only bakes in utilities used INSIDE the library.
+ * Every Tailwind class your `src/client/` writes (max-w-3xl, grid-cols-*,
+ * text-fg-48, bg-card, flex-1, etc.) needs an app-side compile pass to land
+ * in the bundle. Without it the page renders mostly unstyled.
+ *
+ * Required by the register-time lint `workspace_app_missing_tailwind_compile`.
+ */
+
+@import "tailwindcss";
+
+@source "../client";

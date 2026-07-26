@@ -1,0 +1,64 @@
+---
+title: Working with Your Agent
+description: The daily-work loop — send a task, watch the run, review outputs, handle approvals, and let durable memory accumulate.
+---
+
+<p className="eyebrow">Daily work</p>
+
+The agent works in **runs** — one task becomes one sequence of planned actions, and those actions produce one result bundle. You send a task, the agent decides how to carry it out, calls the tools it needs, deposits finished outputs into the workspace, and surfaces anything risky for your approval. Important things get remembered across runs so you don't have to repeat yourself. That cycle — task, run, output, memory — is the core of working with holaOS.
+
+## Sending a task
+
+Type in the chat pane and describe what you want in plain language. "Draft three LinkedIn posts about our Q2 launch with a conversational tone" works better than a rigid template. You don't need to specify which tools to use or which Skills to load — the agent figures that out.
+
+Before the run starts, the agent reads `AGENTS.md` — the workspace's standing policy file. Any rule you've written there applies automatically, every time, without you restating it. It also scans the descriptions of installed Skills and loads the ones relevant to this task — deep procedural knowledge carried selectively, so you don't pay for what the run doesn't need. Finally, it pulls in whatever durable memory the workspace has built up, so it arrives knowing your prior decisions, preferences, and context.
+
+## What happens during a run
+
+The agent receives your task and produces a plan — a sequence of steps to get from your input to a result. During execution you can watch this unfold in real time in the chat pane: tool calls appear as they're issued, intermediate steps surface as they complete.
+
+Steps typically involve App tools — for example, searching a platform for relevant posts, reading a file, or queuing a draft. If a step requires outside-world action that's irreversible, the agent pauses and waits for your approval before continuing. Once all steps are complete, outputs land in the workspace.
+
+## Approvals
+
+Some actions are too consequential to run without a checkpoint. By default, the agent pauses and waits for you to confirm before it publishes content publicly (a LinkedIn post, a Reddit submission), sends an email, spends money, or deletes data. The approval prompt shows what the agent is about to do and gives you a confirm or cancel choice.
+
+If you cancel, the run stops at that point and the agent reports what it had ready. If you confirm, execution continues from there. You can tune which actions require approval on a per-app basis in the workspace's App settings.
+
+## Outputs and artifacts
+
+Finished work lands in the outputs panel — not just as chat messages that scroll away. Drafts, exported files, images, and data results accumulate there and persist across sessions. Each artifact is inspectable: open it, edit it inline, copy the content, or publish it via an App. A draft the agent produced last week is still there when you come back.
+
+## Memory
+
+The agent has two layers of persistent knowledge that carry across runs.
+
+`AGENTS.md` is standing policy — instructions that apply on every run without exception. If you want the agent to always write in a particular voice, always cc a specific address, or always follow a platform-specific format, put it in `AGENTS.md`. It's read at the start of every run.
+
+Durable memory is stored as markdown-backed memory surfaces. Workspace-local interaction memory lives under `.holaboss/memory/interaction/` plus `.holaboss/memory/semantic/interaction/trees/`, while profile-global preference and identity memory live under the shared `memory/` root. Integration context is also stored as markdown trees under the global `memory/` root. These surfaces hold accumulated facts, decisions, summaries, and preferences — the kind of thing you'd otherwise repeat every session. After a run, the runtime can write back durable interaction candidates in the background, and accepted user-memory proposals can promote explicit preference memory. You can edit the memory files directly at any time — changes take effect on the next run. Unlike a long chat history, durable memory gives the agent targeted recall without replaying everything you've ever said.
+
+For the full model of how memory is structured, how recall works, and how durable memory is written back over time, see [Memory and Continuity](/docs/concepts/memory-and-continuity).
+
+## Interrupting and redirecting
+
+You don't have to wait for a run to finish. If the agent is heading the wrong way, or you want to add a constraint you forgot, send another message mid-run. The agent will incorporate your new input and adjust from that point forward. To stop a run entirely, tell the agent to stop — it halts at the next safe point.
+
+## Read next
+
+<Cards>
+  <Card
+    title="Extending Your Workspace"
+    href="/docs/getting-started/extending"
+    description="Install Apps, add Skills, and set up Automations to expand what your workspace can do."
+  />
+  <Card
+    title="Memory and Continuity"
+    href="/docs/concepts/memory-and-continuity"
+    description="How durable memory, recall, and runtime continuity actually work."
+  />
+  <Card
+    title="Agent Harness"
+    href="/docs/concepts/agent-harness"
+    description="The execution subsystem that turns your task into a controlled run."
+  />
+</Cards>

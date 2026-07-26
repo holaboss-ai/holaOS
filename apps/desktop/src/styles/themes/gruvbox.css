@@ -1,0 +1,94 @@
+/* Gruvbox — retro groove with earthy warm bg. Uses Yellow as primary
+   (rather than the also-canonical Aqua/Orange) so the swatch stays
+   distinct from holaOS orange and Nord cyan.
+   Source: https://github.com/morhetz/gruvbox */
+
+/* Light mode */
+[data-theme="gruvbox-light"] {
+  --background: #fbf1c7;
+  --foreground: #3c3836;
+  --primary: #d79921;
+  --primary-foreground: #fbf1c7;
+  --info: #458588;
+  --success: #98971a;
+  --destructive: #cc241d;
+  --destructive-foreground: #fbf1c7;
+
+  --card: color-mix(in srgb, var(--foreground) 2%, var(--background));
+  --card-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --secondary: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --muted-foreground: color-mix(in srgb, var(--foreground) 55%, var(--background));
+  --accent: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --input: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --ring: var(--primary);
+
+  --sidebar: color-mix(in srgb, var(--foreground) 3%, var(--background));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --sidebar-ring: var(--primary);
+
+  --chart-1: var(--primary);
+  --chart-2: var(--info);
+  --chart-3: var(--success);
+  --chart-4: var(--destructive);
+  --chart-5: color-mix(in srgb, var(--primary) 60%, var(--foreground));
+
+  --radius: 0.5rem;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: "Geist Mono Variable", JetBrains Mono, monospace;
+}
+
+/* Dark mode */
+[data-theme="gruvbox-dark"] {
+  --background: #282828;
+  --foreground: #ebdbb2;
+  --primary: #fabd2f;
+  --primary-foreground: #282828;
+  --info: #83a598;
+  --success: #b8bb26;
+  --destructive: #fb4934;
+  --destructive-foreground: #282828;
+
+  --card: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --card-foreground: var(--foreground);
+  --popover: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --popover-foreground: var(--foreground);
+  --secondary: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --muted-foreground: color-mix(in srgb, var(--foreground) 60%, var(--background));
+  --accent: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --input: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --ring: var(--primary);
+
+  --sidebar: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --sidebar-ring: var(--primary);
+
+  --chart-1: var(--primary);
+  --chart-2: var(--info);
+  --chart-3: var(--success);
+  --chart-4: var(--destructive);
+  --chart-5: color-mix(in srgb, var(--primary) 60%, var(--foreground));
+
+  --radius: 0.5rem;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: "Geist Mono Variable", JetBrains Mono, monospace;
+}

@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a reproducible defect in the OSS repo
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened and what did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - desktop
+        - runtime
+        - packaging
+        - docs
+  - type: input
+    id: platform
+    attributes:
+      label: Host platform
+      placeholder: macOS 14 / Ubuntu 24.04 / Windows 11
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Exact commands and steps
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste stack traces or relevant logs
+      render: shell

@@ -1,0 +1,190 @@
+---
+title: Build Your First App
+description: Start from zero and reach a working runtime-managed app with one MCP tool.
+---
+
+The repo does not currently ship a `create-app` scaffold. The code-truth path is to create a workspace-local app, register it in `workspace.yaml`, and make the runtime health checks pass.
+
+The first milestone is not "pretty UI". It is:
+
+- the runtime can resolve the app
+- the app starts through a supported lifecycle path
+- the HTTP root passes
+- the MCP health route passes
+- one tool is registered and callable
+
+## 1. Create the Workspace-Local App Directory
+
+Start with this shape:
+
+```text
+<workspace-root>/
+  workspace.yaml
+  apps/
+    my_app/
+      app.runtime.yaml
+      package.json
+      src/
+```
+
+The runtime only cares that the workspace ends up with a valid `workspace.yaml` entry and an `app.runtime.yaml` at the declared path.
+
+## 2. Write the Manifest First
+
+Start with a minimal `apps/my_app/app.runtime.yaml`:
+
+```yaml title="apps/my_app/app.runtime.yaml"
+app_id: "my_app"
+name: "My App"
+slug: "my-app"
+
+lifecycle:
+  setup: "npm install"
+  start: "npm run start"
+
+healthchecks:
+  mcp:
+    path: /mcp/health
+    timeout_s: 30
+    interval_s: 5
+
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /mcp/sse
+  tools:
+    - create_record
+
+env_contract:
+  - HOLABOSS_WORKSPACE_ID
+```
+
+Rules that matter immediately:
+
+- `app_id` must match the workspace declaration exactly
+- `mcp.port` is required by the current parser
+- keep `mcp.path` explicit
+- use either `lifecycle.start` or top-level `start`, not both lifecycle modes at once
+
+## 3. Register the App in `workspace.yaml`
+
+Add the runtime plan entry:
+
+```yaml title="workspace.yaml"
+applications:
+  - app_id: my_app
+    config_path: apps/my_app/app.runtime.yaml
+```
+
+`workspace-runtime-plan.ts` treats `applications[].app_id` and `applications[].config_path` as the app entrypoint. Duplicate app ids fail compilation.
+
+## 4. Make the Health Contract Pass
+
+Most first apps fail here.
+
+The runtime probes:
+
+- `GET http://localhost:$PORT/`
+- `GET http://localhost:$MCP_PORT<healthchecks.mcp.path>`
+
+So the app must expose:
+
+- an HTTP root route that returns `2xx` or `3xx`
+- an MCP health route that returns `200`
+
+If either probe fails, the runtime will not mark the app healthy even if the process started cleanly.
+
+## 5. Add One Real MCP Tool
+
+Do not start with a wide tool surface. Add one tool that proves the end-to-end loop works.
+
+Recommended first-tool shape:
+
+1. accept small validated input
+2. persist one local record
+3. return machine-readable JSON
+4. list the tool name under `mcp.tools`
+
+If the manifest declares:
+
+```yaml title="apps/my_app/app.runtime.yaml"
+mcp:
+  tools:
+    - create_record
+```
+
+the runtime reconciles `workspace.yaml` so the visible allowlisted tool id becomes `my_app.create_record`.
+
+## 6. Add Integrations Only When Needed
+
+If the app needs a provider, declare `integrations` in `app.runtime.yaml` and use the [App Builder SDK](/docs/build/apps/app-builder-sdk).
+
+When bindings resolve, the runtime injects:
+
+- `HOLABOSS_APP_GRANT`
+- `HOLABOSS_INTEGRATION_BROKER_URL`
+- `WORKSPACE_API_URL`
+- `HOLABOSS_WORKSPACE_ID`
+
+The app should call providers through `@holaboss/app-builder-sdk`'s runtime-broker transport, not through direct provider tokens.
+
+## 7. Pick the Right Launch Path
+
+The runtime supports:
+
+- shell lifecycle via `lifecycle.start`
+- subprocess lifecycle via top-level `start`
+- Docker Compose fallback when no native lifecycle is declared and a compose file exists
+
+For a first app, native shell lifecycle is usually easiest to debug because the contract is explicit and the startup logs map directly to your manifest.
+
+## 8. Start It Through the Runtime
+
+Useful runtime surfaces while iterating:
+
+- `POST /api/v1/apps/:appId/setup`
+- `POST /api/v1/apps/:appId/start`
+- `GET /api/v1/apps/:appId/build-status`
+- `GET /api/v1/apps/:appId/setup-log`
+- `GET /api/v1/apps/ports`
+
+If you install from files or an archive instead of editing the workspace directly, the runtime also exposes:
+
+- `POST /api/v1/apps/install`
+- `POST /api/v1/apps/install-archive`
+
+For desktop dev, use the real embedded runtime port. If you want stable curl examples while iterating, launch `desktop:dev` with `export HOLABOSS_RUNTIME_API_PORT=39160` and set `RUNTIME_PORT=39160` in the examples below.
+
+`install-archive` extracts into `apps/my_app/`, requires `app.runtime.yaml` at the archive root, appends the `workspace.yaml` application entry, and tries to reconcile the MCP registry after startup. It now serializes installs per `(workspace_id, app_id)` and returns `409` if another install for that app is already in progress.
+
+When setup fails, pull the latest setup diagnostics:
+
+```bash
+curl \
+  "http://127.0.0.1:${RUNTIME_PORT}/api/v1/apps/my_app/setup-log?workspace_id=workspace-1"
+```
+
+## 9. Verify the End-to-End Loop
+
+Before adding more features, confirm:
+
+- `workspace.yaml` points at the right manifest path
+- `app.runtime.yaml` `app_id` matches the workspace entry
+- the app serves `/`
+- the MCP health route serves the configured health path
+- the runtime can set up and start the app
+- `workspace.yaml` contains entries such as `my_app.create_record` after startup when `mcp.tools` is declared
+
+## Good First Milestone
+
+Your first app is good enough when another developer can:
+
+- clone the workspace
+- start the app through the runtime
+- hit the HTTP root successfully
+- see the MCP health check pass
+- call one tool
+- inspect the created local record
+- see the tool registered in `workspace.yaml`
+
+Everything after that is feature depth, not proof that the app fits the runtime model.

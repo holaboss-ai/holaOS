@@ -1,0 +1,69 @@
+{
+  "name": "@holaboss/app-host",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Holaboss HolaApp desktop host bridge — lets a HolaApp web page request native desktop operations (e.g. open a chat with context). Ships the web client + the shared protocol; degrades to a no-op outside the desktop.",
+  "keywords": [
+    "holaboss",
+    "holaapp",
+    "host",
+    "bridge",
+    "desktop",
+    "sdk"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/holaboss-ai/holaOS.git",
+    "directory": "packages/app-host"
+  },
+  "homepage": "https://github.com/holaboss-ai/holaOS/tree/main/packages/app-host",
+  "bugs": "https://github.com/holaboss-ai/holaOS/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./protocol": {
+      "bun": "./src/protocol.ts",
+      "import": {
+        "types": "./dist/protocol.d.ts",
+        "default": "./dist/protocol.js"
+      },
+      "require": {
+        "types": "./dist/protocol.d.cts",
+        "default": "./dist/protocol.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "clean": "node ../../scripts/remove-paths.mjs dist",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.14",
+    "tsdown": "^0.21.4",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,132 @@
+---
+title: Recall Pipeline
+description: How holaOS recalls memory at runtime and writes durable memory back after runs complete.
+---
+
+The current memory story is best understood as two separate pipelines:
+
+1. recall at query time
+2. durable writeback after runs complete
+
+That is the important boundary. `evolve` still exists in code, but it is the name of the background post-run worker, not the primary conceptual model readers need.
+
+## Recall at query time
+
+When the agent needs workspace memory, it uses `memory_retrieve`.
+
+That retrieval path is built around the current markdown forest:
+
+- workspace-local interaction trees
+- visible integration trees
+- accepted user memory such as secondary preference docs
+
+The runtime does not recall by replaying raw transcripts. It recalls from markdown-backed memory structures that have already been materialized into tree form.
+
+## What `memory_retrieve` does
+
+At a high level, `memory_retrieve`:
+
+1. decides whether the query should search interaction memory, integration memory, or both
+2. runs a vector first pass when recall embeddings are configured
+3. runs lexical retrieval inside the strongest trees
+4. merges and reranks candidate nodes
+5. returns a bounded evidence pack for prompt-time RAG
+
+That means recall is hybrid:
+
+- lexical retrieval keeps recall working even without embeddings
+- embeddings improve first-pass narrowing when configured
+- neighbor and tree structure help preserve local context instead of returning isolated fragments
+
+The result is a small recalled context pack, not a dump of all memory files.
+
+## What comes back from retrieval
+
+The retrieval result is more structured than “top N matches.”
+
+It includes:
+
+- evidence items
+  - concrete recalled summaries or leaves with title, summary, freshness, score, and reasons
+- a retrieval pack
+  - grouped sections such as known facts, recent high-signal items, constraints, blockers, and open questions
+- coverage signals
+  - whether the final evidence used lexical matches, vector similarity, and neighbor context
+- gap signals
+  - whether the runtime thinks live verification or a narrower external source is still needed
+
+That structure is what lets the harness use memory as RAG context instead of treating retrieval as blind search.
+
+## What gets recalled
+
+Recall can return evidence from:
+
+- workspace interaction memory under `workspace/<workspace-id>/interaction/...`
+- workspace semantic interaction trees under `workspace/<workspace-id>/semantic/interaction/trees/...`
+- integration memory under `memory/integration/trees/...`
+- semantic integration trees under `memory/semantic/integration/trees/...`
+- accepted user memory such as the secondary `memory/preference/...` docs
+
+Markdown is the canonical source. Semantic nodes, search docs, and embeddings are derived retrieval structure built from that markdown.
+
+Two practical consequences follow from that:
+
+- a summary node can be recalled directly when it is the best compact answer
+- a leaf can still bring along neighboring context from the same tree when needed
+
+## What happens after a run
+
+After a run completes, the runtime does not immediately treat the transcript as durable memory.
+
+Instead, it splits post-run work into two paths:
+
+1. immediate continuity writeback
+   - refreshes runtime-owned continuity artifacts such as `session-memory`
+   - optimizes the next run for cheap resume
+2. background durable writeback
+   - extracts durable interaction candidates from completed turns
+   - persists accepted candidates as markdown leaves
+   - rebuilds touched interaction trees
+   - refreshes semantic nodes, search docs, and optional embeddings
+
+This is why continuity and durable memory stay separate. Continuity is for resuming the latest work. Durable memory is for future recall.
+
+## Durable writeback details
+
+The current durable writeback path is conservative:
+
+- it only runs when a background memory model is available
+- it processes completed turns in batches of 3
+- it writes durable interaction leaves, not raw turn logs
+- it rebuilds only the interaction entities that were touched
+- it does not auto-promote user preference or profile memory
+
+Integration memory is not written by this path. Integration trees are populated and rebuilt by integration-specific fetch and sync flows.
+
+Accepted user-memory proposals remain a separate path for preference and profile changes.
+
+## Where `evolve` fits now
+
+`evolve` is the background post-run job that currently orchestrates:
+
+- durable memory writeback
+- interaction tree rebuild side effects
+- optional draft skill review
+
+It also explains why some product or runtime surfaces still use the word `evolve`: queue rows, workers, candidate reviews, and task proposals still use that implementation name.
+
+That name still matters for implementation, worker state, and task proposals, but it is not the main memory concept. The main concept is:
+
+- recall happens through `memory_retrieve`
+- durable memory is written back asynchronously after runs
+
+## Practical mental model
+
+Use this model when reasoning about current memory behavior:
+
+- ask-time recall reads from the markdown memory forest through hybrid retrieval
+- post-run writeback converts repeated, reusable interaction signal into new durable leaves
+- semantic trees, search docs, and embeddings are rebuilt from those leaves
+- continuity artifacts help resume the next run, but they are not durable recall memory
+
+That model matches the current code much more closely than the older “recall and evolve” framing.

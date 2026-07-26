@@ -1,0 +1,63 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/geist-mono";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Tokens — themes override per [data-theme="<variant>-{light,dark}"]. */
+@import "./styles/tokens.css";
+@import "./styles/themes/holaos.css";
+@import "./styles/themes/catppuccin.css";
+@import "./styles/themes/rose-pine.css";
+@import "./styles/themes/solarized.css";
+@import "./styles/themes/nord.css";
+@import "./styles/themes/one-dark-pro.css";
+@import "./styles/themes/gruvbox.css";
+@import "./styles/themes/vitesse.css";
+
+/* App styles. */
+@import "./styles/base.css";
+@import "./styles/effects.css";
+@import "./styles/chat.css";
+@import "./styles/markdown.css";
+
+/* CSS `corner-shape` utilities (pair with a `rounded-*` radius). Progressive
+ * enhancement: Chromium 139+ (the desktop app) renders these; browsers without
+ * support ignore them and keep the plain rounded corner. */
+@utility corner-round {
+  corner-shape: round;
+}
+@utility corner-squircle {
+  corner-shape: squircle;
+}
+@utility corner-bevel {
+  corner-shape: bevel;
+}
+@utility corner-scoop {
+  corner-shape: scoop;
+}
+@utility corner-notch {
+  corner-shape: notch;
+}
+
+/* Squircle every large-ish radius (rounded-xl and up, incl. responsive/state
+ * variants). `:where()` keeps specificity 0 so any element can opt out with a
+ * corner-* utility (e.g. corner-round). Deliberately excludes rounded-full so
+ * pills/avatars stay circular. Progressive enhancement — no-op where
+ * corner-shape is unsupported. */
+/* :where(
+    [class*="rounded"],
+    [class*="rounded-md"],
+    [class*="rounded-lg"],
+    [class*="rounded-xl"],
+    [class*="rounded-2xl"],
+    [class*="rounded-3xl"]
+  ) {
+  corner-shape: squircle;
+} */

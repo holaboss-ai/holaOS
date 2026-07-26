@@ -1,0 +1,64 @@
+{
+  "name": "@holaboss/runtime-api-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "holaboss-runtime-api": "dist/index.mjs",
+    "holaboss-runtime-runtime-config": "dist/runtime-config-cli.mjs",
+    "holaboss-runtime-workspace-runtime-plan": "dist/workspace-runtime-plan.mjs",
+    "holaboss-runtime-workspace-mcp-host": "dist/workspace-mcp-host.mjs",
+    "holaboss-runtime-workspace-mcp-sidecar": "dist/workspace-mcp-sidecar.mjs"
+  },
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "clean": "node ../../scripts/remove-paths.mjs dist",
+    "pretest": "node ../../scripts/ensure-native-sqlite.mjs",
+    "prehola": "node ../../scripts/ensure-native-sqlite.mjs",
+    "hola": "node --import tsx ../../scripts/hola.mts",
+    "test": "node --import tsx --test --test-force-exit src/**/*.test.ts",
+    "ts-runner": "node --import tsx src/ts-runner.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.2.0",
+    "@holaboss/remote-api": "workspace:*",
+    "@holaboss/runtime-channel-gateway": "workspace:*",
+    "@holaboss/runtime-state-store": "workspace:*",
+    "@larksuiteoapi/node-sdk": "^1.67.0",
+    "@mariozechner/pi-coding-agent": "0.66.0",
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "@slack/socket-mode": "^2.0.7",
+    "@slack/web-api": "^7.17.0",
+    "@wecom/aibot-node-sdk": "^1.0.7",
+    "@types/js-yaml": "^4.0.9",
+    "better-sqlite3": "^12.8.0",
+    "cron-parser": "^5.5.0",
+    "dingtalk-stream-sdk-nodejs": "^2.0.4",
+    "discord.js": "^14.26.4",
+    "exceljs": "^4.4.0",
+    "fastify": "^5.8.5",
+    "js-yaml": "^4.1.1",
+    "jszip": "^3.10.1",
+    "node-pty": "^1.2.0-beta.12",
+    "qq-official-bot": "^1.2.3",
+    "tar": "^7.5.13",
+    "unpdf": "^1.6.1",
+    "yauzl": "^3.2.1",
+    "zod": "^4.3.6"
+  },
+  "overrides": {
+    "path-to-regexp": "^8.4.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.3.0",
+    "@types/tar": "^6.1.13",
+    "@types/yauzl": "^2.10.3",
+    "@types/yazl": "^3.3.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "yazl": "^3.3.1"
+  }
+}

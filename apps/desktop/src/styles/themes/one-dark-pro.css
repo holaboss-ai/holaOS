@@ -1,0 +1,92 @@
+/* One Dark Pro — Atom-inspired, balanced contrast.
+   Source: https://github.com/Binaryify/OneDark-Pro */
+
+/* Light mode (One Light) */
+[data-theme="one-dark-pro-light"] {
+  --background: #fafafa;
+  --foreground: #383a42;
+  --primary: #4078f2;
+  --primary-foreground: #fafafa;
+  --info: #c18401;
+  --success: #50a14f;
+  --destructive: #e45649;
+  --destructive-foreground: #fafafa;
+
+  --card: color-mix(in srgb, var(--foreground) 2%, var(--background));
+  --card-foreground: var(--foreground);
+  --popover: var(--background);
+  --popover-foreground: var(--foreground);
+  --secondary: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --muted-foreground: color-mix(in srgb, var(--foreground) 55%, var(--background));
+  --accent: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --input: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --ring: var(--primary);
+
+  --sidebar: color-mix(in srgb, var(--foreground) 3%, var(--background));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --sidebar-ring: var(--primary);
+
+  --chart-1: var(--primary);
+  --chart-2: var(--info);
+  --chart-3: var(--success);
+  --chart-4: var(--destructive);
+  --chart-5: color-mix(in srgb, var(--primary) 60%, var(--foreground));
+
+  --radius: 0.5rem;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: "Geist Mono Variable", JetBrains Mono, monospace;
+}
+
+/* Dark mode */
+[data-theme="one-dark-pro-dark"] {
+  --background: #282c34;
+  --foreground: #abb2bf;
+  --primary: #61afef;
+  --primary-foreground: #282c34;
+  --info: #e5c07b;
+  --success: #98c379;
+  --destructive: #e06c75;
+  --destructive-foreground: #282c34;
+
+  --card: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --card-foreground: var(--foreground);
+  --popover: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  --popover-foreground: var(--foreground);
+  --secondary: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  --secondary-foreground: var(--foreground);
+  --muted: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --muted-foreground: color-mix(in srgb, var(--foreground) 60%, var(--background));
+  --accent: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --accent-foreground: var(--foreground);
+  --border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --input: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --ring: var(--primary);
+
+  --sidebar: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in srgb, var(--foreground) 12%, var(--background));
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: color-mix(in srgb, var(--foreground) 14%, var(--background));
+  --sidebar-ring: var(--primary);
+
+  --chart-1: var(--primary);
+  --chart-2: var(--info);
+  --chart-3: var(--success);
+  --chart-4: var(--destructive);
+  --chart-5: color-mix(in srgb, var(--primary) 60%, var(--foreground));
+
+  --radius: 0.5rem;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: "Geist Mono Variable", JetBrains Mono, monospace;
+}

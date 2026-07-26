@@ -1,0 +1,90 @@
+/* holaOS — the brand-native theme. Warm stone grays (hue ~50-70) with the
+   holaboss orange reserved for brand/CTA. Light mode runs a soft gray canvas
+   so white cards lift off the page; hairlines read as page rhythm, not cell
+   walls. */
+
+/* Light mode */
+[data-theme="holaos-light"] {
+  --background: oklch(0.97 0.0015 70);
+  --foreground: oklch(0.26 0.004 50);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.26 0.004 50);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.26 0.004 50);
+  --primary: oklch(0.624 0.229 32);
+  --primary-foreground: oklch(0.98 0.01 32);
+  --secondary: oklch(0.928 0.0028 65);
+  --secondary-foreground: oklch(0.3 0.004 55);
+  --muted: oklch(0.952 0.0025 72);
+  --muted-foreground: oklch(0.553 0.009 65);
+  --accent: oklch(0.94 0.0028 68);
+  --accent-foreground: oklch(0.26 0.004 50);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.918 0.0028 62);
+  --input: oklch(0.866 0.0035 60);
+  --ring: oklch(0.624 0.229 32);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.675rem;
+  --sidebar: oklch(0.952 0.0025 72);
+  --sidebar-foreground: oklch(0.26 0.004 50);
+  --sidebar-primary: oklch(0.624 0.229 32);
+  --sidebar-primary-foreground: oklch(0.98 0.01 32);
+  --sidebar-accent: oklch(0.923 0.0028 62);
+  --sidebar-accent-foreground: oklch(0.3 0.004 55);
+  --sidebar-border: oklch(0.912 0.0028 62);
+  --sidebar-ring: oklch(0.624 0.229 32);
+  --font-serif: Source Serif 4, serif;
+  --font-mono: JetBrains Mono, monospace;
+  --spacing: 0.25rem;
+}
+
+/* Dark mode. Reading-comfort tuning: the canvas sits at L .185 (near-black
+   canvases read heavy over long sessions) and text tops out at L .93 —
+   near-white on near-black over-drives contrast and halates. The surface
+   ladder keeps whisper steps: sidebar < bg < muted < card < popover. */
+[data-theme="holaos-dark"] {
+  --background: oklch(0.185 0.0028 50);
+  --foreground: oklch(0.93 0.0025 70);
+  --card: oklch(0.245 0.004 55);
+  --card-foreground: oklch(0.93 0.0025 70);
+  --popover: oklch(0.26 0.004 55);
+  --popover-foreground: oklch(0.93 0.0025 70);
+  --primary: oklch(0.624 0.229 32);
+  --primary-foreground: oklch(0.98 0.01 32);
+  --secondary: oklch(0.3 0.004 55);
+  --secondary-foreground: oklch(0.93 0.0025 70);
+  /* Muted is a quiet fill between bg and card — rails, code blocks,
+     disabled fields, the user chat bubble base. */
+  --muted: oklch(0.225 0.0035 55);
+  --muted-foreground: oklch(0.72 0.008 65);
+  --accent: oklch(0.325 0.004 55);
+  --accent-foreground: oklch(0.93 0.0025 70);
+  --destructive: oklch(0.653 0.232 25.964);
+  --destructive-foreground: oklch(1 0 0);
+  /* Border sits above card so hairlines read without shouting. */
+  --border: oklch(0.33 0.004 55);
+  --input: oklch(0.355 0.004 55);
+  --ring: oklch(0.624 0.229 32);
+  --chart-1: oklch(0.44 0.006 250);
+  --chart-2: oklch(0.56 0.006 250);
+  --chart-3: oklch(0.71 0.006 250);
+  --chart-4: oklch(0.87 0.006 250);
+  --chart-5: oklch(0.92 0.006 250);
+  --radius: 0.675rem;
+  --sidebar: oklch(0.165 0.0028 50);
+  --sidebar-foreground: oklch(0.93 0.0025 70);
+  --sidebar-primary: oklch(0.624 0.229 32);
+  --sidebar-primary-foreground: oklch(0.93 0.0025 70);
+  --sidebar-accent: oklch(0.235 0.0035 55);
+  --sidebar-accent-foreground: oklch(0.93 0.0025 70);
+  --sidebar-border: oklch(0.25 0.004 55);
+  --sidebar-ring: oklch(0.624 0.229 32);
+  --font-serif: Source Serif 4, serif;
+  --font-mono: JetBrains Mono, monospace;
+  --spacing: 0.25rem;
+}

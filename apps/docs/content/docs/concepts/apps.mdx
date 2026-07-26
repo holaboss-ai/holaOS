@@ -1,0 +1,168 @@
+---
+title: Apps in holaOS
+description: Why the app layer exists and how it fits into the holaOS system.
+---
+
+An app is the packaged capability unit that a workspace installs.
+
+It is how `holaOS` gives a workspace durable, inspectable, domain-specific behavior without collapsing that behavior into the harness, the prompt, or the desktop shell.
+
+This page explains why the app layer exists and how it fits into the system. For manifest fields, lifecycle hooks, MCP registration, and output-publishing behavior, continue into the [Build > Apps](/docs/build/apps) pages.
+
+## Why the app layer exists
+
+`holaOS` is not only a runtime and memory system. It also needs a stable way to package capability.
+
+Skills, commands, and raw tools are useful, but they do not fully own product behavior. An app can combine UI, local state, MCP surfaces, integration requirements, background work, and output publishing as one installable unit inside a workspace.
+
+That is why the app layer completes the system story:
+
+- the workspace provides the operating context
+- memory preserves continuity and recall
+- the runtime governs execution and capability visibility
+- the harness executes the prepared run
+- apps provide durable domain capability inside that environment
+
+Without the app layer, `holaOS` would have an environment model but no first-class unit for packaged business or workflow capability.
+
+## What an app can own
+
+An app can own:
+
+- operator-facing UI
+- local records and state
+- MCP tool surfaces
+- background services or sync jobs
+- integration requirements
+- output publishing
+- lifecycle and health contracts
+
+Those pieces are not arbitrary implementation details. They are the surfaces that make a capability durable, inspectable, and reusable inside a workspace.
+
+## How an app enters a workspace in code
+
+In the current runtime, an app is not discovered by convention alone. It becomes runtime-managed when the workspace declares it in `workspace.yaml`:
+
+```yaml
+applications:
+  - app_id: my_app
+    config_path: apps/my_app/app.runtime.yaml
+```
+
+From there the runtime resolves `apps/my_app/app.runtime.yaml`, assigns ports, injects runtime and integration environment variables, runs the lifecycle, performs health checks, and reconciles MCP registry state if the app declares `mcp.tools`.
+
+That is the practical boundary between "some local code in the workspace" and "an app the runtime actually owns."
+
+## What apps are not
+
+Apps are not:
+
+- the harness
+- the runtime
+- workspace plugins
+- durable memory governance
+- standing workspace policy
+- a prompt fragment
+- a single MCP tool
+
+The app layer packages capability. The runtime still decides what is visible for a run, memory still governs recall, and the harness still executes the turn.
+
+## Apps are not plugins
+
+`Apps` and `Plugins` are separate systems in `holaOS`.
+
+- `Apps` are runtime-managed capability packages declared in `workspace.yaml` under `applications[]`.
+- `Plugins` are workspace-native structural units that own one base plus plugin-owned workflows and custom teammates.
+- a plugin's base owns that plugin's dashboards and objects
+
+That means a workspace can install apps and also contain plugins, but the runtime does not treat them as the same thing:
+
+- apps are declared through authored manifest paths under `apps/`
+- plugins are stored as workspace runtime structure and surfaced directly in the desktop shell
+
+## Why not stop at integrations, MCP, or a CLI?
+
+In many cases, a workspace could reach a similar immediate outcome without an app. It could bind an integration directly, call an MCP server directly, or let an agent install and use a SaaS CLI with a package manager.
+
+Those are all valid routes. Direct integrations provide access. MCP provides a structured invocation surface. A CLI can be a powerful local engine and may own local state, background jobs, lifecycle, and health.
+
+The real question is not what can implement the capability. It is what unit the workspace and runtime should recognize when several surfaces need to persist together as one capability.
+
+- `Integration` is the access layer.
+- `MCP` is the invocation layer.
+- `CLI` is a possible implementation engine.
+- `App` is the runtime-managed capability boundary.
+
+Once a capability needs lifecycle, state, integrations, UI, MCP exposure, and outputs to stay coordinated over time, `holaOS` needs one coherent unit to own that outer contract. That is the role of the app layer.
+
+An app can still be thin. It may depend on one integration, expose only a small MCP tool surface, or internally rely on a CLI. `holaOS` models that unit as an app when the workspace and runtime need to manage those pieces as one installed capability over time.
+
+So the app layer does not reject the simpler paths. It gives the workspace one place to assemble them when they need to persist together.
+
+## How apps differ from other surfaces
+
+| Surface | The question it answers |
+| --- | --- |
+| Integration | What external service can this workspace access? |
+| MCP | How can the agent call capability in a structured way? |
+| CLI | What local executable or service can implement the capability? |
+| App | What durable capability does this workspace install and own? |
+
+An app may rely on integrations, expose MCP, or internally run a CLI, but it is still the unit the workspace and runtime manage as one capability.
+
+## How apps fit into the full system
+
+In practice, the system fits together like this:
+
+1. The workspace declares the authored operating context.
+2. The runtime resolves memory, continuity, capabilities, integrations, and model configuration for the run.
+3. The harness receives a reduced execution package and executes the turn.
+4. Apps provide the durable domain-specific behavior that the workspace can expose over time.
+
+That split keeps capability portable across harness changes and keeps domain behavior out of the core runtime.
+
+## Why this matters for builders
+
+For builders, the app layer gives `holaOS` a clean extension model:
+
+- capability stays inspectable to operators and developers
+- domain behavior stays modular instead of leaking into the runtime core
+- workspaces can compose multiple capabilities cleanly
+- the same environment model can outlive one harness or desktop implementation
+
+If you are building an app now, do not stop at this conceptual page. The next layer is the runtime contract: app registration, manifest fields, lifecycle, MCP registry writes, and output publishing.
+
+## Read next
+
+<DocCards>
+  <DocCard
+    title="App Anatomy"
+    eyebrow="Builder Structure"
+    href="/docs/build/apps/app-anatomy"
+    description="See how a workspace app is structured in practice across UI, services, manifests, integrations, and outputs."
+  />
+  <DocCard
+    title="Build Your First App"
+    eyebrow="Developer Path"
+    href="/docs/build/apps/first-app"
+    description="Move from the system model into the concrete path for creating a workspace app."
+  />
+  <DocCard
+    title="MCP Tools"
+    eyebrow="Tool Surface"
+    href="/docs/build/apps/mcp-tools"
+    description="See how `mcp.tools` becomes workspace MCP registry state and what the runtime expects from a healthy MCP app."
+  />
+  <DocCard
+    title="app.runtime.yaml"
+    eyebrow="Runtime Contract"
+    href="/docs/build/apps/app-runtime-yaml"
+    description="See the manifest that declares lifecycle, MCP, and integration requirements for an app."
+  />
+  <DocCard
+    title="App Builder SDK"
+    eyebrow="Authoring Layer"
+    href="/docs/build/apps/app-builder-sdk"
+    description="See the TypeScript SDK new apps build against — five primitives, typed integration calls, automatic MCP surfacing."
+  />
+</DocCards>

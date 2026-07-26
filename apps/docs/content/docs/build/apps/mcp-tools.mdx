@@ -1,0 +1,127 @@
+---
+title: MCP Tools
+description: How workspace app MCP tools become callable from the runtime and what the registry reconciliation does.
+---
+
+MCP tools are how a workspace app becomes callable from the runtime.
+
+The runtime-facing contract is split across:
+
+- your MCP server implementation
+- `app.runtime.yaml`
+- `workspace.yaml` `mcp_registry`
+
+The source of truth is:
+
+- `runtime/api-server/src/workspace-apps.ts`
+- `runtime/api-server/src/app.ts`
+- `runtime/api-server/src/app.test.ts`
+
+## Manifest Name vs Runtime Tool Id
+
+In `app.runtime.yaml`, you declare raw tool names:
+
+```yaml title="app.runtime.yaml"
+mcp:
+  tools:
+    - create_post
+    - publish_post
+```
+
+The runtime then reconciles `workspace.yaml` so the allowlisted tool ids become:
+
+- `my_app.create_post`
+- `my_app.publish_post`
+
+That prefixing is part of the contract. The app server can expose `create_post`, but the workspace registry is server-qualified.
+
+## What the Runtime Writes
+
+When `mcp.tools` is declared, `writeWorkspaceMcpRegistryEntry()` updates:
+
+- `mcp_registry.servers.my_app`
+- `mcp_registry.allowlist.tool_ids`
+
+The server entry is written as:
+
+```yaml title="workspace.yaml"
+mcp_registry:
+  servers:
+    my_app:
+      type: remote
+      url: http://localhost:$MCP_PORT/mcp/sse
+      enabled: true
+      timeout_ms: 30000
+      started_at: 2026-04-14T11:22:33.000Z
+```
+
+The allowlist entries are written as `app_id.tool_name`, for example `my_app.create_post`.
+
+## When Registry Reconciliation Runs
+
+There are two important write paths:
+
+1. `POST /api/v1/apps/install-archive` writes the app entry and attempts to write MCP registry state after install
+2. `reconcileAppMcpRegistry()` runs after app start and rewrites the same entries idempotently
+
+That second step matters because it auto-heals stale MCP registry state when app ports or tool lists changed.
+
+On post-start reconciliation, the runtime can bump `mcp_registry.servers.<appId>.started_at` so MCP clients watching `workspace.yaml` can detect app restarts and reconnect SSE sessions.
+
+## Health Requirements
+
+An MCP app is only usable when the runtime considers it healthy. Today that requires both:
+
+- `GET http://localhost:$PORT/` returns `2xx` or `3xx`
+- `GET http://localhost:$MCP_PORT<healthchecks.mcp.path>` returns `200`
+
+Be explicit in the manifest:
+
+```yaml title="app.runtime.yaml"
+healthchecks:
+  mcp:
+    path: /mcp/health
+
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /mcp/sse
+  tools:
+    - create_post
+```
+
+Do not rely on the runtime guessing your MCP path correctly. Some helpers default to `/mcp`, some write `/mcp/sse` when no path is supplied, so explicit config is safer.
+
+## Tool Design Rules That Fit This Runtime
+
+- keep tools narrow and composable
+- choose names that still read cleanly after app-id prefixing
+- return machine-readable JSON when the result feeds another model step
+- make write operations obvious from the tool name
+- return durable ids when the operation creates or mutates state
+
+Good names:
+
+- `create_post`
+- `list_posts`
+- `get_post`
+- `publish_post`
+- `get_publish_status`
+
+## Verification Loop
+
+When you add or change a tool:
+
+1. start the app through the runtime
+2. confirm the HTTP root and MCP health route pass
+3. inspect `workspace.yaml`
+4. confirm `mcp_registry.allowlist.tool_ids` contains entries such as `my_app.create_post`
+5. confirm `mcp_registry.servers.my_app.url` points at the current MCP port and path
+
+The executable tests for this flow live in `runtime/api-server/src/app.test.ts`.
+
+## Validation
+
+```bash
+npm run runtime:api-server:test
+```

@@ -1,0 +1,27 @@
+{
+  "name": "@holaboss/runtime-channel-gateway",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "clean": "node ../../scripts/remove-paths.mjs dist",
+    "test": "node --import tsx --test --test-force-exit 'src/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@larksuiteoapi/node-sdk": "^1.67.0",
+    "@slack/socket-mode": "^2.0.7",
+    "@slack/web-api": "^7.17.0",
+    "@wecom/aibot-node-sdk": "^1.0.7",
+    "@types/node": "^24.3.0",
+    "dingtalk-stream-sdk-nodejs": "^2.0.4",
+    "discord.js": "^14.26.4",
+    "qq-official-bot": "^1.2.3",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

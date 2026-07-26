@@ -1,0 +1,203 @@
+---
+title: app.runtime.yaml
+description: The runtime-owned contract for a workspace app — lifecycle, MCP, health checks, and integration declarations.
+---
+
+`app.runtime.yaml` is the runtime-owned contract for a workspace app.
+
+The source of truth is:
+
+- `runtime/api-server/src/workspace-apps.ts`
+- `runtime/api-server/src/workspace-runtime-plan.ts`
+- `runtime/api-server/src/integration-types.ts`
+- `runtime/api-server/src/app-lifecycle-worker.ts`
+
+## Minimal Working Example
+
+The runtime resolves the manifest from `workspace.yaml`:
+
+```yaml title="workspace.yaml"
+applications:
+  - app_id: my_app
+    config_path: apps/my_app/app.runtime.yaml
+```
+
+Then it parses `apps/my_app/app.runtime.yaml`:
+
+```yaml title="apps/my_app/app.runtime.yaml"
+app_id: "my_app"
+name: "My App"
+slug: "my-app"
+
+lifecycle:
+  setup: "npm install"
+  start: "npm run start"
+  stop: "pkill -f my-app || true"
+
+healthchecks:
+  mcp:
+    path: /mcp/health
+    timeout_s: 30
+    interval_s: 5
+
+mcp:
+  transport: http-sse
+  port: 13100
+  path: /mcp/sse
+  tools:
+    - create_record
+
+env_contract:
+  - HOLABOSS_WORKSPACE_ID
+
+integrations:
+  - key: primary_gmail
+    provider: gmail
+    capability: gmail
+    scopes:
+      - https://www.googleapis.com/auth/gmail.modify
+    required: true
+    credential_source: platform
+    holaboss_user_id_required: true
+```
+
+## Field Guide
+
+| Field | Current runtime behavior |
+| --- | --- |
+| `app_id` | Must exactly match the `workspace.yaml` app entry |
+| `name`, `slug` | Metadata only for the current runtime |
+| `lifecycle.setup` | Optional setup command run before start |
+| `lifecycle.start` | Primary native shell lifecycle entrypoint |
+| `lifecycle.stop` | Stop command for the shell lifecycle path |
+| top-level `start` | Fallback subprocess lifecycle when shell lifecycle is not declared |
+| `mcp.transport` | Defaults to `http-sse` |
+| `mcp.port` | Required |
+| `mcp.path` | Defaults vary across runtime helpers; keep it explicit |
+| `mcp.tools` | Optional raw tool names used for MCP registry reconciliation |
+| `healthchecks.mcp.path` | Preferred MCP health path |
+| `healthchecks.*.timeout_s` | Defaults to `60` |
+| `healthchecks.*.interval_s` | Defaults to `5` |
+| `env_contract` | String list used for selected lifecycle env injection |
+| `integrations` | Preferred multi-integration form |
+| legacy `integration` | Still supported, but cannot be combined with `integrations` |
+
+## Hard Requirements
+
+### `app_id` Must Match the Workspace Entry
+
+If `workspace.yaml` contains:
+
+```yaml title="workspace.yaml"
+applications:
+  - app_id: twitter
+    config_path: apps/twitter/app.runtime.yaml
+```
+
+then the manifest must also contain:
+
+```yaml title="apps/twitter/app.runtime.yaml"
+app_id: "twitter"
+```
+
+The runtime rejects mismatches.
+
+### `mcp.port` Is Required
+
+`parseResolvedAppRuntime()` errors if `mcp.port` is missing or not numeric. Today the runtime expects every managed app manifest to declare an MCP block and port.
+
+### Only One Lifecycle Mode Should Win
+
+The runtime supports three launch modes:
+
+1. Docker Compose when no native lifecycle is declared and a compose file exists
+2. native shell lifecycle from `lifecycle.start`
+3. native subprocess lifecycle from top-level `start`
+
+Do not build a manifest that leaves the runtime guessing between them.
+
+## Health Check Resolution
+
+`workspace-apps.ts` resolves the preferred health check in this order:
+
+1. `healthchecks.mcp`
+2. `healthchecks.api`
+3. the first object value under `healthchecks`
+
+If nothing is declared, the runtime falls back to:
+
+- path: `/health`
+- timeout: `60`
+- interval: `5`
+
+Make `healthchecks.mcp.path` explicit and keep it aligned with the server code.
+
+## `env_contract` Behavior
+
+`env_contract` is narrower than many app specs imply.
+
+In the current lifecycle executor it is only used to decide whether to inject selected runtime variables such as:
+
+- `HOLABOSS_USER_ID`
+- `HOLABOSS_WORKSPACE_ID` when that variable has not already been injected through integration resolution
+
+It does not magically expose arbitrary host environment variables.
+
+## Integration Declarations
+
+The parser accepts:
+
+```yaml title="app.runtime.yaml"
+integrations:
+  - key: primary_gmail
+    provider: gmail
+    capability: gmail
+    scopes:
+      - https://www.googleapis.com/auth/gmail.modify
+    required: true
+    credential_source: platform
+    holaboss_user_id_required: true
+```
+
+Current `credential_source` values are:
+
+- `platform`
+- `manual`
+- `broker`
+
+Use the exact canonical `provider` id from the runtime integration catalog. Legacy aliases such as `google` are still accepted for compatibility, but new manifests should prefer specific ids such as `gmail`, `googlesheets`, `googledrive`, or `googlecalendar`.
+
+Do not declare both `integration` and `integrations` in the same file.
+
+## MCP Registry Side Effects
+
+If the manifest declares:
+
+```yaml title="app.runtime.yaml"
+mcp:
+  tools:
+    - create_post
+    - list_posts
+```
+
+the runtime can rewrite `workspace.yaml` so the allowlist contains:
+
+- `my_app.create_post`
+- `my_app.list_posts`
+
+and `mcp_registry.servers.my_app` points at the app's runtime MCP URL.
+
+## Practical Rules
+
+- keep `mcp.path` explicit instead of relying on helper defaults
+- keep `healthchecks.mcp.path` explicit and tested
+- make `lifecycle.setup` safe to rerun
+- do not assume manifest ports are the runtime ports; use injected `PORT` and `MCP_PORT`
+- prefer `integrations` over legacy `integration`
+
+## Validation
+
+```bash
+npm run runtime:api-server:test
+npm run runtime:test
+```

@@ -1,0 +1,77 @@
+name: Cleanup old artifacts
+
+# Actions artifact storage is a hard quota. retention-days only bounds NEW
+# uploads, so this sweeps the backlog: it deletes build artifacts older than
+# max_age_days (release handoffs are consumed within their own run in minutes,
+# so anything older is dead weight). Runs daily and on demand.
+
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: Delete artifacts older than this many days
+        required: false
+        default: "1"
+        type: string
+      dry_run:
+        description: List what would be deleted without deleting
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: write
+
+concurrency:
+  group: cleanup-artifacts
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const maxAgeDays = Number(context.payload.inputs?.max_age_days ?? "1") || 1;
+            const dryRun = String(context.payload.inputs?.dry_run ?? "false") === "true";
+            const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+            const all = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 },
+            );
+
+            const stale = all.filter(
+              (a) => !a.expired && new Date(a.created_at).getTime() < cutoff,
+            );
+
+            let removed = 0;
+            let bytes = 0;
+            for (const a of stale) {
+              if (dryRun) {
+                core.info(`[dry-run] would delete #${a.id} ${a.name} (${(a.size_in_bytes / 1e6).toFixed(1)} MB, ${a.created_at})`);
+                bytes += a.size_in_bytes || 0;
+                continue;
+              }
+              try {
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: a.id,
+                });
+                removed++;
+                bytes += a.size_in_bytes || 0;
+              } catch (e) {
+                core.warning(`Failed to delete #${a.id} ${a.name}: ${e.message}`);
+              }
+            }
+
+            const verb = dryRun ? "would free" : "freed";
+            core.notice(
+              `Scanned ${all.length} artifacts, ${stale.length} older than ${maxAgeDays} day(s); ` +
+                `${dryRun ? "kept all" : `deleted ${removed}`}, ${verb} ${(bytes / 1e6).toFixed(1)} MB.`,
+            );

@@ -1,0 +1,37 @@
+---
+title: Overview
+description: holaOS is a desktop app for long-horizon AI work — workspaces that carry memory across sessions, apps that give the agent capabilities, skills that encode reusable patterns.
+---
+
+<p className="eyebrow">Overview</p>
+
+holaOS is a desktop app where each **workspace** is a long-running AI environment — an agent that carries memory across sessions, platform apps it can use, and the files, outputs, and automations it builds up over time.
+
+It's built for work that doesn't fit in a single prompt. Drafting a week of LinkedIn content around a product launch, triaging a busy inbox every morning, pulling a weekly research digest from a handful of sources — these are tasks that need continuity, not just a capable model. holaOS gives that continuity a structure.
+
+## The mental model
+
+**Workspace** — the unit of organization. Each workspace has its own agent identity, workspace-scoped memory, and installed apps and skills. You'd create one workspace for your LinkedIn presence, a separate one for inbox triage, and another for competitive research. Day-to-day run context stays anchored to the open workspace, though some account-level surfaces such as profile memory or reusable integration connections can be shared intentionally.
+
+**Agent** — the entity doing the work inside a workspace. Between sessions, the agent retains memory of prior runs, past decisions, and accumulated context. Its standing behavior is defined by an `AGENTS.md` file in the workspace — you can read and edit that file directly. The agent reads it at the start of every run.
+
+**Apps and Skills** — how the agent's capabilities are extended. Apps are runtime-managed capability packages — often platform integrations, but also local tools, app UI, or background jobs — that give the agent durable actions inside the workspace. Skills are markdown instruction packs (`SKILL.md` files) the agent loads when relevant, encoding reusable patterns like how to write in your voice or how to structure a weekly report. Apps and published Skills can come from Marketplace, and Skills can also be authored directly inside the workspace.
+
+Two more pieces worth knowing before you go deeper:
+
+**Automations** let a workspace run on a schedule without you typing a message. The agent wakes up, does the work, and accumulates outputs over time.
+
+**Templates** are workspaces others have built, iterated on, and published. Instead of starting from blank, you fork a template and adapt it — the agent identity, installed apps, and standing instructions come pre-configured.
+
+## Built on holaOS (open-source)
+
+holaOS Desktop runs on top of `holaOS`, an open-source environment layer that defines the workspace contract, memory surfaces, runtime harness, and capability boundary that make long-horizon work durable. The whole platform — runtime, harness, and workspace structure — is inspectable and open to contribution. For the full argument behind this design, read [Environment Engineering](/docs/concepts/environment-engineering).
+
+## Read next
+
+<Cards>
+  <Card title="Quick Start" href="/docs/getting-started/quick-start" description="Download holaOS Desktop, open your first workspace, and run your first task in five minutes." />
+  <Card title="Workspaces" href="/docs/getting-started/workspaces" description="How workspaces work from a user's view — create, switch, and manage them." />
+  <Card title="Working with Your Agent" href="/docs/getting-started/agent-runs" description="Send a task, watch the run, review outputs, and let memory accumulate." />
+  <Card title="Extending Your Workspace" href="/docs/getting-started/extending" description="Install Apps, add Skills, and set up Automations to expand what your workspace can do." />
+</Cards>

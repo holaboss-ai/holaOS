@@ -1,0 +1,11 @@
+id: inbox-triage
+name: Inbox Triage
+description: Triage incoming email into priorities and draft replies
+category: productivity
+icon: "ph:tray-fill"
+skills:
+  - ref: email-triage
+integrations:
+  - provider: gmail
+    required: true
+    reason: Reads and drafts replies to incoming email

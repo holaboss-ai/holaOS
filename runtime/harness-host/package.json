@@ -1,0 +1,40 @@
+{
+  "name": "@holaboss/runtime-harness-host",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "holaboss-harness-host": "dist/index.mjs"
+  },
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "clean": "node ../../scripts/remove-paths.mjs dist",
+    "postinstall": "node scripts/apply-pi-patches.mjs",
+    "test": "node --import tsx --test --test-force-exit src/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@mariozechner/pi-agent-core": "0.66.0",
+    "@mariozechner/pi-tui": "0.66.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.199",
+    "@mariozechner/pi-ai": "0.66.0",
+    "@mariozechner/pi-coding-agent": "0.66.0",
+    "@napi-rs/canvas": "^0.1.100",
+    "@sinclair/typebox": "^0.34.41",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
+    "mcporter": "^0.7.3",
+    "openai": "^6.26.0",
+    "tree-sitter-wasms": "^0.1.12",
+    "unpdf": "^1.6.1",
+    "web-tree-sitter": "^0.25.10"
+  }
+}

@@ -1,0 +1,23 @@
+<svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Bossman sunglasses — a transparent overlay drawn on top of the square Hola
+    avatar (hola.webp). The 0..100 viewBox maps 1:1 onto the avatar box, so the
+    two lenses land on Hola's eyes (~39% / ~73% x). Lenses are sized/positioned
+    to fully cover Hola's tall round eye (~y52..78) with no cream leaking below.
+  -->
+  <g stroke-linecap="round">
+    <!-- temple arms (behind the lenses so they read as attached) -->
+    <path d="M25 57 L17 53" stroke="#15171d" stroke-width="4" />
+    <path d="M87 57 L95 53" stroke="#15171d" stroke-width="4" />
+    <!-- lenses -->
+    <rect x="25" y="53" width="28" height="26" rx="9" fill="#15171d" />
+    <rect x="59" y="53" width="28" height="26" rx="9" fill="#15171d" />
+    <!-- brow bar across the lens tops -->
+    <path d="M25 54 H87" stroke="#15171d" stroke-width="5" />
+    <!-- bridge over the nose -->
+    <path d="M53 58 Q56 54 59 58" stroke="#15171d" stroke-width="4.5" fill="none" />
+    <!-- gloss streaks -->
+    <path d="M31 66 L42 58" stroke="#ffffff" stroke-width="3" opacity="0.32" />
+    <path d="M65 66 L76 58" stroke="#ffffff" stroke-width="3" opacity="0.32" />
+  </g>
+</svg>

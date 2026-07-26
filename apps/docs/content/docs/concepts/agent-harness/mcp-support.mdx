@@ -1,0 +1,131 @@
+---
+title: MCP Support
+description: How workspace-level MCP policy is authored, resolved, and projected into the harness.
+---
+
+MCP support is part of the current harness path, but two different layers matter:
+
+- `workspace.yaml` defines the MCP policy boundary for the run
+- the harness host may still discover concrete tool catalogs from the connected MCP servers at runtime
+
+## Where Workspace-Level MCP Lives
+
+Workspace-level MCP servers are authored in `workspace.yaml` under `mcp_registry`.
+
+Remote server example with an explicit allowlist:
+
+```yaml
+mcp_registry:
+  servers:
+    context7:
+      type: remote
+      url: https://mcp.context7.com/mcp
+      enabled: true
+      timeout_ms: 30000
+      headers:
+        CONTEXT7_API_KEY: "{env:CONTEXT7_API_KEY}"
+  allowlist:
+    tool_ids:
+      - context7.lookup
+      - context7.search
+```
+
+For Context7, the header value must be either:
+
+- a literal API key such as `ctx7sk-...`
+- or an environment placeholder whose contents are the environment variable name, such as `{env:CONTEXT7_API_KEY}`
+
+Do not wrap the literal key in placeholder syntax. This is invalid:
+
+```yaml
+headers:
+  CONTEXT7_API_KEY: "{env:ctx7sk-...}"
+```
+
+That shape does not reference an environment variable. It sends a placeholder-shaped string to the remote MCP server instead of the actual API key.
+
+Explicit tool ids apply to the servers named by those ids. Other enabled configured servers can still remain discoverable for the run when they have no explicit tool refs.
+
+Remote server example that allows all discovered tools from the configured server:
+
+```yaml
+mcp_registry:
+  servers:
+    context7:
+      type: remote
+      url: https://mcp.context7.com/mcp
+      enabled: true
+      timeout_ms: 30000
+```
+
+An empty allowlist has the same meaning:
+
+```yaml
+mcp_registry:
+  servers:
+    context7:
+      type: remote
+      url: https://mcp.context7.com/mcp
+      enabled: true
+  allowlist:
+    tool_ids: []
+```
+
+## What the Runtime Does First
+
+Before the harness runs, the runtime:
+
+- prepares MCP server payloads
+- resolves `{env:ENV_VAR_NAME}` placeholders in remote MCP headers and environment values
+- rejects placeholder-shaped literals such as `{env:ctx7sk-...}` with a config error before the run starts
+- starts the workspace MCP sidecar when needed
+- resolves MCP tool refs when `mcp_registry.allowlist.tool_ids` is present and non-empty
+- passes the prepared `mcp_servers` and any resolved `mcp_tool_refs` into the host request
+- carries connected MCP server ids into the runtime config so prompt and capability projection can distinguish `no MCP server` from `connected server with runtime discovery`
+
+That means the runtime decides which part of the MCP graph is visible for this run.
+
+## What the Host Does Next
+
+The harness host then:
+
+- builds MCP bindings from the prepared server payloads
+- discovers tools from those configured servers
+- restricts servers that have explicit `mcp_tool_refs` to that subset
+- exposes all discovered tools for configured servers that do not have explicit `mcp_tool_refs`
+
+This keeps MCP visibility policy inside the runtime while still allowing a workspace to mix both modes in one run: explicitly constrained servers and unrestricted discovered servers.
+
+## What the Agent Sees
+
+There are two valid MCP shapes at run start:
+
+- explicit allowlist present:
+  the runtime resolves concrete `mcp_tool_refs`, so the capability manifest and prompt can name those tools directly
+- allowlist omitted or empty:
+  the runtime still passes the connected `mcp_servers`, but concrete remote tool names may not be pre-enumerated yet; the host discovers them at runtime and exposes all discovered tools from those servers
+
+A mixed workspace is also valid:
+
+- some servers have explicit `mcp_tool_refs` and stay constrained to those tools
+- other configured servers have no explicit refs and stay discoverable-all for that run
+
+In the second case, the prompt should not claim MCP is unavailable. It may summarize connected MCP server ids even when concrete tool names are discovered later in the host.
+
+The enforcement boundary is still the actual tool registry materialized by the host for that run, not the prose in the prompt.
+
+## When Changes Take Effect
+
+The runtime compiles `workspace.yaml` at run start. If you add or edit a remote MCP server during one run, the updated server configuration is ready on the next run, not retroactively inside the already running harness session.
+
+## Current Boundary
+
+MCP is one of the most important capability surfaces in `holaOS`, so it needs a stable policy boundary:
+
+- runtime resolves configured MCP servers for the run
+- runtime resolves explicit MCP tool refs when allowlisted tool ids exist for a server
+- runtime may carry only MCP server ids, not pre-enumerated tool ids, when the allowlist is omitted
+- host materializes the resolved subset for servers with explicit refs and all discovered tools for servers without them
+- harness consumes the projected tool surface
+
+That split is what keeps MCP support compatible with multiple harnesses later.

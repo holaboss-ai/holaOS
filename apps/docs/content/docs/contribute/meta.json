@@ -1,0 +1,11 @@
+{
+  "title": "Contribute",
+  "pages": [
+    "index",
+    "start-developing",
+    "desktop",
+    "runtime",
+    "agent-harness",
+    "templates-materialization"
+  ]
+}

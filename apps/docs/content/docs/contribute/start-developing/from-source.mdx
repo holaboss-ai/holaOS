@@ -1,0 +1,121 @@
+---
+title: Install from Source
+description: Bootstrap holaOS Desktop from the holaOS OSS repo — one-line installer or the manual six-step flow.
+---
+
+This page is for contributors who want to run holaOS Desktop from the `holaOS` source tree, typically because they plan to change runtime, harness, or desktop code. If you just want to use the product, download the signed installer from **[/desktop](/desktop)** instead.
+
+Use the one-line repository installer on a fresh machine, or follow the manual path if you want to control each setup step.
+
+## One-line install
+
+For a mostly automatic bootstrap on macOS, Linux, or WSL, install Bun first, then use the repository installer and continue directly into the desktop dev environment after verification:
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+curl -fsSL https://raw.githubusercontent.com/holaboss-ai/holaOS/main/scripts/install.sh | bash -s -- --launch
+```
+
+That installer:
+
+- installs missing `git` and Node.js `24` / `npm` when needed
+- assumes `bun` is already on `PATH`
+- clones the repository into `~/holaboss-ai` by default
+- creates `apps/desktop/.env` from `apps/desktop/.env.example` if needed
+- runs `bun install`
+- runs `npm run desktop:prepare-runtime:local`
+- runs `npm run desktop:typecheck`
+- runs `npm run desktop:dev` when `--launch` is passed
+
+On Linux, the prerequisite install path may use your system package manager and `sudo`. On macOS, it may use Homebrew if `git` is missing.
+
+## Manual install
+
+### What you need
+
+If you are using the manual path, make sure the machine has:
+
+- `git`
+- `node` version `24` or newer
+- `bun`
+- `npm` if you want to use the root `npm run ...` wrappers instead of calling `bun` directly
+
+You can verify that quickly with:
+
+```bash
+git --version
+node --version
+bun --version
+```
+
+### Hand-off to a coding agent
+
+If you are using Codex, Claude Code, Cursor, Windsurf, or another coding agent, you can hand it the setup instructions in one sentence:
+
+```text
+Clone the holaOS repo from https://github.com/holaboss-ai/holaOS.git if needed, or use the current checkout if it is already open, then follow the source-install runbook in this repo with Bun available on PATH. If the environment cannot open Electron, stop after verification and tell me the next manual step.
+```
+
+That handoff keeps the installation flow self-contained while leaving the detailed bootstrap steps in the repo-local `INSTALL.md` runbook.
+
+### Baseline six-step install
+
+**Step 1: Clone the repository**
+
+```bash
+git clone https://github.com/holaboss-ai/holaOS.git
+cd holaOS
+```
+
+**Step 2: Install the repo dependencies**
+
+```bash
+bun install
+```
+
+**Step 3: Create your local environment file**
+
+```bash
+cp apps/desktop/.env.example apps/desktop/.env
+```
+
+The minimum value that makes `npm run desktop:dev` pass its preflight is a remote base URL such as `HOLABOSS_BACKEND_BASE_URL` or `HOLABOSS_PROACTIVE_URL`. The checked-in `apps/desktop/.env.example` already includes `HOLABOSS_BACKEND_BASE_URL`, so copying that file is enough for the default local path.
+
+**Step 4: Prepare the local runtime bundle**
+
+```bash
+npm run desktop:prepare-runtime:local
+```
+
+Use this local path when you are developing against the current OSS runtime code.
+
+**Step 5: Check the desktop build before launching**
+
+```bash
+npm run desktop:typecheck
+```
+
+**Step 6: Start the desktop app**
+
+```bash
+npm run desktop:dev
+```
+
+The `predev` hook will validate the environment, rebuild native modules, and make sure a staged runtime bundle exists.
+
+If you are driving setup through a coding agent or on a headless machine, stop after verification instead of opening Electron. `desktop:dev` is a headed interactive flow.
+
+If you want to verify the desktop against the latest published runtime bundle instead of the local runtime code, use:
+
+```bash
+npm run desktop:prepare-runtime
+```
+
+Use `desktop:prepare-runtime:local` for active runtime development. Use `desktop:prepare-runtime` when you want to test against the published bundle path.
+
+## Read next
+
+<Cards>
+  <Card title="Start Developing" href="/docs/contribute/start-developing" description="Pick the right development loop — desktop, runtime, or harness — and what each script does." />
+  <Card title="Contribute" href="/docs/contribute" description="The overview page for runtime, desktop, and harness contribution paths." />
+</Cards>

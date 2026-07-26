@@ -1,0 +1,74 @@
+---
+title: Quick Start
+description: Install holaOS Desktop, open your first workspace, configure a model, and run your first task — five minutes end to end.
+---
+
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+<p className="eyebrow">5 minutes</p>
+
+Install holaOS Desktop, open a workspace, connect a model provider, and send your first task. That's the whole path.
+
+## 1. Install holaOS Desktop
+
+<Tabs items={['Installer', 'From source']}>
+<Tab value="Installer">
+
+Grab the latest desktop build from [github.com/holaboss-ai/holaOS/releases](https://github.com/holaboss-ai/holaOS/releases) and choose the artifact published for your platform.
+
+On macOS, open the `.dmg`, drag holaOS into your Applications folder, and launch it from there. On first open, macOS may prompt you to approve the app in **System Settings → Privacy & Security** — click **Open Anyway** and the app will launch normally from that point on. On Windows, run the published installer. If the release you want does not ship an artifact for your platform yet, use the **From source** path below.
+
+</Tab>
+<Tab value="From source">
+
+This path is for contributors who want to modify the desktop, runtime, or harness code. Requires `git`, `node` `24+`, and `bun`.
+
+```bash
+git clone https://github.com/holaboss-ai/holaOS.git
+cd holaOS
+bun install
+cp apps/desktop/.env.example apps/desktop/.env
+npm run desktop:prepare-runtime:local
+npm run desktop:dev
+```
+
+`bun` is a real prerequisite here because the repo scripts shell out to it directly. On macOS, Linux, or WSL you can install it with `curl -fsSL https://bun.sh/install | bash`.
+
+`desktop:dev` validates the environment, stages a local runtime bundle, and launches Electron. For the full six-step walkthrough and dev loops, see [Install from Source](/docs/contribute/start-developing/from-source).
+
+</Tab>
+</Tabs>
+
+## 2. Open your first workspace
+
+When Desktop opens, the first step is to create a workspace. Desktop-managed workspaces currently come from one of these sources:
+
+- **Blank workspace** — starts with an empty agent context and no pre-installed apps. Best if you have a specific setup in mind from the start.
+- **Marketplace Template** — materialize a pre-built workspace from Marketplace when the desktop is signed into a runtime-bound holaOS session.
+- **Local template folder** — materialize a template from a local folder that already contains `workspace.yaml`.
+
+You can also choose a custom empty folder for where the new workspace files should live. For a first run, a marketplace Template is the fastest path to a meaningful result because the agent, apps, and context arrive pre-configured.
+
+Each workspace keeps its own agent identity, workspace files, installed apps, and standing instructions. Some profile-level memory and reusable integration connections can still be shared intentionally across workspaces, but the run context stays separated.
+
+## 3. Configure your model provider
+
+Model configuration happens inside the workspace after it is open, not during installation. Once a workspace is loaded, open the model settings panel — accessible from the settings icon or the model indicator in the workspace toolbar — and select a provider.
+
+Current desktop builds expose holaOS Proxy plus direct-provider paths such as OpenAI, Anthropic, OpenRouter, Gemini, Ollama, and MiniMax. For cloud providers, paste your API key into the credentials field and select the model you want to use. For Ollama, point the provider at your local instance and pick from the models you have already pulled. Provider and model selection can be changed at any time, and the change applies only to the current workspace.
+
+## 4. Send your first task
+
+Type your task into the message pane and send it. Specific instructions produce better results than vague ones — for example: "Draft three LinkedIn posts about our Q2 product launch, each under 200 words, with a different angle per post."
+
+The agent reads the workspace's standing instructions, plans the work, and begins executing. If apps are installed in the workspace, the agent may call them to pull in context or stage outputs directly. Results appear in the workspace as the run progresses.
+
+By default, operations that have a public or financial side-effect — publishing a post, sending a message, triggering a paid action — pause and ask for your approval before anything is submitted. You review the proposed action, approve or redirect it, and the agent continues from there.
+
+## Where to next
+
+<Cards>
+  <Card title="Workspaces" href="/docs/getting-started/workspaces" description="Go deeper on creating, switching, and managing workspaces." />
+  <Card title="Working with Your Agent" href="/docs/getting-started/agent-runs" description="How runs work, what approvals mean, where outputs live, and how memory accumulates." />
+  <Card title="Extending" href="/docs/getting-started/extending" description="Install Apps, add Skills, set up Automations." />
+</Cards>

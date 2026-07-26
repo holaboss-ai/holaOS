@@ -1,0 +1,11 @@
+id: competitor-watch
+name: Competitor Watch
+description: Competitor analysis from X/Twitter activity
+category: research
+icon: "ph:binoculars-fill"
+skills:
+  - path: ./skills/competitor-analysis/SKILL.md
+integrations:
+  - provider: twitter
+    required: true
+    reason: Reads competitor activity to build the digest

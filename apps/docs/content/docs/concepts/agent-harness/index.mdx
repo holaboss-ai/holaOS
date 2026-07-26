@@ -1,0 +1,132 @@
+---
+title: Harness Overview
+description: How the agent harness fits inside the holaOS runtime boundary and what it owns.
+---
+
+A harness is the execution and control layer that turns a model or agent runtime into a usable agent. In `holaOS`, the harness is the swappable execution subsystem inside the runtime boundary. The runtime still owns the environment contract around it: workspace structure, memory and continuity, capability projection, app orchestration, and the reduced execution package passed into the harness.
+
+This section stays at the boundary-and-responsibility level. For the current adapter contract, host request shape, event mapping, and runtime code seams, continue into [Agent Harness Internals](/docs/contribute/agent-harness/internals).
+
+## Where it sits
+
+1. The workspace holds authored inputs such as `workspace.yaml`, `AGENTS.md`, installed app manifests, and skills.
+2. The runtime compiles that into per-run state: prompt layers, selected model configuration, recalled memory, MCP tool visibility, attachments, and a workspace checksum.
+3. The harness host invokes the selected agent harness.
+4. The harness executes the run and emits normalized lifecycle events back into the runtime path.
+
+The harness sits inside the runtime execution boundary. It does not sit beside the workspace, and it does not replace the runtime.
+
+## What the harness owns
+
+Inside `holaOS`, the harness owns the parts of execution that are allowed to vary with the selected executor:
+
+- agent-loop behavior
+- tool-call execution semantics
+- retries, waiting, and stop conditions
+- executor-native context handling
+- translation from runtime inputs into executor-native session state
+- normalization of executor-native events back into runtime lifecycle events
+
+## What the harness does not own
+
+The harness is not the source of truth for the whole system. It should consume a prepared environment, not redefine it.
+
+- the workspace contract
+- durable memory and continuity
+- capability policy and per-run projection
+- app lifecycle and integration wiring
+- packaging and portability rules
+- the desktop or any other operator-facing product surface
+
+## Why the harness is swappable
+
+`holaOS` does not hard-code one harness as the whole system contract. Instead, the runtime defines a stable boundary around the harness so different executors can fit into the same environment model.
+
+The important point is not the specific harness brand. The important point is that the workspace model, memory behavior, continuity state, and capability projection do not have to be redefined every time the executor changes. If another executor can satisfy the same boundary, it can fit into the same environment model.
+
+## What the runtime contract passes in
+
+The runtime prepares a harness request that includes:
+
+- workspace, session, and input identity
+- the current instruction and staged input attachments
+- selected provider and model client configuration
+- requested reasoning effort for this run when the operator selected one
+- the composed system prompt and runtime context messages
+- workspace skill manifests and any quoted skill blocks prepared from the instruction
+- resolved MCP servers and allowlisted MCP tool refs
+- browser bridge state when the selected session kind is allowed to use browser tools
+- a workspace configuration checksum and run lifecycle metadata
+
+The harness receives a reduced execution package, not the whole raw system.
+
+## What comes back out
+
+The harness contract is not only about what goes in. It is also about what comes back out.
+
+- normalized lifecycle events
+- streamed thinking and output deltas
+- tool-call and skill-invocation events
+- waiting-user and terminal run state
+
+That output contract is what lets the rest of the runtime and desktop observe runs without depending on one executor's native event format.
+
+## Attachment handling
+
+The current host does more than pass attachment file paths through blindly. It stages and interprets the attachment surface before the executor sees it:
+
+- text-like files can be inlined directly
+- PDFs, DOCX, PPTX, spreadsheets, and images are normalized through the host attachment path
+- when inline extraction is not possible, staged attachment files still remain available in the workspace input batch
+
+That is part of the runtime-to-host boundary, not an ad hoc executor detail.
+
+## Browser tool availability
+
+Browser capability is also runtime-shaped, not host-invented.
+
+In the current `pi` path, direct browser tools are generally surfaced to delegated `subagent` runs when the desktop browser bridge is available. The front `main_session` path usually routes browser-heavy work through delegation instead of exposing the full browser tool surface directly.
+
+So there are two separate truths:
+
+- the runtime may still carry browser bridge context in the prepared request
+- the actual browser tool surface is session-kind dependent and currently enabled for delegated executor sessions
+
+## Current harness path
+
+The OSS repo ships one harness path: `pi`.
+
+That path is currently split into:
+
+- a runtime adapter in `runtime/harnesses/src/pi.ts`
+- a harness host plugin in `runtime/harness-host/src/pi.ts`
+- a Pi-based executor underneath that path
+
+In practical terms, the shipped harness is the `pi` path, implemented by the `pi` runtime adapter and `pi` host plugin. The design choice that matters is that the runtime boundary around it is intentionally broader than the executor package underneath it.
+
+## What stays stable even if the harness changes
+
+- the workspace contract
+- runtime-owned memory and continuity
+- MCP and capability projection per run
+- app lifecycle and integration resolution
+- the desktop as a product surface above the environment
+
+Changing the harness should change the executor, not the definition of `holaOS`.
+
+## Read next
+
+<DocCards>
+  <DocCard
+    title="Adapter Capabilities"
+    eyebrow="Current behavior"
+    href="/docs/concepts/agent-harness/adapter-capabilities"
+    description="Start with the runtime adapter contract, then move through the detailed capability pages."
+  />
+  <DocCard
+    title="Agent Harness Internals"
+    eyebrow="Developer path"
+    href="/docs/contribute/agent-harness/internals"
+    description="Inspect the code seams that matter if you want to expand or replace the current harness path."
+  />
+</DocCards>

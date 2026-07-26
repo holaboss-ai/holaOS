@@ -1,0 +1,1555 @@
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - apps/docs/**
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - apps/docs/**
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to release
+        required: true
+        default: main
+        type: string
+      release_tag:
+        description: GitHub release tag to create in holaOS-releases
+        required: true
+        type: string
+      release_title:
+        description: Optional GitHub release title (defaults to Holaboss <version>)
+        required: false
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease when first created
+        required: true
+        default: false
+        type: boolean
+      release_channel:
+        description: Auto-update channel to publish for desktop clients
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - beta
+
+permissions:
+  contents: read
+
+env:
+  HOLABOSS_RELEASES_REPO: holaboss-ai/holaOS-releases
+
+jobs:
+  desktop-typecheck:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Turbo cache
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      # Turbo's ^build builds the desktop's workspace deps (remote-api, app-sdk,
+      # editor, ui, runtime-client) before typechecking.
+      - name: Desktop typecheck
+        run: bunx turbo run typecheck --filter=holaboss-local
+
+  runtime-tests:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Turbo cache
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Runtime state store + harness host
+        run: bunx turbo run build test --filter=@holaboss/runtime-state-store --filter=@holaboss/runtime-harness-host
+
+  sdk-app-sdk:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Turbo cache
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: App SDK checks
+        run: bunx turbo run typecheck test build --filter=@holaboss/app-sdk
+
+  runtime-api-server:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Turbo cache
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      # ^build auto-builds runtime-state-store + remote-api before the api-server
+      # typecheck/test/build — no manual ordering needed.
+      - name: Runtime API server checks
+        run: bunx turbo run typecheck test build --filter=@holaboss/runtime-api-server
+
+  packages:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Turbo cache
+        uses: actions/cache@v6
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      # Coverage for the shared packages that previously had no CI job.
+      # app-builder-sdk is intentionally not gated in CI yet (kept out per request).
+      - name: Package checks
+        run: bunx turbo run typecheck test build --filter=@holaboss/remote-api --filter=@holaboss/runtime-client --filter=@holaboss/editor --filter=@holaboss/ui
+
+  ensure-release:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      release_ref: ${{ steps.release_meta.outputs.release_ref }}
+      release_sha: ${{ steps.release_meta.outputs.release_sha }}
+      release_tag: ${{ steps.release_meta.outputs.release_tag }}
+      release_title: ${{ steps.release_meta.outputs.release_title }}
+      release_channel: ${{ steps.release_meta.outputs.release_channel }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref }}
+
+      - name: Compute release metadata
+        id: release_meta
+        run: |
+          release_tag="${{ inputs.release_tag }}"
+          if ! printf '%s' "${release_tag}" | grep -Eq '^[Hh]olaboss-[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "release_tag must match [Hh]olaboss-YYYY.MDD.R; got ${release_tag}" >&2
+            exit 1
+          fi
+
+          release_version="${release_tag#[Hh]olaboss-}"
+          release_title="${{ inputs.release_title }}"
+          release_channel="${{ inputs.release_channel }}"
+          if [ -z "${release_title}" ]; then
+            release_title="Holaboss ${release_version}"
+          fi
+          if [ "${release_channel}" != "latest" ] && [ "${release_channel}" != "beta" ]; then
+            echo "release_channel must be one of: latest, beta; got ${release_channel}" >&2
+            exit 1
+          fi
+          if [ "${release_channel}" = "beta" ] && [ "${{ inputs.prerelease }}" != "true" ]; then
+            echo "beta channel releases must be marked as prerelease" >&2
+            exit 1
+          fi
+          if [ "${release_channel}" = "latest" ] && [ "${{ inputs.prerelease }}" = "true" ]; then
+            echo "latest channel releases must not be marked as prerelease" >&2
+            exit 1
+          fi
+
+          {
+            echo "release_ref=${{ inputs.ref }}"
+            echo "release_sha=$(git rev-parse HEAD)"
+            echo "release_tag=${release_tag}"
+            echo "release_title=${release_title}"
+            echo "release_channel=${release_channel}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Ensure release tag is available
+        env:
+          GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
+          RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
+          RELEASE_GH_REPO: holaboss-ai/holaOS-releases
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "manual release publishing to ${RELEASE_GH_REPO} requires HOLABOSS_RELEASES_REPO_TOKEN" >&2
+            exit 1
+          fi
+
+          if git ls-remote --tags "https://github.com/${RELEASE_GH_REPO}.git" "refs/tags/${RELEASE_TAG}" | grep -q .; then
+            echo "release tag ${RELEASE_TAG} already exists in ${RELEASE_GH_REPO}" >&2
+            exit 1
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "${RELEASE_GH_REPO}" >/dev/null 2>&1; then
+            echo "release ${RELEASE_TAG} already exists in ${RELEASE_GH_REPO}" >&2
+            exit 1
+          fi
+
+  release-linux-runtime:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: ensure-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-linux-runtime.yml
+    with:
+      ref: ${{ needs.ensure-release.outputs.release_ref }}
+      release_tag: ${{ needs.ensure-release.outputs.release_tag }}
+      release_title: ${{ needs.ensure-release.outputs.release_title }}
+      prerelease: ${{ inputs.prerelease }}
+      release_channel: ${{ needs.ensure-release.outputs.release_channel }}
+      artifact_only: true
+    secrets: inherit
+
+  release-macos-desktop:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: ensure-release
+    runs-on: macos-latest
+    env:
+      RELEASE_TAG: ${{ needs.ensure-release.outputs.release_tag }}
+      RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
+      HOLABOSS_RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
+      DESKTOP_ASSET_PREFIX: holaboss-desktop-macos
+      DESKTOP_RELEASE_ASSET_NAME: Holaboss-macos-arm64.dmg
+      MAC_CERTIFICATE: ${{ secrets.MAC_CERTIFICATE }}
+      MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.ensure-release.outputs.release_ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install workspace dependencies (covers desktop)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Build macOS runtime bundle
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_ENVIRONMENT: production
+          HOLABOSS_RUNTIME_VERSION: ${{ env.RELEASE_TAG }}
+        run: bash runtime/deploy/package_macos_runtime.sh out/runtime-macos
+
+      - name: Upload runtime Sentry source maps
+        if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: holaboss-runtime
+        run: |
+          npx @sentry/cli sourcemaps upload \
+            --release "${{ env.RELEASE_TAG }}" \
+            --url-prefix "~/" \
+            runtime/api-server/dist
+
+      - name: Build app SDK
+        run: bun --filter=@holaboss/app-sdk run build
+
+      - name: Require mac signing and notarization credentials
+        run: |
+          missing=()
+          [ -n "${MAC_CERTIFICATE}" ] || missing+=("MAC_CERTIFICATE")
+          [ -n "${MAC_CERTIFICATE_PASSWORD}" ] || missing+=("MAC_CERTIFICATE_PASSWORD")
+          [ -n "${APPLE_ID}" ] || missing+=("APPLE_ID")
+          [ -n "${APPLE_APP_SPECIFIC_PASSWORD}" ] || missing+=("APPLE_APP_SPECIFIC_PASSWORD")
+          [ -n "${APPLE_TEAM_ID}" ] || missing+=("APPLE_TEAM_ID")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "missing required mac release secrets: ${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Prepare mac signing certificate
+        id: prepare_mac_certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cert_path="${RUNNER_TEMP}/mac-signing-certificate.p12"
+          CERT_PATH="${cert_path}" python3 - <<'PY'
+          import base64
+          import os
+          import pathlib
+          import sys
+
+          raw = os.environ["MAC_CERTIFICATE"].strip()
+          compact = "".join(raw.split())
+          if raw.startswith(("http://", "https://", "file://", "/")):
+              sys.stderr.write(
+                  "MAC_CERTIFICATE must be the base64-encoded contents of the Developer ID Application .p12, not a path or URL.\n"
+              )
+              sys.exit(1)
+
+          try:
+              data = base64.b64decode(compact, validate=True)
+          except Exception as exc:
+              sys.stderr.write(f"MAC_CERTIFICATE is not valid base64: {exc}\n")
+              sys.stderr.write(
+                  "Set MAC_CERTIFICATE to the base64-encoded contents of the Developer ID Application .p12 file.\n"
+              )
+              sys.exit(1)
+
+          if not data:
+              sys.stderr.write("MAC_CERTIFICATE decoded to an empty file.\n")
+              sys.exit(1)
+
+          output_path = pathlib.Path(os.environ["CERT_PATH"])
+          output_path.write_bytes(data)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"certificate_path={output_path}\n")
+          PY
+          # GitHub macOS runners ship OpenSSL 3.x, which moves legacy PKCS#12 ciphers
+          # (e.g. RC2-40-CBC, the default produced by macOS Keychain .p12 exports) into
+          # the legacy provider that is not loaded by default. Pass -legacy when the CLI
+          # supports it so this validation can read the certificate; fall back for
+          # OpenSSL < 3.0 / LibreSSL, which carry these ciphers in the default provider.
+          if openssl pkcs12 -help 2>&1 | grep -q -- '-legacy'; then
+            openssl pkcs12 -legacy -in "${cert_path}" -passin "pass:${MAC_CERTIFICATE_PASSWORD}" -noout >/dev/null
+          else
+            openssl pkcs12 -in "${cert_path}" -passin "pass:${MAC_CERTIFICATE_PASSWORD}" -noout >/dev/null
+          fi
+
+      - name: Build desktop code for macOS release
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          HOLABOSS_RUNTIME_DIR: ${{ github.workspace }}/out/runtime-macos/
+          HOLABOSS_AUTH_BASE_URL: ${{ vars.HOLABOSS_AUTH_BASE_URL }}
+          HOLABOSS_AUTH_SIGN_IN_URL: ${{ vars.HOLABOSS_AUTH_SIGN_IN_URL }}
+          HOLABOSS_BACKEND_BASE_URL: ${{ vars.HOLABOSS_BACKEND_BASE_URL }}
+          HOLABOSS_WEB_APP_BASE_URL: ${{ vars.HOLABOSS_WEB_APP_BASE_URL }}
+          HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL: ${{ vars.HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL }}
+          HOLABOSS_PROJECTS_URL: ${{ vars.HOLABOSS_PROJECTS_URL }}
+          HOLABOSS_MARKETPLACE_URL: ${{ vars.HOLABOSS_MARKETPLACE_URL }}
+          HOLABOSS_PROACTIVE_URL: ${{ vars.HOLABOSS_PROACTIVE_URL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CSC_LINK: ${{ steps.prepare_mac_certificate.outputs.certificate_path }}
+          CSC_KEY_PASSWORD: ${{ env.MAC_CERTIFICATE_PASSWORD }}
+        run: |
+          soft_limit="$(ulimit -Sn)"
+          hard_limit="$(ulimit -Hn)"
+          echo "open file limits before build: soft=${soft_limit} hard=${hard_limit}"
+          target_limit=65536
+          if [ "${hard_limit}" != "unlimited" ] && [ "${hard_limit}" -lt "${target_limit}" ]; then
+            target_limit="${hard_limit}"
+          fi
+          if [ "${soft_limit}" -lt "${target_limit}" ]; then
+            ulimit -n "${target_limit}" || true
+          fi
+          echo "open file limits for build: soft=$(ulimit -Sn) hard=$(ulimit -Hn)"
+          npm run prepare:runtime
+          npm run prepare:packaged-config
+          npm run build
+
+      - name: Upload desktop Sentry source maps
+        if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
+        working-directory: apps/desktop
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: holaboss-desktop
+        run: |
+          npx @sentry/cli sourcemaps upload \
+            --release "${{ env.RELEASE_TAG }}" \
+            --url-prefix "~/" \
+            out/dist out/dist-electron
+
+      - name: Build signed macOS app bundle
+        id: build_signed_app
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          CSC_LINK: ${{ steps.prepare_mac_certificate.outputs.certificate_path }}
+          CSC_KEY_PASSWORD: ${{ env.MAC_CERTIFICATE_PASSWORD }}
+        run: |
+          rm -rf out/release
+          node scripts/run-electron-builder.mjs \
+            --projectDir "$PWD" \
+            --publish never \
+            --mac dir \
+            --arm64 \
+            --config.mac.notarize=false
+          app_path="$(find out/release -maxdepth 2 -name '*.app' -print -quit)"
+          if [ -z "${app_path}" ]; then
+            echo "no .app bundle found under apps/desktop/out/release" >&2
+            exit 1
+          fi
+          app_path="$(cd "$(dirname "${app_path}")" && pwd)/$(basename "${app_path}")"
+          if [ ! -f "${app_path}/Contents/Resources/app-update.yml" ]; then
+            echo "app-update.yml is missing from signed app bundle" >&2
+            exit 1
+          fi
+          packaged_app="${RUNNER_TEMP}/Holaboss.app"
+          rm -rf "${packaged_app}"
+          ditto "${app_path}" "${packaged_app}"
+          echo "app_path=${packaged_app}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate signed macOS app bundle
+        working-directory: apps/desktop
+        run: |
+          app_path="${{ steps.build_signed_app.outputs.app_path }}"
+          if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
+            echo "signed app bundle was not produced or no longer exists: ${app_path}" >&2
+            exit 1
+          fi
+          # `codesign --verify` intermittently throws "internal error in Code
+          # Signing subsystem" on CI macOS runners even when the bundle is valid
+          # on disk and satisfies its Designated Requirement — retry before
+          # failing the build.
+          verify_attempt=1
+          until codesign --verify --deep --strict --verbose=2 "${app_path}"; do
+            if [ "${verify_attempt}" -ge 3 ]; then
+              echo "codesign --verify failed after ${verify_attempt} attempts" >&2
+              exit 1
+            fi
+            echo "codesign --verify hit a transient failure; retrying in 15s (attempt ${verify_attempt}/3)" >&2
+            sleep 15
+            verify_attempt=$((verify_attempt + 1))
+          done
+
+      - name: Notarize signed macOS app bundle
+        working-directory: apps/desktop
+        shell: bash
+        run: |
+          app_path="${{ steps.build_signed_app.outputs.app_path }}"
+          if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
+            echo "signed app bundle was not produced correctly: ${app_path}" >&2
+            exit 1
+          fi
+          max_attempts=3
+          attempt=1
+          while true; do
+            log_path="${RUNNER_TEMP}/notarize-app-attempt-${attempt}.log"
+            echo "notarization attempt ${attempt}/${max_attempts}"
+
+            if node scripts/notarize-app.mjs "${app_path}" 2>&1 | tee "${log_path}"; then
+              break
+            fi
+
+            if [ "${attempt}" -ge "${max_attempts}" ]; then
+              echo "notarization failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+
+            if ! grep -Fq "Failed to notarize via notarytool" "${log_path}"; then
+              echo "notarization failed with a non-notarytool error; not retrying" >&2
+              exit 1
+            fi
+
+            if ! grep -Eq \
+              'The Internet connection appears to be offline|NSURLErrorDomain Code=-1009|network connection was lost|timed out|temporarily unavailable|could not connect to the server|A server with the specified hostname could not be found' \
+              "${log_path}"; then
+              echo "notarization failed with a non-retryable error; not retrying" >&2
+              exit 1
+            fi
+
+            sleep_seconds=$((attempt * 60))
+            echo "transient notarization failure detected; retrying after ${sleep_seconds}s" >&2
+            sleep "${sleep_seconds}"
+            attempt=$((attempt + 1))
+          done
+
+      - name: Validate notarized macOS app bundle
+        shell: bash
+        run: |
+          app_path="${{ steps.build_signed_app.outputs.app_path }}"
+          if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
+            echo "notarized app bundle was not produced: ${app_path}" >&2
+            exit 1
+          fi
+          # `codesign --verify` intermittently throws "internal error in Code
+          # Signing subsystem" on CI macOS runners even when the bundle is valid
+          # on disk and satisfies its Designated Requirement — retry before
+          # failing the build.
+          verify_attempt=1
+          until codesign --verify --deep --strict --verbose=2 "${app_path}"; do
+            if [ "${verify_attempt}" -ge 3 ]; then
+              echo "codesign --verify failed after ${verify_attempt} attempts" >&2
+              exit 1
+            fi
+            echo "codesign --verify hit a transient failure; retrying in 15s (attempt ${verify_attempt}/3)" >&2
+            sleep 15
+            verify_attempt=$((verify_attempt + 1))
+          done
+          spctl -a -vv -t exec "${app_path}"
+          xcrun stapler validate "${app_path}"
+
+      - name: Build macOS desktop release artifacts from notarized app bundle
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          app_path="${{ steps.build_signed_app.outputs.app_path }}"
+          if [ -z "${app_path}" ] || [ ! -d "${app_path}" ]; then
+            echo "notarized app bundle was not produced correctly: ${app_path}" >&2
+            exit 1
+          fi
+          # Split dmg + zip into two electron-builder calls inside the helper,
+          # then merge the zip-pass `*-mac.yml` entries back into the dmg-pass
+          # manifests so files: keeps both. Combined `--mac dmg zip` shipped
+          # holaOS-2026.608.2 with the DMG's Electron Framework main binary
+          # stripped (Gatekeeper rejected with "Apple could not verify"); the
+          # split avoids that, and the merge keeps downstream
+          # merge-mac-update-manifests.rb happy. Validation below hard-fails
+          # the workflow if the DMG still ends up broken.
+          bash scripts/build-mac-release-artifacts.sh "${app_path}" --arm64
+
+      - name: Validate macOS auto-update artifacts
+        shell: bash
+        run: |
+          primary_channel="${RELEASE_CHANNEL:-latest}"
+          if [ "${primary_channel}" = "beta" ]; then
+            primary_manifest_name="beta-mac.yml"
+          else
+            primary_manifest_name="latest-mac.yml"
+          fi
+          dmg_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          zip_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.zip' ! -name '*.blockmap' -print -quit)"
+          manifest_path="apps/desktop/out/release/${primary_manifest_name}"
+          if [ -z "${dmg_path}" ]; then
+            echo "no DMG found in apps/desktop/out/release" >&2
+            exit 1
+          fi
+          if [ -z "${zip_path}" ]; then
+            echo "no macOS zip found in apps/desktop/out/release" >&2
+            exit 1
+          fi
+          if [ ! -f "${manifest_path}" ]; then
+            echo "${primary_manifest_name} was not generated" >&2
+            exit 1
+          fi
+          if [ "${primary_channel}" = "latest" ]; then
+            beta_manifest_path="apps/desktop/out/release/beta-mac.yml"
+            cp "${manifest_path}" "${beta_manifest_path}"
+            if [ ! -f "${beta_manifest_path}" ]; then
+              echo "beta-mac.yml was not generated for stable-channel compatibility" >&2
+              exit 1
+            fi
+          fi
+          # Assert every *-mac.yml manifest in out/release has both a .zip and
+          # a .dmg entry under files: — the split zip/dmg build above merges
+          # them back together and downstream merge-mac-update-manifests.rb
+          # in publish-release requires both. Catch any regression here, in
+          # the per-platform job, rather than at publish time.
+          while IFS= read -r mac_manifest_path; do
+            ruby -ryaml -e '
+              path = ARGV[0]
+              data = YAML.load_file(path)
+              files = data.is_a?(Hash) ? Array(data["files"]) : []
+              has_zip = files.any? { |f| f.is_a?(Hash) && f["url"].to_s.end_with?(".zip") }
+              has_dmg = files.any? { |f| f.is_a?(Hash) && f["url"].to_s.end_with?(".dmg") }
+              abort("#{path} files: is missing a .zip entry") unless has_zip
+              abort("#{path} files: is missing a .dmg entry") unless has_dmg
+            ' "${mac_manifest_path}"
+          done < <(find apps/desktop/out/release -maxdepth 1 -name '*-mac.yml' -print)
+          if ! zipinfo -1 "${zip_path}" | grep -Eq '^Holaboss\.app/'; then
+            echo "macOS zip does not contain Holaboss.app as the root app bundle" >&2
+            exit 1
+          fi
+          if ! zipinfo -1 "${zip_path}" | grep -Fxq 'Holaboss.app/Contents/Resources/app-update.yml'; then
+            echo "app-update.yml is missing from final macOS zip" >&2
+            exit 1
+          fi
+          extract_dir="${RUNNER_TEMP}/mac-zip-signature-verify"
+          rm -rf "${extract_dir}"
+          mkdir -p "${extract_dir}"
+          ditto -x -k "${zip_path}" "${extract_dir}"
+          extracted_app="${extract_dir}/Holaboss.app"
+          if [ ! -d "${extracted_app}" ]; then
+            echo "Holaboss.app was not extracted from the final macOS zip" >&2
+            exit 1
+          fi
+          verify_attempt=1
+          until codesign --verify --deep --strict --verbose=2 "${extracted_app}"; do
+            if [ "${verify_attempt}" -ge 3 ]; then
+              echo "codesign --verify failed after ${verify_attempt} attempts" >&2
+              exit 1
+            fi
+            echo "codesign --verify hit a transient failure; retrying in 15s (attempt ${verify_attempt}/3)" >&2
+            sleep 15
+            verify_attempt=$((verify_attempt + 1))
+          done
+          spctl -a -vv -t exec "${extracted_app}"
+          xcrun stapler validate "${extracted_app}"
+
+      - name: Validate macOS DMG bundle signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          if [ -z "${dmg_path}" ]; then
+            echo "no DMG found in apps/desktop/out/release" >&2
+            exit 1
+          fi
+          mount_dir="${RUNNER_TEMP}/mac-dmg-signature-verify"
+          rm -rf "${mount_dir}"
+          mkdir -p "${mount_dir}"
+          mount_output="$(hdiutil attach -nobrowse -readonly -mountroot "${mount_dir}" "${dmg_path}")"
+          mount_point="$(printf '%s\n' "${mount_output}" | awk -F'\t' '/\t\/.*\// {print $NF}' | tail -n1)"
+          if [ -z "${mount_point}" ] || [ ! -d "${mount_point}" ]; then
+            echo "could not determine mount point for ${dmg_path}" >&2
+            printf '%s\n' "${mount_output}" >&2
+            exit 1
+          fi
+          trap 'hdiutil detach "${mount_point}" -quiet || hdiutil detach "${mount_point}" -force || true' EXIT
+          mounted_app="$(find "${mount_point}" -maxdepth 1 -name '*.app' -print -quit)"
+          if [ -z "${mounted_app}" ] || [ ! -d "${mounted_app}" ]; then
+            echo "no .app bundle found inside mounted DMG at ${mount_point}" >&2
+            exit 1
+          fi
+          # Hard fail if the Electron Framework main binary is missing — this is the specific
+          # regression we shipped on holaOS-2026.608.2 where the DMG output stripped it.
+          fw_bin="${mounted_app}/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
+          if [ ! -f "${fw_bin}" ]; then
+            echo "Electron Framework main binary is missing from DMG: ${fw_bin}" >&2
+            echo "DMG contents under Versions/A:" >&2
+            ls -la "${mounted_app}/Contents/Frameworks/Electron Framework.framework/Versions/A/" >&2 || true
+            exit 1
+          fi
+          verify_attempt=1
+          until codesign --verify --deep --strict --verbose=2 "${mounted_app}"; do
+            if [ "${verify_attempt}" -ge 3 ]; then
+              echo "codesign --verify failed after ${verify_attempt} attempts" >&2
+              exit 1
+            fi
+            echo "codesign --verify hit a transient failure; retrying in 15s (attempt ${verify_attempt}/3)" >&2
+            sleep 15
+            verify_attempt=$((verify_attempt + 1))
+          done
+          spctl -a -vv -t exec "${mounted_app}"
+          xcrun stapler validate "${mounted_app}"
+
+      - name: Normalize macOS desktop release asset names
+        shell: bash
+        run: |
+          dmg_path="$(find apps/desktop/out/release -maxdepth 1 -name '*.dmg' -print -quit)"
+          if [ -z "${dmg_path}" ]; then
+            echo "no DMG found in apps/desktop/out/release" >&2
+            exit 1
+          fi
+          target_path="apps/desktop/out/release/${DESKTOP_RELEASE_ASSET_NAME}"
+          if [ "${dmg_path}" != "${target_path}" ]; then
+            cp "${dmg_path}" "${target_path}"
+          fi
+
+      - name: Upload macOS desktop release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.DESKTOP_ASSET_PREFIX }}-${{ inputs.release_tag }}
+          path: |
+            apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
+            apps/desktop/out/release/*.zip
+            apps/desktop/out/release/*.blockmap
+            apps/desktop/out/release/*-mac.yml
+          if-no-files-found: error
+          # Consumed by publish-release within the same run; no need to retain.
+          retention-days: 1
+
+  release-macos-intel-desktop:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: ensure-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-macos-intel-desktop.yml
+    with:
+      ref: ${{ needs.ensure-release.outputs.release_ref }}
+      release_tag: ${{ needs.ensure-release.outputs.release_tag }}
+      prerelease: ${{ inputs.prerelease }}
+      release_channel: ${{ needs.ensure-release.outputs.release_channel }}
+      artifact_only: true
+    secrets: inherit
+
+  release-windows-desktop:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: ensure-release
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ needs.ensure-release.outputs.release_tag }}
+      RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
+      HOLABOSS_RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
+      DESKTOP_ASSET_PREFIX: holaboss-desktop-windows
+      DESKTOP_RELEASE_ASSET_NAME: Holaboss-windows-x64-setup.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.ensure-release.outputs.release_ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install workspace dependencies (covers desktop)
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+        run: bun install --frozen-lockfile
+
+      - name: Validate Azure Trusted Signing credentials
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_SIGNING_ACCOUNT_NAME }}
+          WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          $requiredSigningEnv = @(
+            "WINDOWS_SIGNING_ENDPOINT",
+            "WINDOWS_SIGNING_ACCOUNT_NAME",
+            "WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME",
+            "WINDOWS_SIGNING_PUBLISHER_NAME",
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET"
+          )
+          $missingSigningEnv = @(
+            foreach ($name in $requiredSigningEnv) {
+              if (-not [Environment]::GetEnvironmentVariable($name)) {
+                $name
+              }
+            }
+          )
+          if ($missingSigningEnv.Count -gt 0) {
+            throw "Windows desktop release requires Azure Trusted Signing configuration. Missing: $($missingSigningEnv -join ', ')"
+          }
+
+          $tokenUri = "https://login.microsoftonline.com/$env:AZURE_TENANT_ID/oauth2/v2.0/token"
+          $tokenBody = @{
+            client_id = $env:AZURE_CLIENT_ID
+            client_secret = $env:AZURE_CLIENT_SECRET
+            grant_type = "client_credentials"
+            scope = "https://codesigning.azure.net/.default"
+          }
+
+          try {
+            $tokenResponse = Invoke-RestMethod `
+              -Method Post `
+              -Uri $tokenUri `
+              -ContentType "application/x-www-form-urlencoded" `
+              -Body $tokenBody `
+              -ErrorAction Stop
+          } catch {
+            $errorBody = $_.ErrorDetails.Message
+            if ($errorBody -match "AADSTS7000215|invalid_client") {
+              throw "Azure client secret validation failed. Update AZURE_CLIENT_SECRET to the client secret Value from Microsoft Entra, not the Secret ID."
+            }
+            if ($errorBody) {
+              Write-Host "Azure token endpoint response: $errorBody"
+            }
+            throw "Azure Trusted Signing credential validation failed before build."
+          }
+
+          if (-not $tokenResponse.access_token) {
+            throw "Azure token endpoint did not return an access token for Trusted Signing."
+          }
+
+          Write-Host "Azure Trusted Signing service principal credentials validated."
+
+      - name: Validate Azure Trusted Signing authorization
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_SIGNING_ACCOUNT_NAME }}
+          WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          # Force TLS 1.2 — some windows-latest PowerShell sessions still default to
+          # TLS 1.0/1.1, which makes the NuGet provider bootstrap source return
+          # "No match was found ... for the provider 'NuGet'" and leaves PSGallery
+          # unregistered for the subsequent Install-Module call (CI run 27273210743).
+          [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
+          $nugetInstalled = $false
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser -ErrorAction Stop | Out-Null
+              $nugetInstalled = $true
+              break
+            } catch {
+              Write-Host "Install-PackageProvider NuGet attempt $attempt failed: $_"
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (-not $nugetInstalled) {
+            Write-Host "NuGet provider could not be installed after 3 attempts; falling through — the subsequent Install-Module call will hard-fail if PSGallery is unreachable."
+          }
+
+          # windows-latest images intermittently ship without PSGallery registered.
+          # Register it explicitly and mark it Trusted so Install-Module proceeds
+          # non-interactively.
+          if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) {
+            Register-PSRepository -Default -ErrorAction Stop
+          }
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+
+          Install-Module -Name TrustedSigning -MinimumVersion 0.5.0 -Force -Repository PSGallery -Scope CurrentUser -AllowClobber
+          Import-Module TrustedSigning -MinimumVersion 0.5.0 -Force
+
+          $probeDir = Join-Path $env:RUNNER_TEMP "trusted-signing-probe"
+          New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+          $probePath = Join-Path $probeDir "trusted-signing-probe.exe"
+          $probeSourcePath = Join-Path $probeDir "TrustedSigningProbe.cs"
+          $probeSource = @"
+          public static class TrustedSigningProbe
+          {
+              public static int Main(string[] args)
+              {
+                  return 0;
+              }
+          }
+          "@
+
+          Set-Content -Path $probeSourcePath -Value $probeSource -Encoding UTF8
+          $cscCandidates = @(
+            (Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"),
+            (Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe")
+          )
+          $csc = $cscCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $csc) {
+            throw "Unable to create Azure Trusted Signing probe executable because csc.exe was not found on the Windows runner."
+          }
+
+          & $csc /nologo /target:exe /out:$probePath $probeSourcePath
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $probePath)) {
+            throw "Unable to create Azure Trusted Signing probe executable. csc.exe exited with code $LASTEXITCODE."
+          }
+
+          try {
+            Invoke-TrustedSigning `
+              -Endpoint $env:WINDOWS_SIGNING_ENDPOINT `
+              -CertificateProfileName $env:WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME `
+              -CodeSigningAccountName $env:WINDOWS_SIGNING_ACCOUNT_NAME `
+              -TimestampRfc3161 "http://timestamp.acs.microsoft.com" `
+              -TimestampDigest "SHA256" `
+              -FileDigest "SHA256" `
+              -Files $probePath
+          } catch {
+            $signingError = $_ | Out-String
+            if ($signingError -match "403|Forbidden") {
+              throw "Azure Trusted Signing authorization probe failed with 403 Forbidden. Confirm the service principal has Artifact Signing Certificate Profile Signer on the certificate profile or account, then wait for Azure role propagation."
+            }
+            throw
+          }
+
+          $probeSignature = Get-AuthenticodeSignature -FilePath $probePath
+          if ($probeSignature.Status -ne "Valid") {
+            throw "Azure Trusted Signing authorization probe did not produce a valid Authenticode signature. Status: $($probeSignature.Status). $($probeSignature.StatusMessage)"
+          }
+
+          Write-Host "Azure Trusted Signing authorization validated with a signed probe executable."
+
+      - name: Build app SDK
+        run: bun --filter=@holaboss/app-sdk run build
+
+      - name: Build Windows desktop installer
+        id: build_windows_installer
+        working-directory: apps/desktop
+        shell: pwsh
+        env:
+          HOLABOSS_RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          HOLABOSS_AUTH_BASE_URL: ${{ vars.HOLABOSS_AUTH_BASE_URL }}
+          HOLABOSS_AUTH_SIGN_IN_URL: ${{ vars.HOLABOSS_AUTH_SIGN_IN_URL }}
+          HOLABOSS_BACKEND_BASE_URL: ${{ vars.HOLABOSS_BACKEND_BASE_URL }}
+          HOLABOSS_WEB_APP_BASE_URL: ${{ vars.HOLABOSS_WEB_APP_BASE_URL }}
+          HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL: ${{ vars.HOLABOSS_DESKTOP_CONTROL_PLANE_BASE_URL }}
+          HOLABOSS_PROJECTS_URL: ${{ vars.HOLABOSS_PROJECTS_URL }}
+          HOLABOSS_MARKETPLACE_URL: ${{ vars.HOLABOSS_MARKETPLACE_URL }}
+          HOLABOSS_PROACTIVE_URL: ${{ vars.HOLABOSS_PROACTIVE_URL }}
+          GITHUB_TOKEN: ${{ github.token }}
+          WINDOWS_SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          WINDOWS_SIGNING_ACCOUNT_NAME: ${{ vars.WINDOWS_SIGNING_ACCOUNT_NAME }}
+          WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_ENVIRONMENT: production
+          HOLABOSS_RUNTIME_VERSION: ${{ env.RELEASE_TAG }}
+        run: |
+          $requiredSigningEnv = @(
+            "WINDOWS_SIGNING_ENDPOINT",
+            "WINDOWS_SIGNING_ACCOUNT_NAME",
+            "WINDOWS_SIGNING_CERTIFICATE_PROFILE_NAME",
+            "WINDOWS_SIGNING_PUBLISHER_NAME",
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET"
+          )
+          $missingSigningEnv = @(
+            foreach ($name in $requiredSigningEnv) {
+              if (-not [Environment]::GetEnvironmentVariable($name)) {
+                $name
+              }
+            }
+          )
+          if ($missingSigningEnv.Count -gt 0) {
+            throw "Windows desktop release requires Azure Trusted Signing configuration. Missing: $($missingSigningEnv -join ', ')"
+          }
+
+          Write-Host "Building Azure Trusted Signing Windows installer."
+
+          npm run dist:win:local
+          if ($LASTEXITCODE -ne 0) {
+            throw "npm run dist:win:local failed with exit code $LASTEXITCODE"
+          }
+
+          $installer = Get-ChildItem -Path out/release -File -Recurse |
+            Where-Object {
+              $_.Extension -eq ".exe" -and
+              $_.Name -notmatch "unins|elevate" -and
+              $_.FullName -notmatch "win-unpacked"
+            } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+
+          if (-not $installer) {
+            if (Test-Path -LiteralPath "out/release") {
+              Write-Host "Contents of apps/desktop/out/release:"
+              Get-ChildItem -Path out/release -Recurse |
+                Select-Object FullName, Length |
+                Format-Table -AutoSize
+            } else {
+              Write-Host "apps/desktop/out/release does not exist."
+            }
+            throw "No Windows installer .exe was produced under apps/desktop/out/release."
+          }
+
+          if (-not (Test-Path -LiteralPath (Join-Path $PWD "out/runtime-windows"))) {
+            throw "No staged Windows runtime bundle was produced under apps/desktop/out/runtime-windows."
+          }
+
+          $installerPath = $installer.FullName
+          $stablePath = Join-Path $PWD "out/release/$env:DESKTOP_RELEASE_ASSET_NAME"
+          Copy-Item -LiteralPath $installerPath -Destination $stablePath -Force
+
+          $installerBlockmapPath = "$installerPath.blockmap"
+          $stableBlockmapPath = "$stablePath.blockmap"
+          if (-not (Test-Path -LiteralPath $installerBlockmapPath)) {
+            throw "No Windows installer blockmap was produced for $($installer.Name)."
+          }
+          Copy-Item -LiteralPath $installerBlockmapPath -Destination $stableBlockmapPath -Force
+
+          foreach ($manifestName in @("latest.yml", "beta.yml")) {
+            $manifestPath = Join-Path $PWD "out/release/$manifestName"
+            if (-not (Test-Path -LiteralPath $manifestPath)) {
+              continue
+            }
+            $manifestContent = Get-Content -LiteralPath $manifestPath -Raw
+            $manifestContent = $manifestContent -replace "(?m)^(\s*-\s*url:\s*).+$", "`${1}$env:DESKTOP_RELEASE_ASSET_NAME"
+            $manifestContent = $manifestContent -replace "(?m)^(path:\s*).+$", "`${1}$env:DESKTOP_RELEASE_ASSET_NAME"
+            Set-Content -LiteralPath $manifestPath -Value $manifestContent -Encoding UTF8
+          }
+
+          $signature = Get-AuthenticodeSignature -FilePath $stablePath
+          if ($signature.Status -ne "Valid") {
+            $signature | Format-List *
+            throw "Windows installer signature is not valid: $($signature.Status)"
+          }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "generated_installer_path=$installerPath"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "installer_path=$stablePath"
+
+      - name: Upload desktop Sentry source maps
+        if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
+        working-directory: apps/desktop
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: holaboss-desktop
+        run: |
+          npx @sentry/cli sourcemaps upload \
+            --release "${{ env.RELEASE_TAG }}" \
+            --url-prefix "~/" \
+            out/dist out/dist-electron
+
+      - name: Validate Windows auto-update artifacts
+        shell: pwsh
+        run: |
+          $primaryChannel = if ($env:RELEASE_CHANNEL) { $env:RELEASE_CHANNEL } else { "latest" }
+          $manifestName = if ($primaryChannel -eq "beta") { "beta.yml" } else { "latest.yml" }
+          $manifestPath = Join-Path $PWD "apps/desktop/out/release/$manifestName"
+          if (-not (Test-Path -LiteralPath $manifestPath)) {
+            throw "$manifestName was not generated"
+          }
+
+          $stableInstallerName = "Holaboss-windows-x64-setup.exe"
+          $manifestContent = Get-Content -LiteralPath $manifestPath -Raw
+          if ($manifestContent -notmatch [regex]::Escape($stableInstallerName)) {
+            throw "$manifestName does not reference $stableInstallerName"
+          }
+
+          if ($primaryChannel -eq "latest") {
+            $betaManifestPath = Join-Path $PWD "apps/desktop/out/release/beta.yml"
+            Copy-Item -LiteralPath $manifestPath -Destination $betaManifestPath -Force
+            if (-not (Test-Path -LiteralPath $betaManifestPath)) {
+              throw "beta.yml was not generated for stable-channel compatibility"
+            }
+          }
+
+          $stableBlockmapPath = Join-Path $PWD "apps/desktop/out/release/$stableInstallerName.blockmap"
+          if (-not (Test-Path -LiteralPath $stableBlockmapPath)) {
+            throw "No Windows blockmap was produced for $stableInstallerName."
+          }
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.DESKTOP_ASSET_PREFIX }}-${{ inputs.release_tag }}
+          path: |
+            apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}
+            apps/desktop/out/release/${{ env.DESKTOP_RELEASE_ASSET_NAME }}.blockmap
+            apps/desktop/out/release/latest.yml
+            apps/desktop/out/release/beta.yml
+          if-no-files-found: error
+          # Consumed by publish-release within the same run; no need to retain.
+          retention-days: 1
+
+  publish-release:
+    if: >-
+      ${{
+        always() &&
+        github.event_name == 'workflow_dispatch' &&
+        needs.ensure-release.result == 'success' &&
+        needs.release-linux-runtime.result == 'success' &&
+        needs.release-macos-desktop.result == 'success' &&
+        needs.release-macos-intel-desktop.result == 'success' &&
+        needs.release-windows-desktop.result == 'success'
+      }}
+    needs:
+      - ensure-release
+      - release-linux-runtime
+      - release-macos-desktop
+      - release-macos-intel-desktop
+      - release-windows-desktop
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_SHA: ${{ needs.ensure-release.outputs.release_sha }}
+      RELEASE_TAG: ${{ needs.ensure-release.outputs.release_tag }}
+      RELEASE_TITLE: ${{ needs.ensure-release.outputs.release_title }}
+      RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
+      HOLABOSS_RELEASE_CHANNEL: ${{ needs.ensure-release.outputs.release_channel }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      SOURCE_GH_REPO: ${{ github.repository }}
+      RELEASE_GH_REPO: holaboss-ai/holaOS-releases
+    steps:
+      - name: Checkout release repository helpers
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          ref: ${{ needs.ensure-release.outputs.release_sha }}
+
+      - name: Download Linux runtime release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: holaboss-runtime-linux-${{ inputs.release_tag }}
+          path: release-assets/linux-runtime
+
+      - name: Download macOS desktop release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: holaboss-desktop-macos-${{ inputs.release_tag }}
+          path: release-assets/macos-desktop
+
+      - name: Download Intel macOS desktop release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: holaboss-desktop-macos-intel-${{ inputs.release_tag }}
+          path: release-assets/macos-intel-desktop
+
+      - name: Download Windows desktop release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: holaboss-desktop-windows-${{ inputs.release_tag }}
+          path: release-assets/windows-desktop
+
+      - name: Merge shared macOS updater manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          merged_manifest_dir="release-assets/macos-updates"
+          rm -rf "${merged_manifest_dir}"
+          mkdir -p "${merged_manifest_dir}"
+          manifest_count=0
+          while IFS= read -r arm_manifest_path; do
+            manifest_count=$((manifest_count + 1))
+            manifest_name="$(basename "${arm_manifest_path}")"
+            intel_manifest_path="release-assets/macos-intel-desktop/${manifest_name}"
+            if [ ! -f "${intel_manifest_path}" ]; then
+              echo "missing Intel macOS updater manifest: ${intel_manifest_path}" >&2
+              exit 1
+            fi
+            ruby apps/desktop/scripts/merge-mac-update-manifests.rb \
+              "${merged_manifest_dir}/${manifest_name}" \
+              "${arm_manifest_path}" \
+              "${intel_manifest_path}"
+          done < <(find release-assets/macos-desktop -maxdepth 1 -name '*-mac.yml' -print | sort)
+          if [ "${manifest_count}" -eq 0 ]; then
+            echo "no Apple Silicon macOS updater manifests were downloaded" >&2
+            exit 1
+          fi
+          while IFS= read -r merged_manifest_path; do
+            ruby -e '
+              require "yaml"
+              manifest = YAML.load_file(ARGV[0])
+              files = Array(manifest["files"])
+              zip_urls = []
+              files.each do |entry|
+                next unless entry.is_a?(Hash)
+                url = entry["url"].to_s.strip
+                next unless url.end_with?(".zip")
+                zip_urls << url
+              end
+              abort("merged macOS updater manifest is missing an arm64 ZIP: #{ARGV[0]}") unless zip_urls.any? { |url| url.include?("arm64") }
+              abort("merged macOS updater manifest is missing an Intel ZIP: #{ARGV[0]}") unless zip_urls.any? { |url| !url.include?("arm64") }
+            ' "${merged_manifest_path}"
+          done < <(find "${merged_manifest_dir}" -maxdepth 1 -name '*-mac.yml' -print | sort)
+
+      - name: Publish validated GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.HOLABOSS_RELEASES_REPO_TOKEN }}
+        run: |
+          notes_path="$(mktemp)"
+          trap 'rm -f "${notes_path}"' EXIT
+
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "manual release publishing to ${RELEASE_GH_REPO} requires HOLABOSS_RELEASES_REPO_TOKEN" >&2
+            exit 1
+          fi
+
+          if gh release view "${RELEASE_TAG}" --repo "${RELEASE_GH_REPO}" >/dev/null 2>&1; then
+            echo "release ${RELEASE_TAG} already exists in ${RELEASE_GH_REPO}" >&2
+            exit 1
+          fi
+
+          if git ls-remote --tags "https://github.com/${RELEASE_GH_REPO}.git" "refs/tags/${RELEASE_TAG}" | grep -q .; then
+            echo "release tag ${RELEASE_TAG} already exists in ${RELEASE_GH_REPO}" >&2
+            exit 1
+          fi
+
+          # Release body is intentionally empty — no auto-generated
+          # changelog and no contributor list. The release page shows
+          # the title and downloadable assets; commit history is
+          # available in the source repo for anyone who wants it.
+          : > "${notes_path}"
+
+          linux_runtime_dir="release-assets/linux-runtime"
+          linux_runtime_asset="${linux_runtime_dir}/holaboss-runtime-linux-x64.tar.gz"
+          linux_runtime_checksum_asset="${linux_runtime_dir}/holaboss-runtime-linux-x64.tar.gz.sha256"
+          linux_runtime_manifest_asset="${linux_runtime_dir}/holaboss-runtime-linux-x64.json"
+          for linux_asset in \
+            "${linux_runtime_asset}" \
+            "${linux_runtime_checksum_asset}" \
+            "${linux_runtime_manifest_asset}"; do
+            if [ ! -f "${linux_asset}" ]; then
+              echo "missing Linux runtime release asset: ${linux_asset}" >&2
+              find "${linux_runtime_dir}" -maxdepth 2 -type f -print >&2 || true
+              exit 1
+            fi
+          done
+
+          mac_dmg_asset="release-assets/macos-desktop/Holaboss-macos-arm64.dmg"
+          mac_zip_asset="$(find release-assets/macos-desktop -maxdepth 1 -name '*.zip' ! -name '*.blockmap' -print -quit)"
+          mac_zip_blockmap_asset="${mac_zip_asset}.blockmap"
+          if [ ! -f "${mac_dmg_asset}" ]; then
+            echo "missing macOS DMG release asset" >&2
+            exit 1
+          fi
+          if [ -z "${mac_zip_asset}" ] || [ ! -f "${mac_zip_asset}" ]; then
+            echo "missing macOS zip release asset" >&2
+            exit 1
+          fi
+          if [ ! -f "${mac_zip_blockmap_asset}" ]; then
+            echo "missing macOS zip blockmap release asset" >&2
+            exit 1
+          fi
+
+          mac_intel_dmg_asset="release-assets/macos-intel-desktop/Holaboss-macos-x64.dmg"
+          mac_intel_zip_asset="$(find release-assets/macos-intel-desktop -maxdepth 1 -name '*.zip' ! -name '*.blockmap' -print -quit)"
+          mac_intel_zip_blockmap_asset="${mac_intel_zip_asset}.blockmap"
+          if [ ! -f "${mac_intel_dmg_asset}" ]; then
+            echo "missing Intel macOS DMG release asset" >&2
+            exit 1
+          fi
+          if [ -z "${mac_intel_zip_asset}" ] || [ ! -f "${mac_intel_zip_asset}" ]; then
+            echo "missing Intel macOS zip release asset" >&2
+            exit 1
+          fi
+          if [ ! -f "${mac_intel_zip_blockmap_asset}" ]; then
+            echo "missing Intel macOS zip blockmap release asset" >&2
+            exit 1
+          fi
+
+          mac_manifest_dir="release-assets/macos-updates"
+          if ! find "${mac_manifest_dir}" -maxdepth 1 -name '*-mac.yml' | grep -q .; then
+            echo "missing merged macOS updater manifests" >&2
+            exit 1
+          fi
+
+          upload_paths=()
+          declare -A upload_asset_names=()
+          append_upload_path() {
+            local asset_path="$1"
+            local asset_name
+            asset_name="$(basename "${asset_path}")"
+            if [ -n "${upload_asset_names[${asset_name}]:-}" ]; then
+              echo "duplicate release asset name would be uploaded: ${asset_name}" >&2
+              exit 1
+            fi
+            upload_asset_names["${asset_name}"]=1
+            upload_paths+=("${asset_path}")
+          }
+
+          append_upload_path "${linux_runtime_asset}"
+          append_upload_path "${linux_runtime_checksum_asset}"
+          append_upload_path "${linux_runtime_manifest_asset}"
+          append_upload_path "${mac_dmg_asset}"
+          append_upload_path "${mac_zip_asset}"
+          append_upload_path "${mac_zip_blockmap_asset}"
+          append_upload_path "${mac_intel_dmg_asset}"
+          append_upload_path "${mac_intel_zip_asset}"
+          append_upload_path "${mac_intel_zip_blockmap_asset}"
+
+          while IFS= read -r manifest_path; do
+            append_upload_path "${manifest_path}"
+          done < <(find "${mac_manifest_dir}" -maxdepth 1 -name '*-mac.yml' -print | sort)
+
+          windows_release_dir="release-assets/windows-desktop"
+          if [ -d "${windows_release_dir}/release" ]; then
+            windows_release_dir="${windows_release_dir}/release"
+          fi
+
+          windows_installer_asset="${windows_release_dir}/Holaboss-windows-x64-setup.exe"
+          windows_blockmap_asset="${windows_installer_asset}.blockmap"
+          if [ ! -f "${windows_installer_asset}" ]; then
+            echo "missing Windows installer release asset" >&2
+            find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+          if [ ! -f "${windows_blockmap_asset}" ]; then
+            echo "missing Windows installer blockmap release asset" >&2
+            find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+
+          append_upload_path "${windows_installer_asset}"
+          append_upload_path "${windows_blockmap_asset}"
+
+          windows_manifest_count=0
+          for windows_manifest_asset in "${windows_release_dir}/latest.yml" "${windows_release_dir}/beta.yml"; do
+            if [ ! -f "${windows_manifest_asset}" ]; then
+              continue
+            fi
+            if ! grep -q 'Holaboss-windows-x64-setup\.exe' "${windows_manifest_asset}"; then
+              echo "${windows_manifest_asset} does not reference Holaboss-windows-x64-setup.exe" >&2
+              exit 1
+            fi
+            append_upload_path "${windows_manifest_asset}"
+            windows_manifest_count=$((windows_manifest_count + 1))
+          done
+          if [ "${windows_manifest_count}" -eq 0 ]; then
+            echo "missing Windows auto-update manifest release asset" >&2
+            find release-assets/windows-desktop -maxdepth 3 -type f -print >&2 || true
+            exit 1
+          fi
+
+          prerelease_flag=()
+          if [ "${PRERELEASE}" = "true" ]; then
+            prerelease_flag+=(--prerelease)
+          fi
+
+          gh release create "${RELEASE_TAG}" \
+            --repo "${RELEASE_GH_REPO}" \
+            --title "${RELEASE_TITLE}" \
+            --notes-file "${notes_path}" \
+            "${prerelease_flag[@]}" \
+            "${upload_paths[@]}"
+
+      # Mirror every binary the previous step pushed to holaOS-releases
+      # up to a Cloudflare R2 bucket. GitHub Releases stay authoritative
+      # for installed clients — electron-updater keeps pulling from
+      # `provider: "github"` until a future PR flips electron-builder
+      # config over to `generic` + R2.
+      #
+      # Layout (under ${R2_KEY_PREFIX}, which scopes us into a
+      # subdirectory of a shared bucket like landing-assets/desktop/):
+      #
+      #   ${prefix}<channel>/<name>          — marketing downloads
+      #                                         (latest/Holaboss-macos-arm64.dmg,
+      #                                          beta/Holaboss-macos-arm64.dmg)
+      #   ${prefix}tags/<tag>/<name>         — pinned-version downloads
+      #
+      # The bare ${prefix}<name> (flat) layout used by PR #410 is gone —
+      # it had no channel awareness, so a beta release would overwrite
+      # the stable file name in the root. Marketing downloads now route
+      # through <channel>/ which is safe to overwrite per-channel.
+      #
+      # Soft-gated: missing R2 secrets log a warning and exit 0 so this
+      # workflow stays mergeable in environments without the bucket.
+      - name: Mirror release assets to Cloudflare R2
+        id: r2_mirror
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # R2 ignores region but the AWS SDK insists on having one set;
+          # `auto` is the documented value.
+          AWS_DEFAULT_REGION: auto
+          # Full endpoint URL — e.g. https://<account-id>.r2.cloudflarestorage.com
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          # Bucket name — e.g. landing-assets
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          # Key prefix inside the bucket. Trailing slash required when
+          # set. Empty means upload to bucket root.
+          R2_KEY_PREFIX: desktop/
+          # Public origin that fronts the bucket — used to build the URLs
+          # handed to the Cloudflare cache-purge step below.
+          R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL || 'https://assets.holaboss.ai' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] \
+              || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] \
+              || [ -z "${R2_ENDPOINT_URL:-}" ] \
+              || [ -z "${R2_BUCKET:-}" ]; then
+            echo "::warning::R2_* secrets not configured — skipping R2 mirror"
+            exit 0
+          fi
+
+          if [ -z "${RELEASE_CHANNEL:-}" ] || [ -z "${RELEASE_TAG:-}" ]; then
+            echo "::error::RELEASE_CHANNEL and RELEASE_TAG must be set on the job env" >&2
+            exit 1
+          fi
+
+          # Mirror only the user-facing install packages — the .dmg
+          # (macOS) and .exe (Windows) that the marketing site links to
+          # for direct download. The auto-updater plumbing (*.zip, *.yml,
+          # *.blockmap) and the Linux runtime bundle (*.tar.gz/.json/
+          # .sha256) are served from GitHub Releases, not R2, so there's
+          # no reason to push them here.
+          mapfile -t assets < <(
+            find release-assets -type f \
+              \( -name '*.dmg' \
+                 -o -name '*.exe' \
+              \) -print
+          )
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::no install packages (*.dmg / *.exe) found under release-assets/ — nothing to mirror"
+            exit 1
+          fi
+
+          channel_prefix="${R2_KEY_PREFIX}${RELEASE_CHANNEL}/"
+          tag_prefix="${R2_KEY_PREFIX}tags/${RELEASE_TAG}/"
+
+          echo "Mirroring ${#assets[@]} install package(s) to R2"
+          echo "  bucket:  ${R2_BUCKET}"
+          echo "  channel: ${channel_prefix}"
+          echo "  tag:     ${tag_prefix}"
+
+          # Channel-pointer public URLs to purge from Cloudflare after the
+          # upload — these keep the same URL across releases, so a stale
+          # edge copy is exactly what we have to flush.
+          purge_urls=()
+          public_base="${R2_PUBLIC_BASE_URL%/}"
+
+          for asset in "${assets[@]}"; do
+            name="$(basename "${asset}")"
+
+            # Cache policy is keyed on the DESTINATION, not the file type.
+            # The channel pointer (beta/, latest/) keeps the same URL
+            # across releases and is overwritten each build, so it must
+            # never be cached as immutable — Cloudflare would pin a stale
+            # copy for a year and ignore the updated R2 object. The
+            # tags/<tag>/ copy is content-pinned and safe to cache forever.
+            for dest_kind in channel tag; do
+              if [ "${dest_kind}" = "channel" ]; then
+                dest_key="${channel_prefix}${name}"
+                # Mutable pointer: always revalidate against origin. A DMG
+                # download still streams from the edge on a 304, so this
+                # costs a conditional GET, not the full transfer.
+                cache_control="public, no-cache, must-revalidate"
+                purge_urls+=("${public_base}/${dest_key}")
+              else
+                dest_key="${tag_prefix}${name}"
+                cache_control="public, max-age=31536000, immutable"
+              fi
+              echo "  → ${dest_key} (${cache_control})"
+              aws s3 cp "${asset}" "s3://${R2_BUCKET}/${dest_key}" \
+                --endpoint-url "${R2_ENDPOINT_URL}" \
+                --cache-control "${cache_control}" \
+                --only-show-errors
+            done
+          done
+
+          echo "Mirror complete — ${#assets[@]} files × 2 destinations uploaded."
+
+          {
+            echo "purge_urls<<EOF"
+            printf '%s\n' "${purge_urls[@]}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      # Break the currently-cached channel pointers out of Cloudflare's
+      # edge so the freshly-mirrored build is served immediately instead
+      # of a stale copy. Going forward the `no-cache` headers above make
+      # this mostly redundant, but an explicit purge is the belt-and-
+      # suspenders that also flushes any legacy `immutable` entry.
+      # Soft-gated: missing Cloudflare secrets log a warning and exit 0.
+      - name: Purge Cloudflare cache for channel downloads
+        if: ${{ steps.r2_mirror.outputs.purge_urls != '' }}
+        env:
+          CLOUDFLARE_CACHE_PURGE_TOKEN: ${{ secrets.CLOUDFLARE_CACHE_PURGE_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          PURGE_URLS: ${{ steps.r2_mirror.outputs.purge_urls }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CLOUDFLARE_CACHE_PURGE_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ZONE_ID:-}" ]; then
+            echo "::warning::CLOUDFLARE_CACHE_PURGE_TOKEN / CLOUDFLARE_ZONE_ID not configured — skipping cache purge"
+            exit 0
+          fi
+
+          mapfile -t urls < <(printf '%s\n' "${PURGE_URLS}" | grep -v '^$')
+          if [ "${#urls[@]}" -eq 0 ]; then
+            echo "no channel URLs to purge"
+            exit 0
+          fi
+
+          files_json="$(printf '%s\n' "${urls[@]}" | jq -R . | jq -s '{files: .}')"
+          echo "Purging ${#urls[@]} channel URL(s) from Cloudflare:"
+          printf '  %s\n' "${urls[@]}"
+
+          response="$(curl -fsS -X POST \
+            "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+            -H "Authorization: Bearer ${CLOUDFLARE_CACHE_PURGE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "${files_json}")"
+          echo "${response}"
+
+          if [ "$(printf '%s' "${response}" | jq -r '.success')" != "true" ]; then
+            echo "::error::Cloudflare cache purge failed" >&2
+            exit 1
+          fi
+          echo "Cache purge succeeded."

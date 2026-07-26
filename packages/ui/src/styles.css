@@ -1,0 +1,71 @@
+/* Source of truth for everything @holaboss/ui ships visually.
+   Consumers should `import "@holaboss/ui/styles.css"` and nothing else
+   — Tailwind utilities used by the primitives + layouts are baked in
+   at build time, so a consumer's Tailwind config does not need a
+   custom @source entry for node_modules/@holaboss/ui. */
+
+@import "tailwindcss";
+
+/* Tell Tailwind to scan this package's own source so the build emits
+   every utility class the primitives + layouts use. The build step
+   runs Tailwind from sdk/ui/, so the paths are relative to here. */
+@source "./primitives";
+@source "./layouts";
+
+/* Design tokens (provides the @theme inline { --color-* } mappings
+   Tailwind needs to generate `bg-background`, `text-foreground`, etc.). */
+@import "./tokens/tokens.css";
+
+/* Default theme. Apps that need a different palette can layer their own
+   `[data-theme="..."]` overrides after this import. */
+@import "./tokens/themes/holaos.css";
+
+/* Default border color. Tailwind v4 changed the bare `border` utility's
+   default color from a fixed gray (`#e5e7eb` in v3) to `currentColor`,
+   so any element with `<div class="border">` and no explicit color
+   ends up with a border the color of its text — usually near-black.
+   Agents trained on v3 conventions write bare `border` expecting gray,
+   and the result is pure-black hairlines everywhere. Reset the default
+   to the holaOS `--border` token so v3-style class usage stays valid.
+
+   We deliberately sit this in `@layer utilities` rather than
+   `@layer base` because Tailwind v4's preflight emits its own
+   `*, ::after, ::before, ::backdrop, ::file-selector-button {
+       border: 0 solid }` rule INSIDE `@layer base`, and any app that
+   does its own `@import "tailwindcss"` (every app does) duplicates
+   that preflight. The duplicate preflight lands AFTER our base-layer
+   override in the bundle and resets border-color back to currentColor.
+   `@layer utilities` is the latest layer in Tailwind's cascade
+   (`theme, base, components, utilities`), so this rule beats any
+   preflight no matter how many times tailwindcss is imported. The
+   `*` selector at (0,0,0) specificity still loses to utility classes
+   like `.border-transparent` / `.border-input` (each (0,1,0)), so
+   explicit color utilities continue to work. */
+@layer utilities {
+  *,
+  ::after,
+  ::before,
+  ::backdrop {
+    border-color: var(--border);
+  }
+}
+
+/* Inline-style font-weight cap. Tailwind utilities already route through
+   the @theme `--font-weight-*` tokens above, but agents still occasionally
+   write `style={{ fontWeight: 700 }}` or `style="font-weight: bold"` in
+   raw JSX. These selectors catch those escape hatches and clamp the
+   declaration to 500 so nothing renders bolder than the design system's
+   bold step. Cannot override stylesheet-defined font-weight in third-
+   party CSS files, but vibe-coded apps almost never reach for those. */
+[style*="font-weight: bold"],
+[style*="font-weight:bold"],
+[style*="font-weight: 600"],
+[style*="font-weight:600"],
+[style*="font-weight: 700"],
+[style*="font-weight:700"],
+[style*="font-weight: 800"],
+[style*="font-weight:800"],
+[style*="font-weight: 900"],
+[style*="font-weight:900"] {
+  font-weight: 530 !important;
+}

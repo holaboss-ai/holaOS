@@ -1,0 +1,336 @@
+---
+title: App Builder SDK
+description: TypeScript SDK for building workspace apps — five primitives, typed integration calls, automatic MCP surfacing.
+---
+
+`@holaboss/app-builder-sdk` is the package new Holaboss workspace apps build against. It centers on five orthogonal primitives that compose into any app shape — publishing, messaging, workflow, event-driven, sync-mirror — with no `as any` in app code and no ad-hoc retry or scheduling logic leaking out of the SDK.
+
+The canonical source lives at `sdk/app-builder-sdk/src/`.
+
+## Install
+
+```bash
+bun install @holaboss/app-builder-sdk
+# or
+npm install @holaboss/app-builder-sdk
+```
+
+The package targets Node.js 20+ and is authored in TypeScript.
+
+## The five primitives
+
+```ts
+const app = createApp({ id: "slack", provider: SLACK })
+
+app.connection()              // declare the app needs an integration binding
+app.resource(name, def)       // a typed row with its own state machine
+app.action(resource, name, …) // a state transition + upstream API call
+app.sync(name, def)           // periodic upstream read → upsert local rows
+app.start()                   // validate config; the runtime drives execution
+```
+
+| Primitive | Purpose |
+| --- | --- |
+| `connection()` | Tells the runtime which provider binding the app needs |
+| `resource()` | Defines a typed row — Zod schema + state alphabet + emit rules |
+| `action()` | A state transition; receives `{ bridge, row }`, calls upstream APIs |
+| `sync()` | Periodic fetch + upsert; **scheduling lives in the Holaboss automations layer, not in the SDK** |
+| `start()` | Boot; validates the registered config |
+
+Full type contract: `sdk/app-builder-sdk/src/types.ts`. Public exports: `sdk/app-builder-sdk/src/index.ts`.
+
+## Transports — auth is pluggable
+
+The SDK never assumes a specific provider auth flow. `BridgeClient` delegates network I/O to a `TransportFn` and the package bundles three transport implementations:
+
+| Transport | When to use | What you supply |
+| --- | --- | --- |
+| `createBearerTokenTransport` | Self-host OAuth — you manage tokens (Auth0, Clerk, your own auth server) | `accessToken: string \| () => Promise<string>` |
+| `createComposioDirectTransport` | Direct to Composio, no broker hop — local dev, E2E, single-tenant | `COMPOSIO_API_KEY` + `connectedAccountId` |
+| `createRuntimeBrokerTransport` | **Production** — app running inside a Holaboss workspace runtime | `provider` slug; runtime injects `HOLABOSS_INTEGRATION_BROKER_URL` + `HOLABOSS_APP_GRANT` |
+
+Roll your own with ~20 lines of `fetch` returning `{ status, body, headers }` for custom auth (Vault, mTLS, internal gateway).
+
+## Runtime teammate tasks
+
+Use `createTeammateClient()` when an app needs to trigger delegated agent work inside the current workspace and track it as a first-class task.
+
+Choose the execution model per action:
+
+- Use direct provider integration via `createRuntimeBrokerTransport({ provider })` when the app can perform the side effect deterministically from structured app state.
+- Use `providerEffectAction(...)` to encode those deterministic provider side effects in the SDK action layer.
+- Use teammate tasks when the work is open-ended, tool-heavy, multi-step, interruptible, or needs agent judgment.
+- Use `delegatedTaskAction(...)` to encode delegated agent work in the SDK action layer.
+- For mixed flows, use teammate tasks for drafting/research/classification and direct integration for the final provider side effect.
+
+Decision procedure:
+
+1. Classify the action as one of:
+   - `deterministic_provider_effect`
+   - `agentic_work`
+   - `mixed_flow`
+2. Check whether the exact provider path is available in principle:
+   - the provider exists in the runtime integration catalog
+   - the app can declare it in `app.runtime.yaml`
+   - the app can build the exact payload from app state
+   - the provider action matches the app's ownership model
+3. Choose the architecture:
+   - `deterministic_provider_effect` + provider path available in principle -> direct integration
+   - `agentic_work` -> teammate task
+   - `mixed_flow` -> teammate first, direct integration second
+
+Important constraint:
+
+- A provider not being connected during the build turn is not, by itself, a reason to switch the design to teammate execution.
+- If the correct architecture is a direct provider action, still wire the app around `createRuntimeBrokerTransport({ provider })`, declare the integration in `app.runtime.yaml`, and surface the blocked state through integration readiness so the user can connect or reconnect the provider.
+
+Examples:
+
+- "Send this approved email" -> direct Gmail integration
+- "Draft a personalized cold email" -> teammate task
+- "Create this exact Linear issue" -> direct Linear integration
+- "Research and summarize today's news" -> teammate task
+
+Anti-pattern:
+
+- Do not delegate a deterministic provider side effect just because there was an approval step. If the app already has the exact reviewed payload and a connected provider, prefer the integration path.
+- Do not replace a direct integration design with teammate execution just because the provider is not connected during the build turn. Missing auth or binding should surface as a blocked product state that asks the user to connect the provider.
+- Do not treat teammate execution as the generic low-risk fallback when integration setup is uncertain. The fallback should preserve the intended product ownership model.
+
+```ts title="src/server/send-approved-email.ts"
+import {
+  providerEffectAction,
+} from "@holaboss/app-builder-sdk"
+
+app.action(draft, "send", providerEffectAction({
+  provider: "gmail",
+  fromStates: ["approved"],
+  toState: "sent",
+  blockedState: "send_blocked",
+  failedState: "send_failed",
+  buildRequest: ({ row }) => ({
+    to: row.email,
+    subject: row.subject,
+    body: row.body,
+  }),
+  execute: async ({ bridge, request }) =>
+    bridge.call("POST", "/messages/send", request),
+  persistBlocked: (blocked) => ({
+    blocker_code: blocked.code,
+    blocker_message: blocked.message,
+  }),
+  persistSuccess: ({ result }) => ({
+    provider_message_id: result.id,
+  }),
+}))
+```
+
+```ts title="src/server/news-report.ts"
+import { createTeammateClient } from "@holaboss/app-builder-sdk"
+
+const teammateClient = createTeammateClient()
+
+const roster = await teammateClient.teammates.list()
+const general = roster.teammates.find((entry) => entry.teammate_id === "general")
+
+const task = await teammateClient.tasks.create({
+  title: "Generate latest news report",
+  description: "Research today's major news and save a concise report back into the app.",
+  status: "todo",
+  assigneeTeammateId: general?.teammate_id ?? null,
+  execution: {
+    turnContext: {
+      sessionId: "session-main",
+      inputId: "input-main",
+    },
+  },
+})
+
+const refreshed = await teammateClient.tasks.get(task.task_id)
+```
+
+Current behavior:
+
+- `tasks.create()` uses the durable issue route first, then hydrates the richer runtime task payload.
+- `tasks.list()` and `tasks.get()` include `active_run` and `latest_run` so the app can inspect execution state directly.
+- `reply()`, `rerun()`, and `cancel()` map onto the same task lifecycle controls the runtime uses internally.
+- `execution.turnContext` is optional, but when the app can provide `sessionId` and `inputId` the delegated run stays attached to the originating turn instead of becoming an orphaned background run.
+- Model selection is runtime-owned; the teammate SDK does not expose app-level model override fields.
+- `parentTaskId` models task hierarchy, while `blockedBy` models execution dependencies and workflow ordering.
+
+### Workflow dependencies
+
+For multi-step teammate workflows, use `blockedBy` on the downstream task. Do not rely on `parentTaskId` alone when execution order matters.
+
+```ts title="src/server/workflow.ts"
+await teammateClient.tasks.create({
+  title: "Build dashboard UI",
+  status: "todo",
+  assigneeTeammateId: "frontend",
+  parentTaskId: "ISS-10", // optional tree structure only
+  blockedBy: [
+    {
+      task_id: "ISS-9",
+      relation: "handoff",
+      instruction: "Continue from the API contract task.",
+    },
+  ],
+})
+```
+
+Practical guidance:
+
+- Persist each created task id onto app-owned rows so later actions can attach deterministic workflow edges.
+- Use `relation: "handoff"` when the downstream task should continue from the upstream output.
+- Use `relation: "input"` when the downstream task should treat the upstream output as source input.
+
+### Standard pattern for button-driven teammate work
+
+For app-owned agent flows, prefer the SDK's higher-level delegation helpers over custom task glue:
+
+- `delegatedTaskAction(...)` turns teammate dispatch into a normal app action and persists task identifiers back onto the row.
+- `createLocalAppActionApi(...)` exposes those actions over a standard local HTTP endpoint for the app UI.
+
+```ts title="src/server/report-actions.ts"
+import {
+  createLocalAppActionApi,
+  delegatedTaskAction,
+} from "@holaboss/app-builder-sdk"
+
+app.action(reportRequest, "delegate_latest_news", delegatedTaskAction({
+  fromStates: ["ready"],
+  toState: "delegated",
+  buildTask: ({ row }) => ({
+    title: row.title,
+    description: "Research today's major news and save a concise report back into the app.",
+    status: "todo",
+    assigneeTeammateId: "general",
+  }),
+  persistTask: {
+    taskId: "delegated_task_id",
+    issueId: "delegated_issue_id",
+    sessionId: "delegated_session_id",
+  },
+}))
+
+const localActions = createLocalAppActionApi({ app, bridge })
+```
+
+For workflow steps, `buildTask(...)` can return `blockedBy` using previously persisted task ids:
+
+```ts title="src/server/workflow-actions.ts"
+app.action(reportRequest, "delegate_dashboard_ui", delegatedTaskAction({
+  fromStates: ["ready"],
+  toState: "delegated",
+  buildTask: ({ row }) => ({
+    title: row.title,
+    status: "todo",
+    assigneeTeammateId: "frontend",
+    blockedBy: row.api_contract_task_id
+      ? [
+          {
+            task_id: row.api_contract_task_id,
+            relation: "handoff",
+            instruction: "Continue from the API contract task.",
+          },
+        ]
+      : [],
+  }),
+  persistTask: {
+    taskId: "dashboard_task_id",
+  },
+}))
+```
+
+Expose these standard local endpoints from the app's HTTP server:
+
+- `GET /__holaboss/actions/health`
+- `POST /__holaboss/actions/run`
+
+If the app uses teammate-triggering UI, also declare a `smoke_tests:` entry in `app.runtime.yaml`. `workspace_apps_ensure_running` executes these probes after startup and fails if the delegated task path is broken or returns invalid runtime metadata.
+
+```yaml title="app.runtime.yaml"
+smoke_tests:
+  - name: queue_latest_news_task
+    kind: delegated_task_action
+    payload:
+      action_name: delegate_latest_news
+      resource_name: report_request
+      row_status: ready
+      row_data:
+        title: "Smoke latest news"
+    expect:
+      row_status: delegated
+      task_statuses:
+        - todo
+      run_statuses:
+        - queued
+```
+
+## A minimal app
+
+```ts title="src/app.ts"
+import { createApp, z } from "@holaboss/app-builder-sdk"
+import { SLACK } from "./provider.ts"
+
+const app = createApp({ id: "slack", provider: SLACK })
+
+app.connection()
+
+const message = app.resource("message", {
+  schema: z.object({
+    channel_id: z.string(),
+    text: z.string(),
+  }),
+  states: ["draft", "sent"] as const,
+  initialState: "draft",
+  emit: { surface: "outputs" },
+})
+
+app.action(message, "send", {
+  fromStates: ["draft"],
+  toState: "sent",
+  run: async ({ row, bridge }) => {
+    const r = await bridge.call<{ ts: string }>("POST", "/chat.postMessage", {
+      channel: row.channel_id,
+      text: row.text,
+    })
+    if (r.kind === "error") throw r
+    return { external_id: r.data.ts }
+  },
+})
+
+app.start()
+```
+
+## What the SDK normalizes for you
+
+- Upstream HTTP status → typed `BridgeError` codes (`rate_limited`, `not_connected`, `not_found`, `validation_failed`, `upstream_error`) so app code pattern-matches instead of string-parsing responses.
+- Per-provider `baseUrl` + `allowedHosts` enforced **before** the transport runs — endpoint typos fail fast, never reach the network.
+- MCP tool list auto-derived from declared actions; no hand-rolled `tools/list` handler.
+- Resource state changes emit workspace outputs / session artifacts automatically based on the resource's `emit` configuration.
+
+## What's deliberately out of scope
+
+- **Scheduling and retry.** Those live in the Holaboss automations layer. `sync.schedule` strings are descriptive, not executed by the SDK.
+- **A scaffolder.** New apps copy a reference app, or get built end-to-end via the `app_builder` agent skill — see [Build Your First App](/docs/build/apps/first-app).
+- **Per-app SKILL.md.** Holaboss's skill system is system-wide (`runtime/harnesses/.../embedded-skills/`) or workspace-local (`<workspace>/skills/`). App-local markdown is not a skill.
+
+## Reference apps
+
+Five reference apps under `sdk/app-builder-sdk/reference/` demonstrate the SDK across shapes:
+
+- `pinterest-publishing` — publishing (multi-step + reversible)
+- `slack-messaging` — messaging with custom states + provider quirks
+- `github-workflow` — six-state workflow lifecycle
+- `gcalendar-events` — event-with-time (RSVP, recurring)
+- `telegram-messaging` — messaging via integer IDs
+
+Each reference app has unit tests plus a real-API E2E script. Copy a reference as a starting template; reference apps are validation fixtures, not production code.
+
+## Validation
+
+```bash
+bun --filter=@holaboss/app-builder-sdk run typecheck
+bun --filter=@holaboss/app-builder-sdk run test
+```

@@ -1,0 +1,772 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* Tell Tailwind to scan MDX content so arbitrary-value utilities used
+   inside .mdx files (leading-[1.05], text-[clamp(...)], etc.) are
+   generated into the CSS bundle. */
+@source "../content/docs/**/*.{md,mdx}";
+
+/* ──────────────────────────────────────────────────────────────
+   holaOS design tokens — ported from
+   frontend/apps/web/src/globals.css & components/landing/theme.css
+   ────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Fumadocs layout width — full viewport */
+  --fd-layout-width: 100%;
+
+  /* Surfaces */
+  --hb-bg: oklch(1 0 0);
+  --hb-bg-50: oklch(0.985 0 0);
+  --hb-bg-100: oklch(0.97 0 0);
+  --hb-bg-200: oklch(0.922 0 0);
+  --hb-bg-300: oklch(0.87 0 0);
+  --hb-bg-400: oklch(0.708 0 0);
+  --hb-bg-700: oklch(0.205 0 0);
+
+  /* Foreground */
+  --hb-fg: oklch(0.145 0 0);
+  --hb-fg-muted: oklch(0.556 0 0);
+  --hb-fg-subtle: oklch(0.708 0 0);
+
+  /* Border */
+  --hb-border: oklch(0.922 0 0);
+  --hb-border-strong: oklch(0.87 0 0);
+
+  /* Accent (orange) */
+  --hb-accent: hsl(19, 99%, 44%);
+  --hb-accent-dark: hsl(19, 99%, 38%);
+  --hb-accent-fg: oklch(1 0 0);
+
+  --hb-grid-accent: oklch(0.92 0.02 38);
+  --hb-dot-color: oklch(0.624 0 0);
+  --hb-nav-bg: oklch(1 0 0 / 92%);
+
+  /* Shadows */
+  --hb-shadow-landing:
+    0 1px 3px oklch(0.145 0 0 / 6%),
+    0 6px 13px oklch(0.145 0 0 / 6%),
+    0 13px 29px oklch(0.145 0 0 / 6%),
+    0 22px 52px oklch(0.145 0 0 / 6%),
+    0 35px 81px oklch(0.145 0 0 / 3%);
+  --hb-shadow-landing-sm:
+    0 1px 3px oklch(0.145 0 0 / 6%),
+    0 6px 13px oklch(0.145 0 0 / 6%),
+    0 13px 29px oklch(0.145 0 0 / 6%);
+
+  /* Fonts */
+  --hb-font-display:
+    "Noto Serif Variable", "Noto Serif", ui-serif, Georgia, serif;
+  --hb-font-mono:
+    "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  --hb-font-sans:
+    "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
+
+  /* ── Override Fumadocs fd-* tokens so UI chrome uses hb-* palette ── */
+  --color-fd-background: var(--hb-bg);
+  --color-fd-foreground: var(--hb-fg);
+  --color-fd-muted: var(--hb-bg-100);
+  --color-fd-muted-foreground: var(--hb-fg-muted);
+  --color-fd-popover: var(--hb-bg);
+  --color-fd-popover-foreground: var(--hb-fg);
+  --color-fd-card: var(--hb-bg);
+  --color-fd-card-foreground: var(--hb-fg);
+  --color-fd-border: var(--hb-border);
+  --color-fd-accent: var(--hb-bg-100);
+  --color-fd-accent-foreground: var(--hb-fg);
+  --color-fd-primary: var(--hb-accent);
+  --color-fd-primary-foreground: var(--hb-accent-fg);
+  --color-fd-ring: var(--hb-accent);
+  --color-fd-secondary: var(--hb-bg-50);
+  --color-fd-secondary-foreground: var(--hb-fg);
+}
+
+.dark {
+  --hb-bg: oklch(0.145 0 0);
+  --hb-bg-50: oklch(0.205 0 0);
+  --hb-bg-100: oklch(0.269 0 0);
+  --hb-bg-200: oklch(0.269 0 0);
+  --hb-bg-300: oklch(0.371 0 0);
+  --hb-bg-400: oklch(0.556 0 0);
+  --hb-bg-700: oklch(0.87 0 0);
+
+  --hb-fg: oklch(0.985 0 0);
+  --hb-fg-muted: oklch(0.708 0 0);
+  --hb-fg-subtle: oklch(0.556 0 0);
+
+  --hb-border: oklch(1 0 0 / 10%);
+  --hb-border-strong: oklch(1 0 0 / 15%);
+
+  --hb-accent: hsl(19, 99%, 50%);
+  --hb-accent-dark: hsl(19, 99%, 44%);
+  --hb-accent-fg: oklch(1 0 0);
+
+  --hb-grid-accent: oklch(0.22 0.04 38);
+  --hb-dot-color: oklch(0.556 0 0);
+  --hb-nav-bg: oklch(0.145 0 0 / 92%);
+
+  --hb-shadow-landing:
+    0 1px 3px oklch(0 0 0 / 40%),
+    0 6px 13px oklch(0 0 0 / 30%),
+    0 13px 29px oklch(0 0 0 / 20%),
+    0 22px 52px oklch(0 0 0 / 15%),
+    0 35px 81px oklch(0 0 0 / 10%);
+
+  /* Fumadocs fd-* overrides re-bind to dark hb-* values automatically
+     via var() — but a few cards need deeper surfaces in dark mode. */
+  --color-fd-card: var(--hb-bg-50);
+  --color-fd-popover: var(--hb-bg-50);
+  --color-fd-secondary: var(--hb-bg-100);
+}
+
+/* Expose hb-* tokens as Tailwind v4 utilities so MDX / custom
+   components can use `bg-hb-bg-50`, `text-hb-fg-muted`, etc. */
+@theme inline {
+  --color-hb-bg: var(--hb-bg);
+  --color-hb-bg-50: var(--hb-bg-50);
+  --color-hb-bg-100: var(--hb-bg-100);
+  --color-hb-bg-200: var(--hb-bg-200);
+  --color-hb-bg-300: var(--hb-bg-300);
+  --color-hb-bg-400: var(--hb-bg-400);
+  --color-hb-bg-700: var(--hb-bg-700);
+
+  --color-hb-fg: var(--hb-fg);
+  --color-hb-fg-muted: var(--hb-fg-muted);
+  --color-hb-fg-subtle: var(--hb-fg-subtle);
+
+  --color-hb-border: var(--hb-border);
+  --color-hb-border-strong: var(--hb-border-strong);
+
+  --color-hb-accent: var(--hb-accent);
+  --color-hb-accent-dark: var(--hb-accent-dark);
+  --color-hb-accent-fg: var(--hb-accent-fg);
+
+  --shadow-landing: var(--hb-shadow-landing);
+  --shadow-landing-sm: var(--hb-shadow-landing-sm);
+
+  --font-hb-display: var(--hb-font-display);
+  --font-hb-mono: var(--hb-font-mono);
+  --font-hb-sans: var(--hb-font-sans);
+}
+
+/* Base typography — match landing font stack */
+html,
+body {
+  font-family: var(--hb-font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Polish pass — Cursor / Hiro-adjacent refinement
+   ────────────────────────────────────────────────────────────── */
+
+/* Top navbar: hairline and generous height */
+#nd-subnav {
+  border-bottom: 1px solid var(--hb-border);
+  min-height: 54px;
+}
+
+/* Tabs — quieter, smaller, tighter tracking */
+#nd-subnav a[href^="/docs"] {
+  font-size: 12.5px;
+  font-weight: 450;
+  letter-spacing: 0.002em;
+  padding-bottom: 8px;
+  border-bottom-width: 1px;
+  color: var(--hb-fg-subtle);
+}
+#nd-subnav a[href^="/docs"]:hover {
+  color: var(--hb-fg);
+}
+/* Active tab: slimmer underline + brand color inherited via fd-primary remap */
+#nd-subnav a[href^="/docs"].border-fd-primary {
+  border-bottom-width: 1px;
+}
+
+/* Eyebrow utility — small mono caps label */
+.eyebrow {
+  font-family: var(--hb-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hb-fg-subtle);
+}
+
+/* Docs prose — heading rhythm */
+#nd-docs-body h1,
+#nd-page h1 {
+  font-family: var(--hb-font-display);
+  font-size: 2.25rem;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+}
+#nd-page h2 {
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  margin-top: 2.5em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--hb-border);
+}
+#nd-page h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+/* Inline code */
+#nd-page :not(pre) > code {
+  background: var(--hb-bg-100);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: var(--hb-font-mono);
+  border: none;
+}
+
+
+/* Sidebar items — slimmer, softer active */
+#nd-sidebar a[data-active] {
+  font-size: 13px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+/* Table styling */
+#nd-page thead th {
+  font-weight: 500;
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--hb-fg);
+  border-bottom: 1px solid var(--hb-border-strong);
+}
+#nd-page tbody td {
+  font-size: 14px;
+}
+
+.hb-doc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+
+.hb-doc-card {
+  display: block;
+  border: 1px solid var(--hb-border);
+  border-radius: 14px;
+  background: var(--hb-bg-50);
+  padding: 16px;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.hb-doc-card:hover {
+  background: var(--hb-bg-100);
+  border-color: var(--hb-accent);
+}
+
+.hb-doc-card__eyebrow {
+  margin-bottom: 8px;
+  color: var(--hb-fg-subtle);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hb-doc-card__title {
+  color: var(--hb-fg);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.hb-doc-card__description {
+  margin-top: 8px;
+  color: var(--hb-fg-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.hb-doc-definition {
+  margin: 20px 0;
+  border: 1px solid var(--hb-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.hb-doc-definition__term {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--hb-bg-50);
+  color: var(--hb-fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.hb-doc-definition__meta {
+  color: var(--hb-fg-subtle);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.hb-doc-definition__body {
+  padding: 14px 16px 16px;
+  color: var(--hb-fg-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.hb-doc-definition__body > :first-child {
+  margin-top: 0;
+}
+
+.hb-doc-definition__body > :last-child {
+  margin-bottom: 0;
+}
+
+.hb-diagram-system {
+  margin: 24px 0;
+  border: 1px solid var(--hb-border);
+  border-radius: 16px;
+  background: var(--hb-bg-50);
+  padding: 24px;
+  container-type: inline-size;
+}
+
+.hb-diagram-system__shell {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.hb-diagram-system__surface {
+  width: 100%;
+  border: 1px solid var(--hb-border);
+  border-radius: 14px;
+  background: var(--hb-bg);
+  padding: 18px;
+}
+
+.hb-diagram-system__os {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--hb-accent);
+  border-radius: 14px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--hb-accent) 10%, var(--hb-bg)),
+    color-mix(in srgb, var(--hb-bg) 94%, transparent)
+  );
+  padding: 18px;
+}
+
+.hb-diagram-system__os-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.hb-diagram-system__badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--hb-accent);
+  color: var(--hb-accent-fg);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+
+.hb-diagram-system__os-copy {
+  margin: 0;
+  color: var(--hb-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.hb-diagram-system__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 14px;
+}
+
+.hb-diagram-system__card {
+  min-width: 0;
+  border: 1px solid var(--hb-border);
+  border-radius: 12px;
+  background: var(--hb-bg);
+  padding: 16px;
+}
+
+.hb-diagram-system__card--runtime {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.hb-diagram-system__eyebrow,
+.hb-diagram-system__sub-eyebrow {
+  color: var(--hb-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hb-diagram-system__sub-eyebrow {
+  color: var(--hb-fg-subtle);
+}
+
+.hb-diagram-system__title {
+  margin-top: 8px;
+  color: var(--hb-fg);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.hb-diagram-system__copy,
+.hb-diagram-system__subcopy,
+.hb-diagram-system__footer {
+  margin: 0;
+  color: var(--hb-fg-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.hb-diagram-system__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.hb-diagram-system__chip {
+  border: 1px solid var(--hb-border);
+  border-radius: 999px;
+  background: var(--hb-bg-50);
+  color: var(--hb-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+}
+
+.hb-diagram-system__subcard {
+  border: 1px dashed var(--hb-border-strong);
+  border-radius: 12px;
+  background: var(--hb-bg-50);
+  padding: 14px;
+}
+
+.hb-diagram-system__flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 8px;
+}
+
+.hb-diagram-system__flow-node {
+  border: 1px solid var(--hb-border);
+  border-radius: 10px;
+  background: var(--hb-bg);
+  color: var(--hb-fg);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 10px;
+}
+
+.hb-diagram-system__flow-arrow,
+.hb-diagram-system__arrow {
+  color: var(--hb-fg-subtle);
+  font-size: 18px;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+.hb-diagram-system__arrow {
+  align-self: center;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.hb-diagram-system__footer {
+  margin-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--hb-border) 82%, transparent);
+  padding-top: 14px;
+}
+
+.hb-diagram-filetree {
+  margin: 24px 0;
+  border: 1px solid var(--hb-border);
+  border-radius: 16px;
+  background: var(--hb-bg-50);
+  padding: 24px;
+  overflow-x: auto;
+}
+
+.hb-ftx {
+  min-width: max-content;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--hb-font-mono);
+}
+
+.hb-ftx__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+}
+
+.hb-ftx__row--root {
+  margin-bottom: 4px;
+}
+
+.hb-ftx__prefix {
+  white-space: pre;
+  user-select: none;
+}
+
+.hb-ftx__segment {
+  display: inline-block;
+}
+
+.hb-ftx__segment--pipe {
+  color: color-mix(in srgb, var(--hb-fg) 14%, transparent);
+}
+
+.hb-ftx__segment--branch {
+  color: color-mix(in srgb, var(--hb-fg) 24%, transparent);
+}
+
+.hb-ftx__content {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.hb-ftx__name {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--hb-border);
+  background: var(--hb-bg);
+  color: var(--hb-fg);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.hb-ftx__name--brand {
+  border-color: color-mix(in srgb, var(--hb-accent) 32%, var(--hb-border));
+  background: oklch(0.68 0.2 32 / 4%);
+}
+
+.hb-ftx__name--engine {
+  border-color: oklch(0.68 0.15 250 / 26%);
+  background: oklch(0.68 0.15 250 / 4%);
+}
+
+.hb-ftx__name--context {
+  border-color: oklch(0.65 0.18 155 / 26%);
+  background: oklch(0.65 0.18 155 / 4%);
+}
+
+.hb-ftx__name--default {
+  border-color: var(--hb-border);
+}
+
+.hb-ftx__meta {
+  color: var(--hb-fg-subtle);
+  font-family: var(--hb-font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hb-diagram-tree {
+  margin: 24px 0;
+  border: 1px solid var(--hb-border);
+  border-radius: 16px;
+  background: var(--hb-bg-50);
+  padding: 28px 24px;
+  overflow-x: auto;
+}
+
+.hb-tree,
+.hb-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hb-tree ul {
+  padding-left: 24px;
+  border-left: 2px solid var(--hb-border);
+  margin-left: 12px;
+  margin-top: 4px;
+}
+
+.hb-tree__item {
+  position: relative;
+  padding: 3px 0;
+}
+
+.hb-tree ul > .hb-tree__item::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  left: -24px;
+  width: 20px;
+  height: 0;
+  border-top: 2px solid var(--hb-border);
+}
+
+.hb-tree__node {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--hb-border);
+  background: var(--hb-bg);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.hb-tree__node:hover {
+  border-color: var(--hb-accent);
+}
+
+.hb-tree__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--hb-fg);
+}
+
+.hb-tree__meta {
+  font-size: 12px;
+  color: var(--hb-fg-subtle);
+}
+
+.hb-tree__node--template,
+.hb-tree__node--workspace,
+.hb-tree__node--app {
+  border-color: color-mix(in srgb, var(--hb-accent) 24%, var(--hb-border));
+  background: oklch(0.68 0.2 32 / 4%);
+}
+
+.hb-tree__node--agent {
+  border-color: oklch(0.68 0.15 250 / 30%);
+  background: oklch(0.68 0.15 250 / 4%);
+}
+
+.hb-tree__node--skill {
+  border-color: oklch(0.65 0.18 155 / 30%);
+  background: oklch(0.65 0.18 155 / 4%);
+}
+
+.hb-tree__node--integration {
+  border-style: dashed;
+  border-color: oklch(0.65 0.15 280 / 30%);
+  background: oklch(0.65 0.15 280 / 4%);
+}
+
+.hb-tree__node--leaf {
+  border-color: var(--hb-border);
+  background: transparent;
+}
+
+.dark .hb-ftx__name--brand,
+.dark .hb-tree__node--template,
+.dark .hb-tree__node--workspace,
+.dark .hb-tree__node--app {
+  background: oklch(0.68 0.2 32 / 6%);
+}
+
+.dark .hb-ftx__name--engine,
+.dark .hb-tree__node--agent {
+  background: oklch(0.68 0.15 250 / 6%);
+}
+
+.dark .hb-ftx__name--context,
+.dark .hb-tree__node--skill {
+  background: oklch(0.65 0.18 155 / 6%);
+}
+
+.dark .hb-tree__node--integration {
+  background: oklch(0.65 0.15 280 / 6%);
+}
+
+@container (max-width: 980px) {
+  .hb-diagram-system__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hb-diagram-system__os-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 740px) {
+  .hb-diagram-system__shell,
+  .hb-diagram-system__flow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hb-diagram-system__shell {
+    gap: 16px;
+  }
+
+  .hb-diagram-system__surface {
+    flex-basis: auto;
+  }
+
+  .hb-diagram-system__arrow,
+  .hb-diagram-system__flow-arrow {
+    display: none;
+  }
+}
+
+/* Focus ring on actionable elements only */
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--hb-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Hide "Collapse Sidebar" button in top-right on section pages */
+button[aria-label="Collapse Sidebar"] {
+  display: none;
+}

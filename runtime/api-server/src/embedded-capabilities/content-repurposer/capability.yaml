@@ -1,0 +1,14 @@
+id: content-repurposer
+name: Content Repurposer
+description: Turn one source piece into platform-native posts for X and LinkedIn
+category: content
+icon: "ph:arrows-clockwise-fill"
+skills:
+  - path: ./skills/repurpose-content/SKILL.md
+integrations:
+  - provider: twitter
+    required: true
+    reason: Publishes the repurposed X/Twitter posts
+  - provider: linkedin
+    required: true
+    reason: Publishes the repurposed LinkedIn posts

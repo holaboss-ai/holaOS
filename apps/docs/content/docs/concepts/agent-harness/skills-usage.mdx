@@ -1,0 +1,109 @@
+---
+title: Skills Usage
+description: How runtime-resolved skills enter the run and how host-local widening still works in the shipped harness path.
+---
+
+Skills are a runtime-owned capability surface.
+
+The runtime resolves the available skill set, prepares any quoted skill blocks referenced by the instruction, and exposes a runtime-backed `skill` tool. The harness host consumes that prepared skill data and applies local widening rules over the tool surfaces it manages itself.
+
+## What the runtime resolves
+
+Before the host request is built, the runtime resolves:
+
+- workspace skills from `skills/<skill-id>/SKILL.md`
+- embedded skills shipped with the runtime
+- normalized skill manifests with:
+  - `skill_id`
+  - `skill_name`
+  - `source_dir`
+  - `file_path`
+  - `origin`
+  - declared tool and command grants
+
+Those manifests are used in three places:
+
+- capability projection and prompt policy
+- quoted skill preparation from leading `/skill-id` lines in the instruction
+- runtime-backed `skill` invocation
+
+Embedded skills are a good fit for reusable host behavior that should travel with the shipped runtime, such as the embedded-browser workflow skills that bias the agent toward compact state, action-local waits, and evidence-first debugging.
+
+## Quoted skill preparation
+
+If the instruction starts with slash-prefixed skill ids, the runtime prepares those skill blocks before the harness host request is built.
+
+Example:
+
+```text
+/customer_lookup
+/sales_policy
+
+Review this lead and draft next-step guidance.
+```
+
+`prepareInstructionWithQuotedWorkspaceSkills(...)`:
+
+- parses the leading slash lines
+- resolves those ids against the runtime-resolved skill set
+- renders canonical `<skill ...>` blocks
+- strips the slash lines from the instruction body
+
+The harness request then carries:
+
+- `instruction`: the cleaned body
+- `quoted_skill_blocks`: the canonical rendered skill blocks
+- `missing_quoted_skill_ids`: any requested skill ids that could not be resolved
+
+The host renders that prepared payload into the prompt body. It does not parse slash-prefixed skills from raw instruction text.
+
+## What the host receives
+
+The `pi` host receives:
+
+- `workspace_skills`
+- `quoted_skill_blocks`
+- `missing_quoted_skill_ids`
+
+That is enough for the host to:
+
+- render quoted skill content into the PI prompt body
+- keep a local map of which skills manage which PI-local tools and commands
+- apply widening after a successful `skill` call
+- emit `skill_invocation` events with resolved skill metadata
+
+The host is not the source of truth for skill meaning.
+
+## The `skill` tool path
+
+The `skill` tool executes through the shared runtime capability API.
+
+When the model calls `skill`:
+
+1. the PI host packages the request through `pi-runtime-tools.ts`
+2. the runtime resolves the requested skill
+3. the runtime returns:
+   - the canonical `<skill ...>` block
+   - resolved skill identity and file metadata
+   - declared tool and command grants
+4. the PI host relays that result back into the run
+
+This keeps skill resolution, skill-block rendering, and skill metadata runtime-owned.
+
+## Skill widening
+
+Skill widening remains partly host-local.
+
+Skill manifests can declare managed tools and commands for the run through fields such as:
+
+- `holaboss_granted_tools`
+- `holaboss_granted_commands`
+
+After a successful runtime-backed `skill` invocation, the PI host applies the returned grants to its live widening state. That local step matters because the PI host still owns enforcement over PI-managed local tools and commands.
+
+So the boundary is:
+
+- the runtime owns skill resolution and canonical skill payloads
+- the host owns local widening enforcement over PI-managed tool surfaces
+
+That keeps skills inspectable and explicit without making their meaning specific to one harness implementation.

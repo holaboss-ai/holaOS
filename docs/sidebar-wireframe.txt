@@ -1,0 +1,238 @@
+SIDEBAR WIREFRAME — Sessions, Projects, General
+================================================
+
+Scope: this file documents the *personal* block of the sidebar
+(session list + projects) and the Projects management page.
+See docs/sessions-and-projects-prd.md for the spec.
+
+
+SCENE 1 — Sidebar (workspace = "Competitor Intelligence")
+---------------------------------------------------------
+
+┌────────────────────────────────────────────┐
+│  [▦]  Competitor Intelligence         ⌄    │  ← workspace switcher (unchanged)
+│                                              │
+│  🔍 Search…                  ⌘K   [◯] [🔔]  │  ← search / browser / bell row
+│                                              │
+│  [+]  New chat                               │  ← creates a GENERAL session
+│                                              │
+│  [▢]  Need Review                            │
+│  [▢]  Automations                            │
+│  [▢]  Skills                                 │
+│  [▢]  Apps                                   │
+│  [▢]  Projects                               │  ← opens Scene 2
+│                                              │
+│  PLUGINS  ⌄                          1   [+] │
+│  ⌄  [▦]  Competitor Intelligence Feed        │
+│  │   [▢]  Feed                               │
+│  │   [▢]  Management                         │
+│                                              │
+│ ──────────────────────────────────────────  │  ← personal divider
+│                                              │
+│  SCHEDULED  ⌄                                │  ← only shown if non-empty
+│  ○  Test                          Manual     │
+│                                              │
+│  GENERAL  ⌄                            7  [+]│  ← workspace-scoped, no project
+│ ┌──────────────────────────────────────────┐│  ← selected (bg fill)
+│ │ ●  Untitled session                       ││  ← ● = is_active (running)
+│ └──────────────────────────────────────────┘│
+│  ○  Untitled session                         │
+│  ○  D                                        │
+│  ○  C                                        │
+│  ●  B                                        │  ← also running, not selected
+│  ○  New chat                                 │
+│  ○  New chat                                 │
+│                                              │
+│  HOLABOSS  ⌄                           4  [+]│  ← project section
+│  ○  Untitled session                   ⋮     │  ← row overflow on hover
+│  ○  YouTube transcript translation           │
+│  ○  What needs my attention                  │
+│  ○  Draft outline                            │
+│                                              │
+│  COMPETITOR INTEL  ⌄                   2  [+]│  ← another project
+│  ●  Weekly digest                            │
+│  ○  Pricing scan                             │
+│                                              │
+│  + New project                               │  ← opens dir picker
+│                                              │
+│ ──────────────────────────────────────────  │
+│  [⚙]  Settings                               │  ← footer (unchanged)
+└────────────────────────────────────────────┘
+
+
+SCENE 2 — Projects index page (opened from [▢] Projects)
+--------------------------------------------------------
+
+┌──────────────────────────────────────────────────────────────────────┐
+│  Projects                       Sort by Last updated ⌄   [New project]│
+│                                                                        │
+│  🔍 Search projects…                                                  │
+│                                                                        │
+│  ┌──────────────────────┐  ┌──────────────────────┐                  │
+│  │ Holaboss              │  │ Competitor Intel      │                  │
+│  │                       │  │                       │                  │
+│  │ Updated 1 hour ago    │  │ Updated yesterday     │                  │
+│  └──────────────────────┘  └──────────────────────┘                  │
+│                                                                        │
+└──────────────────────────────────────────────────────────────────────┘
+
+  Card hover → reveals ⋮ menu: Rename · Change icon · Reveal in Finder · Delete
+  Card click → transitions overlay from "index" mode to "landing" mode for
+              this project. NO internal tab is opened. The sidebar stays
+              visible; the chat pane is fully hidden behind the overlay.
+  New project button → opens Scene 4 modal.
+  Folder missing → amber dot on card, identical to workspace switcher today.
+
+
+SCENE 3 — Project landing page (opened from a project card)
+-----------------------------------------------------------
+
+┌──────────────────────────────────────────────────────────────────────┐
+│  Test                                                       [📌] [⋮] │  ← project name as title
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐│
+│  │ What would you like to work on in this project?                    ││  ← chat composer
+│  │                                                                    ││
+│  │ +                                                              🎤  ││
+│  └──────────────────────────────────────────────────────────────────┘│
+│                                                                        │
+│                                                    Opus 4.8 · High ⌄ │  ← model selector only
+│                                                                        │
+│                              💬                                       │
+│                                                                        │
+│       Give Claude a task and it'll pick up your project context.      │
+└──────────────────────────────────────────────────────────────────────┘
+
+  Composer has NO project selector and NO "Ask" affordance. The project
+  is implicit — it is the page's project — and cannot be changed from
+  the composer.
+
+  Submitting the first user message:
+    - creates an agent_session with project_id = this project
+    - routes into the existing chat pane with that session selected
+    - cwd for the run = project_path
+  Until the user submits, no session is created. Refreshing or closing the
+  page is a no-op against the database.
+
+  Right-side panels (Instructions, Scheduled, Context, Memory) shown in
+  the reference screenshot are OUT OF SCOPE for the intermediate phase.
+
+  Both Scene 2 and Scene 3 are RENDERED AS A FULL OVERLAY over the central
+  pane. The sidebar stays visible. No internal tab is created. Driven by
+  a single projectViewAtom: null | {mode:"index"} | {mode:"landing", projectId}.
+
+  On first message submit (Scene 3):
+    - the new agent_session is created with project_id set
+    - selectedSessionIdAtom is set to that session
+    - projectViewAtom is cleared
+    - the chat pane takes the FULL central size; the middle "landing"
+      pane collapses away in the same render
+
+
+SCENE 4 — Create project modal (opened from "New project" in Scene 2)
+--------------------------------------------------------------------
+
+Step 1 — choose origin
+┌──────────────────────────────────────────────────────────────────────┐
+│  Create a new project                                                  │
+│  A dedicated place for ongoing work, where context builds              │
+│  over time. Files stay in a folder on your computer.                   │
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐│
+│  │ [+]  Start from scratch                                          ›││  ← option (a)
+│  │      Set up a new folder for this project.                         ││
+│  └──────────────────────────────────────────────────────────────────┘│
+│  ┌──────────────────────────────────────────────────────────────────┐│
+│  │ [📁]  Use an existing folder                                     ›││  ← option (b)
+│  │       Give Claude a folder you already work from.                  ││
+│  └──────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────────────┘
+
+  "Import a project" (third option in the reference screenshot) is
+  OUT OF SCOPE for intermediate.
+
+
+Step 2 — form
+┌──────────────────────────────────────────────────────────────────────┐
+│  ←                                                                     │  ← back to Step 1
+│  Start a new project                                                   │
+│                                                                        │
+│  Name *                                                                │
+│  ┌──────────────────────────────────────────────────────────────────┐│
+│  │ Project name                                                       ││
+│  └──────────────────────────────────────────────────────────────────┘│
+│                                                                        │
+│  Choose project location                                               │
+│  ┌──────────────────────────────────────────────────────────────────┐│
+│  │ 📁  ~/Holaboss/Projects/<name>                                     ││  ← clickable
+│  └──────────────────────────────────────────────────────────────────┘│
+│                                                                        │
+│                                                  [Cancel]  [Create]    │
+└──────────────────────────────────────────────────────────────────────┘
+
+  Start from scratch (a):
+    - location field defaults to <DEFAULT_PROJECTS_DIR>/<Name>
+    - location updates live as the user types Name
+    - clicking the location opens a dir picker to override
+    - on Create: if the chosen path does not exist, it is created (mkdir)
+
+  Use an existing folder (b):
+    - location field is empty + clicking it opens a dir picker immediately
+    - on Create: the chosen path MUST exist; if it doesn't, creation errors
+
+  "Instructions" and "Add files" fields in the reference screenshot are
+  OUT OF SCOPE for intermediate.
+
+
+INTERACTIONS
+------------
+
+• [+] New chat   → creates session with project_id = NULL  (General)
+• [+] beside a project section → creates session with project_id = that project
+• Drag a session row onto another section header → reassigns project_id    [LATER PHASE]
+• Right-click a session row → "Move to project ▸" submenu                  [LATER PHASE]
+• Click any session row → opens it in the chat pane (becomes the *selected* session)
+• ● dot = session is currently running (is_active). Independent of selection.
+• Selected session = background fill on its row.
+
+
+REMOVED IN INTERMEDIATE PHASE
+-----------------------------
+
+• Recents section — SidebarRecentsSection and both recent atoms
+  (recentFilesAtom, recentOutputsAtom) are deleted. Recent files/outputs
+  no longer surface anywhere in the sidebar.
+• Workspace switcher popover loses two actions:
+    – "Publish to Store"
+    – "+ Create new workspace"
+  Workspaces are provisioned-only going forward. The switcher still
+  shows the list, search, ⌘N shortcut hints, and delete.
+
+
+SCOPE NOTE
+----------
+
+This wireframe shows the END state (post sidebar-IA rewrite). The
+intermediate-phase PR ships:
+  – Project entity, IPC, Projects page (Scene 2)
+  – [▢] Projects nav row
+  – project_id column on sessions, set at create time, drives cwd
+  – Recents removal + workspace-switcher cleanup above
+
+It does NOT yet ship the per-project session sections in Scene 1's
+personal block — those land in the follow-up sidebar-IA PR. The
+existing MainSessionPicker keeps working until that phase.
+
+
+LEGEND
+------
+[▢]  icon placeholder
+[▦]  plugin / grid icon / project icon
+○    inactive session (not currently running)
+●    active session (running — blue dot)
+⋮    row overflow menu (rename / move / archive / delete)
+⌄    expanded disclosure
+⌘K   keyboard shortcut hint
++    inline create action
+─    section divider
+┌─┐  selected row or card hover

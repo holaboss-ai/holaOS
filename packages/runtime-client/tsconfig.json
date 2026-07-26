@@ -1,0 +1,9 @@
+{
+  "extends": "@holaboss/tsconfig/dom.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "../../shared/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
+}

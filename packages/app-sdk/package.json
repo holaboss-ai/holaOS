@@ -1,0 +1,120 @@
+{
+  "name": "@holaboss/app-sdk",
+  "version": "0.1.1",
+  "description": "Holaboss App SDK — generated TypeScript client, TanStack Query hooks, and Zod schemas for the Holaboss product API",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./core": {
+      "import": {
+        "types": "./dist/core.d.ts",
+        "default": "./dist/core.js"
+      },
+      "require": {
+        "types": "./dist/core.d.cts",
+        "default": "./dist/core.cjs"
+      }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react.d.ts",
+        "default": "./dist/react.js"
+      },
+      "require": {
+        "types": "./dist/react.d.cts",
+        "default": "./dist/react.cjs"
+      }
+    },
+    "./zod": {
+      "import": {
+        "types": "./dist/zod.d.ts",
+        "default": "./dist/zod.js"
+      },
+      "require": {
+        "types": "./dist/zod.d.cts",
+        "default": "./dist/zod.cjs"
+      }
+    },
+    "./clients/app": {
+      "import": {
+        "types": "./dist/clients/app.d.ts",
+        "default": "./dist/clients/app.js"
+      },
+      "require": {
+        "types": "./dist/clients/app.d.cts",
+        "default": "./dist/clients/app.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "codegen": "kubb generate --config ./kubb.config.ts",
+    "test": "vitest run kubb.config.test.ts src/clients/base.test.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "holaboss",
+    "app-sdk",
+    "sdk",
+    "marketplace",
+    "openapi",
+    "typescript",
+    "react-query"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/holaboss-ai/holaOS.git",
+    "directory": "packages/app-sdk"
+  },
+  "homepage": "https://github.com/holaboss-ai/holaOS/tree/main/packages/app-sdk",
+  "bugs": {
+    "url": "https://github.com/holaboss-ai/holaOS/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "zod": "^4.1.11"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5",
+    "typescript": "^5"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/react-query": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@kubb/cli": "^3.18.3",
+    "@kubb/core": "^3.18.3",
+    "@kubb/plugin-client": "^3.18.3",
+    "@kubb/plugin-oas": "^3.18.3",
+    "@kubb/plugin-react-query": "^3.18.3",
+    "@kubb/plugin-ts": "^3.18.3",
+    "@kubb/plugin-zod": "^3.18.3",
+    "@tanstack/react-query": "^5.0.0",
+    "tsdown": "^0.21.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

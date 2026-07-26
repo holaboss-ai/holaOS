@@ -1,0 +1,275 @@
+---
+title: Runtime State Store
+description: SQLite-backed state store for host, control-plane, and workspace execution data.
+---
+
+Use this page when you are changing `host-state.db`, `control-plane.db`, workspace runtime DBs, queue behavior, continuity records, or any runtime-owned persistent state.
+
+The source of truth is:
+
+- `runtime/state-store/src/store.ts`
+- `runtime/state-store/src/store.test.ts`
+- `runtime/state-store/src/cli.ts`
+
+## What This Package Owns
+
+`@holaboss/runtime-state-store` owns the runtime's durable SQLite surfaces.
+
+It does not replace the workspace filesystem or the markdown memory tree. It stores the runtime-owned metadata around them:
+
+- host/bootstrap state for the local embedded runtime
+- control-plane metadata such as workspace registry, runtime profiles, and integrations
+- workspace execution state such as sessions, queues, outputs, turns, and notifications
+- durable memory registry metadata and vector index entries
+
+If the runtime needs durable state that is not just a file in the workspace, it usually lands here.
+
+## Where the SQLite surfaces live
+
+`hostStateDbPath()` resolves the sandbox-global host-state path this way:
+
+- `HOLABOSS_HOST_STATE_DB_PATH` if set
+- else `HOLABOSS_RUNTIME_DB_PATH` as a legacy alias
+- else `<sandboxRoot>/state/host-state.db`
+
+`controlPlaneDbPath()` defaults to:
+
+- `HOLABOSS_CONTROL_PLANE_DB_PATH` if set
+- else `<sandboxRoot>/state/control-plane.db`
+
+Workspace execution state lives at:
+
+- `<workspaceRoot>/<workspace-id>/.holaboss/state/runtime.db`
+
+The store also resolves workspace paths from:
+
+- the workspace registry row
+- the workspace identity file under `.holaboss/state/workspace_id`
+- fallback discovery under the runtime workspace root
+
+That means the runtime uses both the database and filesystem markers to keep workspace discovery stable.
+
+## Major Record Families
+
+### Control-plane metadata
+
+`control-plane.db` owns:
+
+- `workspaces`
+- `runtime_user_profiles`
+- `integration_connections`
+- `integration_bindings`
+- `oauth_app_configs`
+- `app_catalog`
+
+This is the durable product/control metadata that exists above one workspace run.
+
+### Workspace execution state
+
+Each workspace runtime DB owns:
+
+- `agent_sessions`
+- session-to-harness bindings
+- session runtime state
+- queue records and leases
+- continuity artifacts such as turn results, request snapshots, and output events
+- outputs, app build/runtime state, cronjobs, notifications, and proposals
+
+This is the durable execution truth for one workspace: which sessions exist, what the runtime is currently doing, and which artifacts must survive a restart.
+
+### Host/bootstrap state
+
+`host-state.db` keeps only sandbox-global host concerns such as:
+
+- local embedded-runtime bootstrap state
+- desktop/runtime process diagnostics
+- compatibility mirrors needed during migration from older local layouts
+
+This is deliberately not the home for workspace execution state anymore.
+
+### Queues and leases
+
+The store owns two queue families:
+
+- `agent_session_inputs`
+- `post_run_jobs`
+
+Both support:
+
+- idempotent enqueue paths through `enqueueInput()` and `enqueuePostRunJob()`
+- worker claiming through `claimInputs()` and `claimPostRunJobs()`
+- `QUEUED` to `CLAIMED` transitions
+- worker lease windows through `claimed_until`
+- expired-claim recovery through `listExpiredClaimedInputs()` and `listExpiredClaimedPostRunJobs()`
+- optional `distinctSessions` claiming so one worker does not take multiple queued items from the same session in one batch
+- input claiming can also exclude specific session ids so queue workers do not claim a second active run for a session that is already executing
+
+This is the runtime's queue and lease model. If job pickup or replay behavior is wrong, inspect the workspace runtime DB records before you patch workers.
+
+### Continuity and replay state
+
+The workspace runtime DB persists:
+
+- session messages
+- output events
+- turn results
+- turn request snapshots
+
+This is part of the persistent continuity seam between runs. It is how the runtime reconstructs recent execution state, emits output streams, and preserves request/debug artifacts while session-memory projections and persisted harness state carry the resume-specific handoff.
+
+### Memory registry and vector index
+
+The state store tracks memory metadata with:
+
+- runtime user profile rows
+- memory entries
+- memory embedding index rows
+
+The package also loads `sqlite-vec` when available so memory recall can use vector search over indexed memory content.
+
+Important distinction:
+
+- workspace-scoped interaction memory lives on disk under each workspace's `.holaboss/memory/interaction/`
+- workspace-scoped semantic interaction trees live under `.holaboss/memory/semantic/interaction/trees/`
+- workspace runtime continuity memory lives separately under `.holaboss/memory/runtime/`
+- profile-global integration memory lives under `memory/integration/trees/`
+- profile-global semantic integration trees live under `memory/semantic/integration/trees/`
+- workspace-scoped memory metadata lives in the corresponding workspace runtime DB
+- profile-global memory metadata and canonical runtime profiles live in `control-plane.db`
+
+### Workspace-visible product state
+
+Workspace runtime DBs also store:
+
+- output folders and outputs
+- app builds, app restart-attempt counters, and app port allocation
+- cronjobs
+- runtime notifications
+- task proposals
+- evolve skill candidates
+- memory update proposals
+
+That is why desktop surfaces such as notifications, outputs, proposals, and cronjobs are runtime-backed rather than renderer-local.
+
+## Queue and Lease Model
+
+The queue behavior is worth treating as a first-class contract.
+
+Current important behavior from `store.ts` and `store.test.ts`:
+
+- queued inputs and post-run jobs are claimed in priority order
+- queue workers only claim up to their currently available concurrency slots
+- `claimInputs()` can exclude session ids that already have an active claimed run
+- claims update `claimed_by` and `claimed_until`
+- expired claims can be listed and recovered
+- session runtime state separately tracks `lease_until`, `heartbeat_at`, and `last_error`
+- runtime-state status is normalized to values such as `IDLE`, `BUSY`, `WAITING_USER`, `ERROR`, `QUEUED`, and `PAUSED`
+
+If you change queue semantics, you are changing scheduling behavior for the whole runtime, not just one worker. The current contract is intentionally trying to prevent the same session from being processed twice in parallel when global concurrency is greater than one.
+
+The tests exercise that behavior like this:
+
+```ts
+const sessionOneFirst = store.enqueueInput({
+  workspaceId: "workspace-1",
+  sessionId: "session-one",
+  payload: { text: "session-one-first" },
+  priority: 5,
+});
+store.enqueueInput({
+  workspaceId: "workspace-1",
+  sessionId: "session-one",
+  payload: { text: "session-one-second" },
+  priority: 4,
+});
+store.enqueueInput({
+  workspaceId: "workspace-1",
+  sessionId: "session-two",
+  payload: { text: "session-two" },
+  priority: 3,
+});
+
+const claimed = store.claimInputs({
+  limit: 2,
+  claimedBy: "worker-1",
+  leaseSeconds: 60,
+  distinctSessions: true,
+});
+```
+
+With `distinctSessions: true`, the second claim comes from `session-two` instead of taking two queued items from `session-one`.
+
+## Database vs Filesystem Contract
+
+Do not collapse the persistence model into one place.
+
+The runtime currently uses:
+
+- `state/host-state.db` for sandbox-global host/bootstrap state
+- `state/control-plane.db` for registry, profiles, and integrations
+- `<workspace-id>/.holaboss/state/runtime.db` for workspace execution truth and workspace-scoped runtime metadata
+- workspace files for authored config and app/template state
+- `.holaboss/memory/interaction/` plus `.holaboss/memory/semantic/interaction/trees/` under each workspace for durable interaction memory and its derived semantic trees
+- `.holaboss/memory/runtime/` under each workspace for runtime continuity memory that helps runs resume coherently
+- global `memory/integration/trees/` plus `memory/semantic/integration/trees/` for profile-global integration memory and its derived semantic trees
+- `.holaboss/state/` under each workspace for workspace-local runtime state such as the identity marker and harness session mapping
+
+That split is deliberate. The database tracks runtime truth around the workspace; it does not become the workspace.
+
+## Migrations and Compatibility
+
+The store ensures schema and runs compatibility migrations on open.
+
+Current migration seams in `store.ts` include:
+
+- workspace-table migration and workspace-path recovery
+- legacy session-artifact migration into outputs
+- legacy `state/runtime.db` rename/migration into `state/host-state.db`
+- runtime-notification priority normalization
+- cronjob instruction migration
+- queue/runtime-state lease-column migrations
+- app-build `restart_attempts` persistence migration
+
+If you add a new durable record family, you need to think about both schema creation and migration behavior for existing runtimes.
+
+## CLI and Test Seams
+
+The package exposes a CLI entrypoint, `holaboss-state-store`, backed by `runtime/state-store/src/cli.ts`.
+
+That CLI mirrors many store operations, including:
+
+- workspace lookup
+- queue enqueue and claim flows
+- runtime-state inspection
+- outputs, notifications, cronjobs, and proposals
+
+For development, the tests are usually the better executable reference than manual SQL because they lock the intended behavior:
+
+- workspace discovery and migration
+- idempotent enqueue and claim behavior
+- expired-claim handling
+- output and notification behavior
+- proposal and memory-update flows
+
+The CLI expects `cli <operation> --request-base64 <base64-json>`. A representative claim flow looks like this:
+
+```bash
+REQ='{"options":{"dbPath":"/tmp/host-state.db","workspaceRoot":"/tmp/workspace"},"claimed_by":"worker-1","limit":2,"lease_seconds":60,"distinct_sessions":true}'
+holaboss-state-store claim-inputs --request-base64 "$(printf '%s' "$REQ" | base64 | tr -d '\n')"
+```
+
+## Practical Rules
+
+- do not patch queue behavior without tests
+- do not assume the database is the whole persistence model
+- treat lease fields and queue statuses as scheduling contracts
+- keep record normalization stable because desktop and runtime code both depend on it
+- when a change affects replay, compaction, outputs, or recall, trace the state-store consumers before changing column meaning
+
+## Validation
+
+```bash
+npm run runtime:state-store:typecheck
+npm run runtime:state-store:test
+npm run runtime:test
+```

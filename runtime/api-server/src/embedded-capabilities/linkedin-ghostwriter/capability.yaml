@@ -1,0 +1,11 @@
+id: linkedin-ghostwriter
+name: LinkedIn Ghostwriter
+description: Draft LinkedIn posts in your voice from a topic or rough notes
+category: content
+icon: "ph:pen-nib-fill"
+skills:
+  - path: ./skills/linkedin-post/SKILL.md
+integrations:
+  - provider: linkedin
+    required: true
+    reason: Publishes the drafted posts

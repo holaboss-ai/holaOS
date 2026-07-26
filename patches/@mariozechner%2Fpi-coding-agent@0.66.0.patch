@@ -1,0 +1,15 @@
+diff --git a/dist/core/agent-session.js b/dist/core/agent-session.js
+index 3da8024489d4e3c6ba3a3b9749fbb8b1002011bc..b80db294d044b8827abc2c33636daddb2c65b3b5 100644
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -1912,8 +1912,8 @@ export class AgentSession {
+         if (isContextOverflow(message, contextWindow))
+             return false;
+         const err = message.errorMessage;
+-        // Match: overloaded_error, provider returned error, rate limit, 429, 500, 502, 503, 504, service unavailable, network/connection errors, fetch failed, request ended without sending chunks, terminated, retry delay exceeded
+-        return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|timed? out|timeout|terminated|retry delay/i.test(err);
++        // Match: overloaded_error, provider returned error, rate limit, 429, 499, 500, 502, 503, 504, service unavailable, network/connection errors, fetch failed, request ended without sending chunks, stream closed before completion, terminated, retry delay exceeded
++        return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|499|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|stream.?closed|timed? out|timeout|terminated|retry delay/i.test(err);
+     }
+     /**
+      * Handle retryable errors with exponential backoff.

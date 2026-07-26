@@ -1,0 +1,132 @@
+---
+title: Workspace Experience
+description: The design contract for the workspace surface in holaOS Desktop.
+---
+
+This page defines the design contract for the workspace surface in holaOS Desktop.
+
+Use it when you are building or refining the workspace UI. For the underlying filesystem and runtime model, see [Workspace Model](/docs/concepts/workspace-model).
+
+This page is about the operator-facing surface, not the Electron implementation seam. For IPC contracts, embedded-runtime launch behavior, BrowserView ownership, and the browser service, continue into [Desktop Internals](/docs/contribute/desktop/internals).
+
+## Why the workspace surface matters
+
+The workspace is the operator's entrypoint into the `holaOS` environment. The UI should not behave like a generic folder browser. It should expose the operating context the agent is actually working inside.
+
+At the product level, a workspace is where the operator understands what this environment is for, what capabilities are currently available, what state should persist, and what changed since the last session.
+
+In the current desktop shell that means the workspace chrome cannot just be a file tree. The top toolbar and the space explorer together need to expose the active workspace across files, browser surfaces, installed applications, and automations without forcing the operator to translate everything back into raw paths or URLs.
+
+## What a workspace represents
+
+A workspace is a stable operating context for one workflow. In the UI, that context includes:
+
+- its instructions
+- its apps and capabilities
+- its integrations (connected external accounts that apps use)
+- its skills (agent behaviors and instruction packs)
+- its session and continuity state
+- its memory and outputs
+- its model and provider settings
+- its active reasoning profile for the next run when the selected model supports it
+
+That means the desktop is not just opening a folder. It is opening a complete operating environment.
+
+## What the workspace UI must make visible
+
+The workspace UI should make these areas discoverable:
+
+| Area | What the operator should be able to answer | Why it matters |
+| --- | --- | --- |
+| Workspace identity | Which workspace is open right now? | Prevents work in the wrong context. |
+| Active configuration | Which model, provider, reasoning profile, and runtime settings are in effect? | Determines how the next run will behave. |
+| Active operator surface | Where is the user currently working, and which surfaces belong to the agent instead? | Keeps "here", "this page", and "continue from this" grounded in the right place. |
+| Apps and capabilities | What can this workspace do right now? | Shows the actual capability surface, not just installed code. |
+| Integrations | Which external accounts are connected? | Determines whether apps can use external services. |
+| Recent session state | What happened most recently? | Helps the operator continue work without starting from scratch. |
+| Durable memory | What should persist beyond one run? | Keeps long-horizon context visible and reviewable. |
+| Outputs | What has this workspace produced? | Gives the operator reviewable results instead of hidden side effects. |
+| Proposed next work | What new task suggestions are waiting for review? | Keeps proactive work discoverable without requiring the operator to poll the inbox manually. |
+
+## What the UI should help the operator answer quickly
+
+A good workspace surface helps the operator answer three questions fast:
+
+1. What is this workspace for?
+2. What can this workspace do right now?
+3. What changed since the last time I opened it?
+
+That means summary, capability visibility, current configuration, and recent activity should appear before deep diagnostics.
+
+## Recommended priority order
+
+When designing the workspace surface, prefer this order:
+
+1. workspace identity and summary
+2. active capabilities and integrations
+3. model and runtime configuration
+4. recent outputs, memory changes, and session activity
+5. raw files, logs, and advanced diagnostics
+
+This keeps the first screen oriented around operator decisions rather than repository structure.
+
+## Anti-patterns to avoid
+
+Avoid these failure modes:
+
+- treating the workspace as only a file tree
+- hiding capability state behind too many nested screens
+- collapsing user-owned and agent-owned surfaces into one ambiguous active context
+- mixing durable memory with transient session state
+- making outputs indistinguishable from local app records
+- surfacing raw internals before the operator is oriented
+
+The workspace should feel inspectable and powerful, but still organized around the operator's need to understand and direct work.
+
+## Explorer lanes
+
+The space-mode explorer now has three first-class lanes:
+
+- `Files` for workspace-owned documents and editable local state
+- `Browser` for user and agent browser surfaces
+- `Apps` for installed workspace apps
+
+Those lanes are parallel views into one workspace, not separate products. The operator should be able to switch between them without losing the current display surface unless the lane itself requires a different one.
+
+The `Add app` entry point belongs inside the `Apps` lane rather than in top-level shell navigation. App installation is a workspace-app concern, so the control should live next to the installed app list it affects.
+
+## Shell navigation
+
+The top toolbar owns shell-level navigation:
+
+- `Space` returns the operator to the workspace surface
+- `Automations` opens the cronjob and proactive-work surface
+- `Marketplace` opens the install and template catalog
+
+That separation matters because shell destinations are product-level views, while the space explorer lanes are workspace-level surfaces inside `Space`.
+
+## App outputs and artifacts
+
+When an output or artifact belongs to a workspace app, the desktop should reopen it inside that app's surface, not by bouncing the operator out into the browser.
+
+The current contract is:
+
+- app-linked outputs should activate the `Apps` explorer lane
+- the corresponding app should open inside the shared display surface
+- if the output or artifact includes a presentation `path`, the app surface should deep-link directly to that route
+
+That keeps app results grounded in the app that owns them instead of degrading them into generic links.
+
+## Proposal visibility
+
+Task proposals should not be discoverable only if the operator happens to have the inbox open. The workspace surface should surface newly generated proposals as a toast-level event and route the operator into the inbox for review.
+
+That behavior matters because proactive work is part of the workspace state, not just a hidden background subsystem.
+
+## Relationship to the rest of the system
+
+The workspace UI sits above several deeper contracts:
+
+- [Workspace Model](/docs/concepts/workspace-model) for the authored and runtime-owned structure
+- [Memory and Continuity](/docs/concepts/memory-and-continuity) for what persists and what resumes
+- [Model Configuration](/docs/contribute/desktop/model-configuration) for provider and model controls

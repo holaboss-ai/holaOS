@@ -1,0 +1,121 @@
+/* holaOS — the brand-native theme. Quiet near-neutral grays with a cool
+   undertone and the holaboss orange reserved for brand/CTA. Hairlines read
+   as page rhythm, not cell walls; surfaces (card, muted, accent) sit close
+   enough to background that elevation comes from structure rather than tint. */
+
+/* Light mode */
+[data-theme="holaos-light"] {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.18 0.003 250);
+  --card: oklch(0.985 0.002 250);
+  --card-foreground: oklch(0.18 0.003 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.003 250);
+  --primary: oklch(0.624 0.229 32);
+  --primary-foreground: oklch(0.98 0.01 32);
+  --secondary: oklch(0.97 0.002 250);
+  --secondary-foreground: oklch(0.21 0.003 250);
+  --muted: oklch(0.97 0.002 250);
+  --muted-foreground: oklch(0.56 0.005 250);
+  --accent: oklch(0.95 0.002 250);
+  --accent-foreground: oklch(0.18 0.003 250);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.92 0.003 250);
+  --input: oklch(0.92 0.003 250);
+  --ring: oklch(0.624 0.229 32);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.675rem;
+  --sidebar: oklch(0.945 0.002 250);
+  --sidebar-foreground: oklch(0.18 0.003 250);
+  --sidebar-primary: oklch(0.624 0.229 32);
+  --sidebar-primary-foreground: oklch(0.98 0.01 32);
+  --sidebar-accent: oklch(0.92 0.002 250);
+  --sidebar-accent-foreground: oklch(0.21 0.003 250);
+  --sidebar-border: oklch(0.9 0.003 250);
+  --sidebar-ring: oklch(0.624 0.229 32);
+  --font-sans: 'Inter Variable', sans-serif;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: JetBrains Mono, monospace;
+  --spacing: 0.25rem;
+  --shadow-2xs:
+    inset 0 0.5px 1px #ffffff30, 0 0.5px 1px #0000000a, 0 1px 2px #00000006;
+  --shadow-xs:
+    inset 0 0.5px 1px #ffffff35, 0 0.5px 1px #0000000c, 0 1px 2px #00000008;
+  --shadow-sm:
+    inset 0 1px 2px #ffffff40, 0 1px 2px #00000012, 0 2px 4px #0000000a;
+  --shadow: inset 0 1px 2px #ffffff50, 0 2px 4px #00000014, 0 4px 6px #0000000c;
+  --shadow-md:
+    inset 0 1px 2px #ffffff55, 0 3px 6px #00000016, 0 6px 10px #0000000d;
+  --shadow-lg:
+    inset 0 1px 2px #ffffff60, 0 4px 8px #00000018, 0 8px 15px #00000010;
+  --shadow-xl:
+    inset 0 1px 2px #ffffff65, 0 6px 12px #0000001a, 0 12px 20px #00000012;
+  --shadow-2xl:
+    inset 0 1px 2px #ffffff70, 0 8px 15px #0000001c, 0 18px 28px #00000014;
+}
+
+/* Dark mode */
+[data-theme="holaos-dark"] {
+  --background: oklch(0.16 0.003 250);
+  --foreground: oklch(0.97 0.002 250);
+  --card: oklch(0.235 0.003 250);
+  --card-foreground: oklch(0.97 0.002 250);
+  --popover: oklch(0.235 0.003 250);
+  --popover-foreground: oklch(0.97 0.002 250);
+  --primary: oklch(0.624 0.229 32);
+  --primary-foreground: oklch(0.98 0.01 32);
+  --secondary: oklch(0.27 0.003 250);
+  --secondary-foreground: oklch(0.97 0.002 250);
+  /* Muted reads as a soft mid-tone above background so surfaces using
+     bg-muted — tab list rails, code blocks, disabled fields, the user
+     chat bubble base mix — actually read on a dark page. */
+  --muted: oklch(0.205 0.003 250);
+  --muted-foreground: oklch(0.66 0.005 250);
+  --accent: oklch(0.30 0.003 250);
+  --accent-foreground: oklch(0.97 0.002 250);
+  --destructive: oklch(0.653 0.232 25.964);
+  --destructive-foreground: oklch(1 0 0);
+  /* Border sits clearly above card (0.235) so hairlines on cards are
+     visible without being loud against the page surface. */
+  --border: oklch(0.32 0.003 250);
+  --input: oklch(0.32 0.003 250);
+  --ring: oklch(0.624 0.229 32);
+  --chart-1: oklch(0.44 0.004 250);
+  --chart-2: oklch(0.56 0.004 250);
+  --chart-3: oklch(0.71 0.004 250);
+  --chart-4: oklch(0.87 0.004 250);
+  --chart-5: oklch(0.92 0.004 250);
+  --radius: 0.675rem;
+  --sidebar: oklch(0.125 0.003 250);
+  --sidebar-foreground: oklch(0.97 0.002 250);
+  --sidebar-primary: oklch(0.624 0.229 32);
+  --sidebar-primary-foreground: oklch(0.97 0.002 250);
+  --sidebar-accent: oklch(0.20 0.003 250);
+  --sidebar-accent-foreground: oklch(0.97 0.002 250);
+  --sidebar-border: oklch(0.24 0.003 250);
+  --sidebar-ring: oklch(0.624 0.229 32);
+  --font-sans: 'Inter Variable', sans-serif;
+  --font-serif: Source Serif 4, serif;
+  --font-mono: JetBrains Mono, monospace;
+  --spacing: 0.25rem;
+  --shadow-2xs:
+    inset 0 0.5px 1px #ffffff0a, 0 0.5px 1px #00000050, 0 1px 2px #00000030;
+  --shadow-xs:
+    inset 0 0.5px 1px #ffffff0d, 0 0.5px 1px #00000050, 0 1px 2px #00000030;
+  --shadow-sm:
+    inset 0 1px 2px #ffffff15, 0 1px 2px #00000040, 0 2px 4px #00000025;
+  --shadow: inset 0 1px 2px #ffffff18, 0 1px 3px #00000045, 0 3px 6px #00000030;
+  --shadow-md:
+    inset 0 1px 2px #ffffff1a, 0 2px 4px #00000045, 0 4px 8px #00000028;
+  --shadow-lg:
+    inset 0 1px 2px #ffffff1c, 0 4px 6px #00000045, 0 6px 10px #00000030;
+  --shadow-xl:
+    inset 0 1px 2px #ffffff20, 0 6px 10px #00000045, 0 8px 15px #00000032;
+  --shadow-2xl:
+    inset 0 1px 2px #ffffff22, 0 10px 15px #00000045, 0 15px 25px #00000030;
+}

@@ -1,0 +1,79 @@
+---
+title: Contribute
+description: Contribute to the holaOS codebase — desktop, runtime, and harness internals.
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<p className="eyebrow">For contributors</p>
+
+This section is for people working on **holaOS itself** — the Electron desktop shell, the Fastify runtime, and the agent harness that powers workspace execution.
+
+If you are building on top of the platform (a workspace App, a Template, a Skill), you probably don't need this section:
+
+- building an App → **[Apps](/docs/build/apps)**
+- packaging a workspace as a Template → **[Templates](/docs/build/templates)**
+
+This section exists for people who want to change how the platform *itself* works.
+
+## When to use this section
+
+Use Contribute when you are:
+
+- developing inside the `holaOS` OSS codebase
+- changing desktop shell, Electron main, or workspace bootstrap behavior
+- changing runtime API routes, run compilation, or state-store behavior
+- changing the agent harness, run adapter, or model routing seams
+- investigating failure modes in the local dev loop itself
+
+The source of truth for this section is the code, not a conceptual product story.
+
+## About vs Internals
+
+Use the docs split deliberately:
+
+- **holaOS** explains the system model, boundaries, and why the layers exist.
+- **Contribute** explains the code seams, request shapes, scripts, ports, and validation paths that contributors change in practice.
+
+If a page needs exact commands, routes, payload fields, or source-file ownership, it belongs here rather than in the conceptual holaOS section.
+
+## How to use this section
+
+The practical contributor flow is:
+
+1. get the local desktop and runtime loop working
+2. choose the subsystem you are changing
+3. validate with the repo scripts for that subsystem
+
+If you skip step one, later runtime failures are harder to interpret because the local environment is not yet trustworthy.
+
+## Choose your track
+
+<Cards>
+  <Card title="Start Developing" href="/docs/contribute/start-developing" description="Set up the real desktop dev loop, staged runtime bundle, local ports, and contributor workflow." />
+  <Card title="Runtime APIs" href="/docs/contribute/runtime/apis" description="Work from the actual Fastify routes, streaming endpoints, and runtime tests instead of inferred API summaries." />
+  <Card title="Run Compilation" href="/docs/contribute/runtime/run-compilation" description="Trace how workspace.yaml, app manifests, MCP allowlists, prompt layers, and runtime context become the reduced harness request." />
+  <Card title="Runtime State Store" href="/docs/contribute/runtime/state-store" description="The SQLite-backed runtime state: sessions, inputs, artifacts, app port allocation." />
+  <Card title="Desktop Internals" href="/docs/contribute/desktop/internals" description="Electron main, preload bridge, workspace bootstrap, and local runtime embedding." />
+  <Card title="Agent Harness Internals" href="/docs/contribute/agent-harness/internals" description="The adapter contract, host request shape, event mapping, and code seams inside the harness." />
+  <Card title="Template Materialization" href="/docs/contribute/templates-materialization" description="How the desktop and runtime turn Template files into a live workspace — for changing that flow, not for using it." />
+</Cards>
+
+## Common validation paths
+
+Use the narrowest validation that matches your change:
+
+```bash
+npm run docs:typecheck
+npm run docs:build
+npm run desktop:typecheck
+npm run runtime:test
+bun --filter=@holaboss/app-builder-sdk run test
+```
+
+## Read by subsystem
+
+- **desktop contributors** should start with [Start Developing](/docs/contribute/start-developing) and [Desktop Internals](/docs/contribute/desktop/internals)
+- **runtime contributors** should start with [Runtime APIs](/docs/contribute/runtime/apis), [Run Compilation](/docs/contribute/runtime/run-compilation), [Runtime State Store](/docs/contribute/runtime/state-store), and [Independent Deploy](/docs/contribute/runtime/independent-deploy)
+- **harness contributors** should start with [Agent Harness Internals](/docs/contribute/agent-harness/internals) and [Run Compilation](/docs/contribute/runtime/run-compilation)
+- **template flow contributors** (changing how Templates materialize, not authoring Templates) should start with [Template Materialization](/docs/contribute/templates-materialization)

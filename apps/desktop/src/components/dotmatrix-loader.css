@@ -1,0 +1,133 @@
+.dmx-root {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  /* One base loop at speed=1; --dmx-speed from JS scales inversely with the speed prop */
+  --dmx-cycle: 1500ms;
+  /* Rest / mid / bright — override via opacityBase, opacityMid, opacityPeak on the component */
+  --dmx-opacity-base: 0.16;
+  --dmx-opacity-mid: 0.32;
+  --dmx-opacity-peak: 1;
+}
+
+.dmx-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+}
+
+.dmx-dot {
+  border-radius: 999px;
+  display: block;
+  background: currentColor;
+  /* Matches prior 0.24 with default base/mid */
+  opacity: calc(0.5 * (var(--dmx-opacity-base) + var(--dmx-opacity-mid)));
+  --dmx-bloom-level: 0;
+  transform-origin: center;
+  transform: none;
+  will-change: opacity;
+}
+
+.dmx-bloom .dmx-dot {
+  filter:
+    drop-shadow(0 0 calc(var(--dmx-dot-size, 3px) * 0.75 * var(--dmx-bloom-level, 0)) currentColor)
+    drop-shadow(0 0 calc(var(--dmx-dot-size, 3px) * 1.35 * var(--dmx-bloom-level, 0)) currentColor);
+  will-change: opacity, filter;
+}
+
+/* Halo: modestly wider falloff than selective bloom (same --dmx-bloom-level on each dot). */
+.dmx-root.dmx-bloom-halo.dmx-bloom .dmx-dot {
+  filter:
+    drop-shadow(0 0 calc(var(--dmx-dot-size, 3px) * 0.92 * var(--dmx-bloom-level, 0)) currentColor)
+    drop-shadow(0 0 calc(var(--dmx-dot-size, 3px) * 1.62 * var(--dmx-bloom-level, 0)) currentColor)
+    drop-shadow(0 0 calc(var(--dmx-dot-size, 3px) * 2.55 * var(--dmx-bloom-level, 0)) currentColor);
+  will-change: opacity, filter;
+}
+
+/* Bloom strength comes from inline --dmx-bloom-level (see opacityToBloomLevel). */
+
+.dmx-muted .dmx-dot {
+  opacity: calc(0.44 * var(--dmx-opacity-mid));
+  --dmx-bloom-level: 0;
+}
+
+/* Inactive off-cells (Base also sets inline opacity/animation:none so keyframes cannot win). */
+.dmx-dot.dmx-inactive {
+  opacity: 0 !important;
+  --dmx-bloom-level: 0;
+  animation: none !important;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: auto;
+  filter: none;
+}
+
+.dmx-path {
+  animation: dmx-ripple calc(var(--dmx-cycle) * var(--dmx-speed, 1)) cubic-bezier(0.42, 0, 0.58, 1)
+    infinite;
+  animation-delay: calc(var(--dmx-path, 0) * 0.2333 * var(--dmx-cycle) * var(--dmx-speed, 1));
+  will-change: opacity;
+}
+
+.dmx-spiral-snake {
+  animation: dmx-spiral-snake calc(var(--dmx-cycle) * var(--dmx-speed, 1)) linear infinite;
+  animation-delay: calc(var(--dmx-spiral-order, 0) * 0.04 * var(--dmx-cycle) * var(--dmx-speed, 1));
+  will-change: opacity;
+}
+
+@keyframes dmx-ripple {
+  0%,
+  100% {
+    opacity: var(--dmx-opacity-base);
+    --dmx-bloom-level: 0;
+  }
+
+  50% {
+    opacity: var(--dmx-opacity-peak);
+    --dmx-bloom-level: 1;
+  }
+}
+
+@keyframes dmx-spiral-snake {
+  0%,
+  100% {
+    opacity: calc(0.5 * var(--dmx-opacity-base));
+    --dmx-bloom-level: 0;
+  }
+
+  8% {
+    opacity: var(--dmx-opacity-peak);
+    --dmx-bloom-level: 1;
+  }
+
+  16% {
+    opacity: calc(0.5 * var(--dmx-opacity-peak) + 0.4 * var(--dmx-opacity-mid) + 0.1 * var(--dmx-opacity-base));
+    --dmx-bloom-level: 0;
+  }
+
+  24% {
+    opacity: calc(0.25 * var(--dmx-opacity-peak) + 0.45 * var(--dmx-opacity-mid) + 0.3 * var(--dmx-opacity-base));
+    --dmx-bloom-level: 0;
+  }
+
+  32% {
+    opacity: calc(0.5 * var(--dmx-opacity-mid) + 0.5 * var(--dmx-opacity-base));
+    --dmx-bloom-level: 0;
+  }
+
+  40% {
+    opacity: calc(0.75 * var(--dmx-opacity-base));
+    --dmx-bloom-level: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dmx-dot,
+  .dmx-path,
+  .dmx-spiral-snake {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
