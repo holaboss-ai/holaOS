@@ -11,6 +11,7 @@ import {
 	type CustomHolaApp,
 	customHolaAppId,
 	deleteCustomHolaApp,
+	normalizeRemoteUrl,
 	parseCustomMcpConfig,
 	upsertCustomHolaApp,
 } from "@/lib/localCustomHolaApps";
@@ -115,13 +116,13 @@ export function CustomHolaAppCreateDialog({
 
 	const handleCreate = async () => {
 		const trimmedTitle = title.trim();
-		const trimmedUrl = url.trim();
+		const trimmedUrl = normalizeRemoteUrl(url);
 		if (!trimmedTitle) {
 			setError("Give your app a name.");
 			return;
 		}
 		if (!validUrl(trimmedUrl)) {
-			setError("Enter a valid http(s) URL for the app to open.");
+			setError("Enter a valid URL for the app to open.");
 			return;
 		}
 		setError("");

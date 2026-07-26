@@ -226,6 +226,44 @@ function remoteUrlFromCommand(server: Record<string, unknown>): string | null {
 	return found ? found.trim() : null;
 }
 
+// Prepend https:// when a URL is entered without a scheme (mcp.example.com → https://…).
+export function normalizeRemoteUrl(raw: string): string {
+	const value = raw.trim();
+	if (!value) {
+		return value;
+	}
+	return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
+// A single pasted token that is (or becomes, once https:// is prepended) a remote URL — so a
+// provider that hands you only a URL, with or without the scheme, can be pasted as-is. A
+// scheme-less token must have a dotted host so a stray word isn't misread as a URL.
+function bareUrlOrNull(raw: string): string | null {
+	const value = raw.trim();
+	if (
+		!value ||
+		/\s/.test(value) ||
+		value.startsWith("{") ||
+		value.startsWith("[")
+	) {
+		return null;
+	}
+	const hasScheme = /^https?:\/\//i.test(value);
+	const candidate = hasScheme ? value : `https://${value}`;
+	try {
+		const parsed = new URL(candidate);
+		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+			return null;
+		}
+		if (hasScheme || parsed.hostname.includes(".")) {
+			return candidate;
+		}
+	} catch {
+		// not a URL — fall through to JSON parsing
+	}
+	return null;
+}
+
 /** Parse a pasted MCP config (mcpServers-style JSON, a `servers` map, or a bare
  * single-server object) into a resolved app-owned `McpAttachInput`. v1 supports
  * REMOTE (URL) servers with optional `headers`/`tools`; a command/stdio-only server
@@ -241,11 +279,12 @@ export function parseCustomMcpConfig(
 	// Many providers give ONLY a remote MCP URL (e.g. https://mcp.heygen.com/mcp/v1/) for an
 	// "add custom connector" flow — accept a bare URL as shorthand for { url }. No headers ⇒
 	// treated as OAuth, so sign-in opens on add (same as a headerless JSON config).
-	if (/^https?:\/\/\S+$/i.test(trimmed)) {
+	const bare = bareUrlOrNull(trimmed);
+	if (bare) {
 		return {
 			attach: {
 				id: ownerAppId,
-				mcpUrl: trimmed,
+				mcpUrl: bare,
 				holabossHosted: false,
 				headerKeys: {},
 				queryKeys: {},
@@ -267,7 +306,9 @@ export function parseCustomMcpConfig(
 		return { error: "No MCP server found in the config." };
 	}
 	const directUrl = typeof server.url === "string" ? server.url.trim() : "";
-	const url = directUrl || remoteUrlFromCommand(server) || "";
+	const url = normalizeRemoteUrl(
+		directUrl || remoteUrlFromCommand(server) || "",
+	);
 	if (!url) {
 		if (server.command !== undefined) {
 			return {
