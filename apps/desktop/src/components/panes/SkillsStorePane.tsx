@@ -10,18 +10,30 @@ import {
   titleCase,
 } from "@/components/panes/CapabilitiesMarketPane";
 import { SkillsPane } from "@/components/panes/SkillsPane";
+import { SkillUploadDialog } from "@/components/panes/SkillUploadDialog";
+import type { ParsedSkillFile } from "@/lib/skillFileImport";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ViewTransition } from "@/components/ui/view-transition";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   ArrowUpRight,
+  ChevronDown,
   ChevronLeft,
   Feather,
+  Link2,
   Loader2,
   Plus,
   Search,
+  Sparkles,
   Trash2,
+  Upload,
 } from "@/components/ui/icons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -87,6 +99,7 @@ export function SkillsStorePane({
   // The user's org skill library (backend, shared with the web platform) + import dialog.
   const [principal, setPrincipal] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
   const [importing, setImporting] = useState(false);
 
   const marketQuery = useQuery({
@@ -235,6 +248,18 @@ export function SkillsStorePane({
       .finally(() => setPendingId(null));
   };
 
+  // Upload = install a SKILL.md the user already wrote. Unlike the URL import
+  // below it never reaches the org store (that endpoint only takes a URL), so an
+  // uploaded skill lives on this desktop only.
+  const uploadSkill = async (skill: ParsedSkillFile) => {
+    await installMutation.mutateAsync({
+      skillId: skill.skillId,
+      content: withSkillDisplayTitle(skill.content, skill.name),
+    });
+    refreshInstalled();
+    toast.success(`${skill.name} added`);
+  };
+
   // "Add your own" = import a SKILL.md URL into the shared org store, then materialize it
   // locally. It also appears on the web employee platform (same backend store).
   const importOrgSkill = (url: string) => {
@@ -306,16 +331,12 @@ export function SkillsStorePane({
           </button>
           <span className="text-muted-foreground text-sm">·</span>
           <span className="font-medium text-foreground text-sm">Installed</span>
-          <Button
-            className="ml-auto h-7 gap-1.5"
-            onClick={onCreateSkill}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Plus className="size-3.5" />
-            New skill
-          </Button>
+          <NewSkillMenu
+            className="ml-auto h-7"
+            onCreateSkill={onCreateSkill}
+            onImportUrl={() => setImportOpen(true)}
+            onUpload={() => setUploadOpen(true)}
+          />
         </div>
         <div className="min-h-0 flex-1 overflow-hidden">
           <SkillsPane
@@ -344,16 +365,12 @@ export function SkillsStorePane({
               value={query}
             />
           </div>
-          <Button
-            className="ml-auto h-8 shrink-0 gap-1.5"
-            onClick={onCreateSkill}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            <Plus className="size-3.5" />
-            New skill
-          </Button>
+          <NewSkillMenu
+            className="ml-auto h-8 shrink-0"
+            onCreateSkill={onCreateSkill}
+            onImportUrl={() => setImportOpen(true)}
+            onUpload={() => setUploadOpen(true)}
+          />
         </div>
       )}
 
@@ -412,16 +429,12 @@ export function SkillsStorePane({
                     Installed
                   </h3>
                   {manageOnly ? (
-                    <Button
-                      className="h-8 shrink-0 gap-1.5"
-                      onClick={onCreateSkill}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      <Plus className="size-3.5" />
-                      New skill
-                    </Button>
+                    <NewSkillMenu
+                      className="h-8 shrink-0"
+                      onCreateSkill={onCreateSkill}
+                      onImportUrl={() => setImportOpen(true)}
+                      onUpload={() => setUploadOpen(true)}
+                    />
                   ) : null}
                 </div>
                 {installedPreview.length > 0 ? (
@@ -477,7 +490,6 @@ export function SkillsStorePane({
                   installedIds={installedIds}
                   loading={orgQuery.isLoading}
                   onAdd={addOrgSkill}
-                  onImport={() => setImportOpen(true)}
                   pendingId={pendingId}
                   skills={filteredOrg}
                 />
@@ -531,6 +543,11 @@ export function SkillsStorePane({
           </ViewTransition>
         )}
       </div>
+      <SkillUploadDialog
+        onOpenChange={setUploadOpen}
+        onUpload={uploadSkill}
+        open={uploadOpen}
+      />
       <RenameDialog
         confirmLabel={importing ? "Importing…" : "Import"}
         initial=""
@@ -574,30 +591,16 @@ function YourSkillsSection({
   pendingId,
   loading,
   onAdd,
-  onImport,
 }: {
   skills: OrgSkill[];
   installedIds: Set<string>;
   pendingId: string | null;
   loading: boolean;
   onAdd: (skill: OrgSkill) => void;
-  onImport: () => void;
 }) {
   return (
     <section className="flex flex-col gap-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="font-medium text-foreground text-sm">Your skills</h3>
-        <Button
-          className="h-8 shrink-0 gap-1.5"
-          onClick={onImport}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          <Plus className="size-3.5" />
-          Import from URL
-        </Button>
-      </div>
+      <h3 className="font-medium text-foreground text-sm">Your skills</h3>
       {loading ? (
         <p className="text-muted-foreground text-xs">Loading your library…</p>
       ) : skills.length === 0 ? (
@@ -904,5 +907,50 @@ function RowGridSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * New skill — the three ways in, in the order people reach for them: describe it
+ * to the agent, upload a SKILL.md you already wrote, or pull one from a URL.
+ */
+function NewSkillMenu({
+  className,
+  onCreateSkill,
+  onUpload,
+  onImportUrl,
+}: {
+  className?: string;
+  onCreateSkill: () => void;
+  onUpload: () => void;
+  onImportUrl: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 font-medium text-sm transition-colors hover:bg-accent",
+          className,
+        )}
+      >
+        <Plus className="size-3.5" />
+        New skill
+        <ChevronDown className="size-3 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6}>
+        <DropdownMenuItem onClick={onCreateSkill}>
+          <Sparkles className="size-3.5" />
+          Create with agent
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onUpload}>
+          <Upload className="size-3.5" />
+          Upload skill
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onImportUrl}>
+          <Link2 className="size-3.5" />
+          Import from URL
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
