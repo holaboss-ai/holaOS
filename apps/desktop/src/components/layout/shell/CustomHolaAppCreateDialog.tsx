@@ -31,14 +31,14 @@ const MCP_PLACEHOLDER = `https://mcp.example.com/mcp
 async function runCustomAppOAuth(
 	workspaceId: string,
 	serverId: string,
-): Promise<boolean> {
+): Promise<{ ok: boolean; reason: string }> {
 	for (let attempt = 0; attempt < 8; attempt += 1) {
 		const status = await window.electronAPI.workspace.mcpServerAuthorized(
 			workspaceId,
 			serverId,
 		);
 		if (status.authorized) {
-			return true;
+			return { ok: true, reason: "" };
 		}
 		if (status.registered !== false) {
 			const result = await window.electronAPI.workspace.authorizeMcpServer(
@@ -46,11 +46,11 @@ async function runCustomAppOAuth(
 				serverId,
 				false,
 			);
-			return result.ok === true;
+			return { ok: result.ok === true, reason: result.detail ?? "" };
 		}
 		await new Promise((resolve) => setTimeout(resolve, 1200));
 	}
-	return false;
+	return { ok: false, reason: "the MCP server didn't register in time" };
 }
 
 // A small "create your own app" form: a URL the desktop opens as the app's surface,
@@ -161,8 +161,11 @@ export function CustomHolaAppCreateDialog({
 			authAbortRef.current = false;
 			setPhase("authorizing");
 			let ok = false;
+			let reason = "";
 			try {
-				ok = await runCustomAppOAuth(workspaceId, mcp.id);
+				const result = await runCustomAppOAuth(workspaceId, mcp.id);
+				ok = result.ok;
+				reason = result.reason;
 			} catch {
 				// reactive fallback — ignore
 			}
@@ -174,7 +177,9 @@ export function CustomHolaAppCreateDialog({
 				// Keep the draft (same id) so a retry reuses the SAME server, no attach/detach
 				// churn or a conflicting sign-in; it's discarded when the dialog is closed.
 				setError(
-					"Sign-in was cancelled — try again to authorize, or close to discard.",
+					reason
+						? `Sign-in didn't complete: ${reason}. Try again, or close to discard.`
+						: "Sign-in didn't complete. Try again to authorize, or close to discard.",
 				);
 				return;
 			}
