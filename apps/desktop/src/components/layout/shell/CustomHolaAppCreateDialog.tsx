@@ -127,7 +127,7 @@ export function CustomHolaAppCreateDialog({
 		}
 		setError("");
 
-		const holaAppId = customHolaAppId(trimmedTitle);
+		const holaAppId = pendingAppIdRef.current ?? customHolaAppId(trimmedTitle);
 		let mcp: CustomHolaApp["mcp"];
 		const rawMcp = mcpJson.trim();
 		if (rawMcp) {
@@ -153,7 +153,7 @@ export function CustomHolaAppCreateDialog({
 
 		// A header-less MCP is the OAuth case (a static-token server is already usable). The
 		// app is only KEPT if sign-in succeeds: it's saved above so the MCP attaches (auth
-		// needs it registered), then rolled back below if the user cancels the sign-in.
+		// needs it registered); a retry reuses it, and it's discarded if you close the dialog.
 		const needsOAuth =
 			Boolean(mcp) && Object.keys(mcp?.headerKeys ?? {}).length === 0;
 		if (needsOAuth && workspaceId && mcp) {
@@ -170,39 +170,35 @@ export function CustomHolaAppCreateDialog({
 			if (authAbortRef.current) {
 				return;
 			}
-			pendingAppIdRef.current = null;
 			if (!ok) {
-				deleteCustomHolaApp(holaAppId);
-				onChanged();
+				// Keep the draft (same id) so a retry reuses the SAME server, no attach/detach
+				// churn or a conflicting sign-in; it's discarded when the dialog is closed.
 				setError(
-					"Sign-in was cancelled — the app wasn't added. Try again to authorize it.",
+					"Sign-in was cancelled — try again to authorize, or close to discard.",
 				);
 				return;
 			}
 		}
 
+		// Committed — release the draft so a later add starts a fresh app.
+		pendingAppIdRef.current = null;
 		resetForm();
 		onOpenChange(false);
 	};
 
 	const busy = phase === "authorizing";
 
-	// Cancelling during "Signing in…" (Cancel, X, Esc, backdrop) aborts the add: roll the
-	// pending app back and close, so a cancelled sign-in never leaves an app behind.
-	const cancelSignIn = () => {
-		authAbortRef.current = true;
-		if (pendingAppIdRef.current) {
-			deleteCustomHolaApp(pendingAppIdRef.current);
-			pendingAppIdRef.current = null;
-			onChanged();
-		}
-		setPhase("idle");
-		onOpenChange(false);
-	};
 	const handleRootOpenChange = (next: boolean) => {
-		if (!next && busy) {
-			cancelSignIn();
-			return;
+		// Closing the dialog (Cancel / X / Esc / backdrop) discards any un-committed draft
+		// app, so a cancelled or abandoned sign-in never leaves an app behind.
+		if (!next) {
+			authAbortRef.current = true;
+			if (pendingAppIdRef.current) {
+				deleteCustomHolaApp(pendingAppIdRef.current);
+				pendingAppIdRef.current = null;
+				onChanged();
+			}
+			setPhase("idle");
 		}
 		onOpenChange(next);
 	};
