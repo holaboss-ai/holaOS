@@ -17857,6 +17857,37 @@ function appSurfaceBrowserSession(): Session {
   return surfaceSession;
 }
 
+// Google (Gaia), Microsoft and Apple refuse OAuth in an embedded main frame
+// ("disallowed_useragent" / a dead "Continue"), yet allow the same flow in a real
+// popup window — which is why a sign-in that opens via window.open (Typefully) works
+// while one that navigates the surface in place (Linear) stalls. These hosts serve
+// ONLY auth, so any in-surface navigation to them is an OAuth flow we re-run as a popup.
+const OAUTH_POPUP_ONLY_HOSTS = new Set([
+  "accounts.google.com",
+  "login.microsoftonline.com",
+  "login.live.com",
+  "appleid.apple.com",
+]);
+
+function isOAuthPopupOnlyUrl(rawUrl: string): boolean {
+  try {
+    return OAUTH_POPUP_ONLY_HOSTS.has(new URL(rawUrl).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function httpOrigin(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function getOrCreateAppSurfaceView(
   appId: string,
   surfaceSession?: Electron.Session,
@@ -17897,6 +17928,10 @@ function getOrCreateAppSurfaceView(
     horizontal: false,
     vertical: false,
   });
+  // Armed when an in-surface navigation to a popup-only OAuth host is redirected to the
+  // window.open popup path (see will-navigate below); did-create-window consumes it to
+  // bridge that popup back to the surface once auth returns to the app's origin.
+  let pendingOAuthBridge: { appOrigin: string; returnUrl: string } | null = null;
   view.webContents.setWindowOpenHandler(({ url, disposition, features, frameName }) => {
     // Genuine popups (e.g. OAuth/login flows) call window.open with a named
     // target and/or window features and surface as disposition "new-window".
@@ -17946,6 +17981,32 @@ function getOrCreateAppSurfaceView(
     if (mainWindow && !mainWindow.isDestroyed()) {
       childWindow.setParentWindow(mainWindow);
     }
+    // If this popup was opened to satisfy an in-surface OAuth navigation we redirected
+    // to window.open (see will-navigate), bridge it back: when it returns to the app's
+    // own origin (auth done, cookie now in the shared jar), reload the surface at its
+    // pre-auth URL — now signed in — and close the popup. Reload the ORIGINAL url, never
+    // the popup's callback url (OAuth codes are single-use).
+    const oauthBridge = pendingOAuthBridge;
+    pendingOAuthBridge = null;
+    if (oauthBridge) {
+      let bridged = false;
+      const bridgeBack = (visitedUrl: string) => {
+        if (bridged || httpOrigin(visitedUrl) !== oauthBridge.appOrigin) {
+          return;
+        }
+        bridged = true;
+        if (!view.webContents.isDestroyed()) {
+          void view.webContents.loadURL(oauthBridge.returnUrl);
+        }
+        if (!childWindow.isDestroyed()) {
+          childWindow.close();
+        }
+      };
+      childWindow.webContents.on("did-navigate", (_e, u) => bridgeBack(u));
+      childWindow.webContents.on("did-redirect-navigation", (_e, u) =>
+        bridgeBack(u),
+      );
+    }
     try {
       const cw = childWindow.webContents;
       console.log(
@@ -17983,6 +18044,42 @@ function getOrCreateAppSurfaceView(
       openExternalUrlFromMain(url, "app surface auth popup");
       return { action: "deny" };
     });
+  });
+  // Some sites (Linear, …) sign in by navigating the SURFACE ITSELF to a provider OAuth
+  // page, which Google/Microsoft/Apple block in an embedded main frame (dead "Continue").
+  // Those providers allow the flow in a real popup — which is why a window.open-based
+  // sign-in (Typefully) works. So cancel the in-surface nav and re-issue it as a
+  // window.open FROM the surface, routing it through the proven setWindowOpenHandler →
+  // did-create-window popup path above (real popup, shared session). Do NOT hand-build a
+  // BrowserWindow here — creating one from the surface crashes (SIGSEGV).
+  view.webContents.on("will-navigate", (event, targetUrl) => {
+    if (!isOAuthPopupOnlyUrl(targetUrl)) {
+      return;
+    }
+    const returnUrl = view.webContents.getURL();
+    const appOrigin = httpOrigin(returnUrl);
+    if (!appOrigin) {
+      return; // no app origin to return to — let it navigate as before
+    }
+    event.preventDefault();
+    const armedBridge = { appOrigin, returnUrl };
+    pendingOAuthBridge = armedBridge;
+    // userGesture=true so the popup isn't blocked; the width/height features make
+    // setWindowOpenHandler treat it as a real popup (shared session). Only clear the
+    // bridge WE armed, so a later OAuth can't be cancelled by our stale timer.
+    const openPopupJs = `window.open(${JSON.stringify(
+      targetUrl,
+    )}, "_blank", "popup=yes,width=480,height=660")`;
+    view.webContents.executeJavaScript(openPopupJs, true).catch(() => {
+      if (pendingOAuthBridge === armedBridge) {
+        pendingOAuthBridge = null;
+      }
+    });
+    setTimeout(() => {
+      if (pendingOAuthBridge === armedBridge) {
+        pendingOAuthBridge = null;
+      }
+    }, 8000);
   });
   view.webContents.on(
     "did-fail-load",
