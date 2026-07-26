@@ -264,10 +264,11 @@ export function CustomHolaAppCreateDialog({
 								value={mcpJson}
 							/>
 							<p className="text-muted-foreground text-xs">
-								Gives the agent this app's tools. Remote (URL) servers —
-								including <code>npx mcp-remote &lt;url&gt;</code> configs. Add
-								auth headers for a static token, or leave them out and we'll
-								open sign-in (OAuth) when you add it. Kept on this device.
+								Gives the agent this app's tools. Paste a JSON config, an{" "}
+								<code>npx mcp-remote &lt;url&gt;</code> config, or just the
+								remote server URL. Add auth headers for a static token, or leave
+								them out and we'll open sign-in (OAuth) when you add it. Kept on
+								this device.
 							</p>
 						</div>
 

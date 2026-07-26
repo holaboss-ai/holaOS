@@ -238,6 +238,23 @@ export function parseCustomMcpConfig(
 	if (!trimmed) {
 		return { error: "Paste an MCP server config." };
 	}
+	// Many providers give ONLY a remote MCP URL (e.g. https://mcp.heygen.com/mcp/v1/) for an
+	// "add custom connector" flow — accept a bare URL as shorthand for { url }. No headers ⇒
+	// treated as OAuth, so sign-in opens on add (same as a headerless JSON config).
+	if (/^https?:\/\/\S+$/i.test(trimmed)) {
+		return {
+			attach: {
+				id: ownerAppId,
+				mcpUrl: trimmed,
+				holabossHosted: false,
+				headerKeys: {},
+				queryKeys: {},
+				envKeys: {},
+				tools: [],
+				ownerAppId,
+			},
+		};
+	}
 	const parsed = safeJsonParse(trimmed);
 	if (parsed === undefined) {
 		return { error: "That isn't valid JSON." };
