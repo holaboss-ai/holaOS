@@ -3,7 +3,14 @@ import { useSetAtom } from "jotai";
 import { useCallback, useEffect, useState } from "react";
 import { overlayOpenCountAtom } from "@/components/layout/shell/overlay-presence";
 import { Button } from "@/components/ui/button";
-import { AppWindow, Globe, Loader2, Plus, X } from "@/components/ui/icons";
+import {
+	AppWindow,
+	Globe,
+	Loader2,
+	Plus,
+	ShieldCheck,
+	X,
+} from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,11 +45,14 @@ export function CustomHolaAppCreateDialog({
 	open,
 	onOpenChange,
 	onChanged,
+	workspaceId,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	/** Called after a custom app is created or removed — refresh the app catalog. */
 	onChanged: () => void;
+	/** Active workspace — needed to run/check a custom MCP's OAuth authorization. */
+	workspaceId: string | null;
 }) {
 	const setOverlayCount = useSetAtom(overlayOpenCountAtom);
 	useEffect(() => {
@@ -191,6 +201,12 @@ export function CustomHolaAppCreateDialog({
 												{app.mcp ? " · MCP" : ""}
 											</p>
 										</div>
+										{app.mcp && Object.keys(app.mcp.headerKeys).length === 0 ? (
+											<CustomAppAuthorize
+												serverId={app.mcp.id}
+												workspaceId={workspaceId}
+											/>
+										) : null}
 										<button
 											aria-label={`Remove ${app.title}`}
 											className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
@@ -276,7 +292,9 @@ export function CustomHolaAppCreateDialog({
 							/>
 							<p className="text-muted-foreground text-xs">
 								Paste an MCP config to give the agent this app's tools. Remote
-								(URL) servers with optional headers; kept on this device.
+								(URL) servers; add auth headers for a static token, or leave
+								them out and Authorize (OAuth) after it's added. Kept on this
+								device.
 							</p>
 						</div>
 
@@ -308,5 +326,123 @@ export function CustomHolaAppCreateDialog({
 				</DialogPrimitive.Popup>
 			</DialogPrimitive.Portal>
 		</DialogPrimitive.Root>
+	);
+}
+
+type AuthorizeState =
+	| "checking"
+	| "hidden"
+	| "authorized"
+	| "needs"
+	| "authorizing"
+	| "error";
+
+// Proactive OAuth authorization for a custom app's MCP server. Rendered only for an
+// MCP with NO static auth header (a header-less server is the OAuth case — a static
+// token is already usable, so it never shows this). Checks the server's token on
+// mount; the button runs the runtime's system-browser OAuth flow (authorizeMcpServer)
+// — the same path as the inline chat Authorize card (McpAuthorizeCard).
+function CustomAppAuthorize({
+	serverId,
+	workspaceId,
+}: {
+	serverId: string;
+	workspaceId: string | null;
+}) {
+	const [state, setState] = useState<AuthorizeState>("checking");
+	const [detail, setDetail] = useState("");
+
+	useEffect(() => {
+		if (!workspaceId) {
+			setState("hidden");
+			return;
+		}
+		let cancelled = false;
+		window.electronAPI.workspace
+			.mcpServerAuthorized(workspaceId, serverId)
+			.then((result) => {
+				if (cancelled) {
+					return;
+				}
+				if (result.authorized) {
+					setState("authorized");
+				} else if (result.registered === false) {
+					// Not attached yet (its catalog sync is still in flight) — nothing to do.
+					setState("hidden");
+				} else {
+					setState("needs");
+				}
+			})
+			.catch(() => {
+				if (!cancelled) {
+					setState("hidden");
+				}
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [workspaceId, serverId]);
+
+	const authorize = async () => {
+		if (!workspaceId) {
+			return;
+		}
+		setState("authorizing");
+		setDetail("");
+		try {
+			const result = await window.electronAPI.workspace.authorizeMcpServer(
+				workspaceId,
+				serverId,
+				false,
+			);
+			if (result.ok) {
+				setState("authorized");
+			} else {
+				setState("error");
+				setDetail(result.detail || "Authorization failed.");
+			}
+		} catch (err) {
+			setState("error");
+			setDetail(err instanceof Error ? err.message : "Request failed.");
+		}
+	};
+
+	if (state === "checking" || state === "hidden") {
+		return null;
+	}
+	if (state === "authorized") {
+		return (
+			<span className="shrink-0 text-emerald-600 text-xs">Authorized</span>
+		);
+	}
+	return (
+		<div className="flex shrink-0 flex-col items-end gap-1">
+			<Button
+				disabled={state === "authorizing"}
+				onClick={() => void authorize()}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				{state === "authorizing" ? (
+					<Loader2 className="size-3.5 animate-spin" />
+				) : (
+					<ShieldCheck className="size-3.5" />
+				)}
+				{state === "authorizing"
+					? "Signing in…"
+					: state === "error"
+						? "Try again"
+						: "Authorize"}
+			</Button>
+			{state === "error" && detail ? (
+				<span
+					className="max-w-[180px] truncate text-[11px] text-destructive"
+					title={detail}
+				>
+					{detail}
+				</span>
+			) : null}
+		</div>
 	);
 }

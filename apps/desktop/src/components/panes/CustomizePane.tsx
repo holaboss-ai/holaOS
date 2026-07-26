@@ -406,6 +406,7 @@ export function CustomizePane({ workspaceId }: { workspaceId: string | null }) {
 				onChanged={() => void refreshHolaApps()}
 				onOpenChange={setCustomAppsOpen}
 				open={customAppsOpen}
+				workspaceId={workspaceId}
 			/>
 		</div>
 	);
