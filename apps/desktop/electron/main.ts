@@ -17990,24 +17990,42 @@ function getOrCreateAppSurfaceView(
     pendingOAuthBridge = null;
     if (oauthBridge) {
       let bridged = false;
-      // Bridge only on a COMMITTED navigation (did-navigate) to the app origin — NOT on
-      // did-redirect-navigation, which fires on the callback url BEFORE its Set-Cookie
-      // lands (bridging there would reload the surface still-logged-out). And DEFER the
-      // close/reload with setImmediate: doing it synchronously inside the popup's own
-      // navigation event frees a WebContents Chromium still references → SIGSEGV.
-      childWindow.webContents.on("did-navigate", (_e, visitedUrl) => {
+      let settleTimer: ReturnType<typeof setTimeout> | null = null;
+      // The popup reaching the app origin does NOT mean login is done: the provider
+      // callback (e.g. linear.app/auth/google/callback) exchanges the code CLIENT-SIDE
+      // and may SPA-route afterward, so closing the popup the instant it first hits the
+      // app origin ABORTS that exchange → the surface reloads still logged-out. Instead
+      // wait for the popup to SETTLE on the app origin (no further nav for a beat ⇒ the
+      // session cookie is now in the shared jar), THEN reload the surface at its pre-auth
+      // URL and close the popup. Timer fires outside the nav event ⇒ close is safe (no
+      // SIGSEGV). Reload the ORIGINAL url, never the popup's callback url (codes are
+      // single-use). Covers full-nav redirects (did-navigate) and SPA routes
+      // (did-navigate-in-page).
+      const onAppOrigin = (visitedUrl: string) => {
         if (bridged || httpOrigin(visitedUrl) !== oauthBridge.appOrigin) {
           return;
         }
-        bridged = true;
-        setImmediate(() => {
+        if (settleTimer) {
+          clearTimeout(settleTimer);
+        }
+        settleTimer = setTimeout(() => {
+          if (bridged) {
+            return;
+          }
+          bridged = true;
           if (!view.webContents.isDestroyed()) {
             void view.webContents.loadURL(oauthBridge.returnUrl);
           }
           if (!childWindow.isDestroyed()) {
             childWindow.close();
           }
-        });
+        }, 2500);
+      };
+      childWindow.webContents.on("did-navigate", (_e, u) => onAppOrigin(u));
+      childWindow.webContents.on("did-navigate-in-page", (_e, u, isMainFrame) => {
+        if (isMainFrame) {
+          onAppOrigin(u);
+        }
       });
     }
     try {
