@@ -206,6 +206,26 @@ function pickServerObject(
 	return null;
 }
 
+// A remote MCP exposed via a stdio bridge — `npx -y mcp-remote <url>`,
+// `mcp-proxy <url>`, `supergateway --sse <url>`, etc. The desktop speaks remote
+// MCP (and handles its OAuth) directly, so pull the http(s) URL out of the
+// command + args and use it as the server url.
+function remoteUrlFromCommand(server: Record<string, unknown>): string | null {
+	const tokens: string[] = [];
+	if (typeof server.command === "string") {
+		tokens.push(server.command);
+	}
+	if (Array.isArray(server.args)) {
+		for (const arg of server.args) {
+			if (typeof arg === "string") {
+				tokens.push(arg);
+			}
+		}
+	}
+	const found = tokens.find((token) => /^https?:\/\//i.test(token.trim()));
+	return found ? found.trim() : null;
+}
+
 /** Parse a pasted MCP config (mcpServers-style JSON, a `servers` map, or a bare
  * single-server object) into a resolved app-owned `McpAttachInput`. v1 supports
  * REMOTE (URL) servers with optional `headers`/`tools`; a command/stdio-only server
@@ -229,12 +249,13 @@ export function parseCustomMcpConfig(
 	if (!server) {
 		return { error: "No MCP server found in the config." };
 	}
-	const url = typeof server.url === "string" ? server.url.trim() : "";
+	const directUrl = typeof server.url === "string" ? server.url.trim() : "";
+	const url = directUrl || remoteUrlFromCommand(server) || "";
 	if (!url) {
 		if (server.command !== undefined) {
 			return {
 				error:
-					'Only remote (URL) MCP servers are supported here for now — provide a server with a "url".',
+					"This looks like a local (stdio) MCP server — use its remote URL, or an 'npx mcp-remote <url>' bridge config.",
 			};
 		}
 		return { error: 'The MCP server needs a "url".' };
