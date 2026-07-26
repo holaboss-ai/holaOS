@@ -519,6 +519,22 @@ mcp_registry:
   );
 });
 
+test("compileWorkspaceRuntimePlan defaults a missing agents block to the built-in single agent", () => {
+  const plan = compileWorkspaceRuntimePlan({
+    workspace_id: "workspace-1",
+    workspace_yaml: `
+mcp_registry:
+  allowlist:
+    tool_ids: []
+  servers: {}
+`,
+    references: {}
+  });
+  assert.equal(plan.general_config.type, "single");
+  assert.equal(plan.general_config.agent.id, "holaboss");
+  assert.equal(plan.general_config.agent.model, "gpt-5.4");
+});
+
 test("runWorkspaceRuntimePlanCli collects structured references", async () => {
   const stdout: string[] = [];
   const stderr: string[] = [];
