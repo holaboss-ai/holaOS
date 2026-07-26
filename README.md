@@ -85,6 +85,7 @@ Install apps from the in-workspace marketplace and they open as **real, interact
 - **Real surfaces, not chat** — every app is a live UI (Notion, a browser, your own app), not a transcript.
 - **Side-by-side by design** — app and agent share the screen, so you always see what's happening and can take over.
 - **One click to install** — browse the in-workspace marketplace and open any app instantly.
+- **Bring your own** — point a HolaApp at any URL and MCP server; it lives on your machine, yours to open and drive.
 
 <p align="center">
   <img src="docs/images/hola-app-example.png" alt="The Notion HolaApp open side-by-side with the agent navigating it in holaOS" width="1280" />
