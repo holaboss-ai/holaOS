@@ -64,6 +64,9 @@ function makeContext(identity?: RemoteApiIdentity): RemoteApiContext {
       install: () => {
         throw new Error("not used");
       },
+      importUpload: () => {
+        throw new Error("not used");
+      },
     },
     channels: {
       list: () => ({ channels: [], count: 0 }),

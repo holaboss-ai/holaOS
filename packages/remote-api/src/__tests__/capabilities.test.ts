@@ -81,6 +81,7 @@ function makeClient(capabilities: CapabilitiesService) {
       skills: {
         catalog: () => ({ skills: [] }),
         install: notUsed,
+        importUpload: notUsed,
       },
       channels: {
         list: () => ({ channels: [], count: 0 }),

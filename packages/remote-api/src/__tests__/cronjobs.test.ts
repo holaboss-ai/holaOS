@@ -97,6 +97,9 @@ function makeClient() {
         install: () => {
           throw new Error("not used");
         },
+        importUpload: () => {
+          throw new Error("not used");
+        },
       },
       channels: {
         list: () => ({ channels: [], count: 0 }),
