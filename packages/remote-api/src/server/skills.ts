@@ -12,7 +12,18 @@ const install = os.skills.install.handler(async ({ input, context, errors }) => 
   }
 });
 
+const importUpload = os.skills.importUpload.handler(async ({ input, context, errors }) => {
+  try {
+    return await context.skills.importUpload(input);
+  } catch (error) {
+    throw errors.BAD_REQUEST({
+      message: error instanceof Error ? error.message : "invalid skill upload",
+    });
+  }
+});
+
 export const skillsRouter = {
   catalog,
   install,
+  importUpload,
 };

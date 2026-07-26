@@ -114,6 +114,10 @@ export interface SkillsCatalogService {
   install(
     input: SkillsInputs["install"]
   ): MaybePromise<SkillsOutputs["install"]>;
+  /** Unpacks an uploaded SKILL.md / archive into the workspace's skills dir. */
+  importUpload(
+    input: SkillsInputs["importUpload"]
+  ): MaybePromise<SkillsOutputs["importUpload"]>;
 }
 
 /** The runtime-supplied implementation of the channels (IM connections) domain. */

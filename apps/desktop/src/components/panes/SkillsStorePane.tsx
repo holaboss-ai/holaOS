@@ -11,7 +11,6 @@ import {
 } from "@/components/panes/CapabilitiesMarketPane";
 import { SkillsPane } from "@/components/panes/SkillsPane";
 import { SkillUploadDialog } from "@/components/panes/SkillUploadDialog";
-import type { ParsedSkillFile } from "@/lib/skillFileImport";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -105,6 +104,9 @@ export function SkillsStorePane({
   });
   const installMutation = useMutation(
     remoteApiQuery.skills.install.mutationOptions(),
+  );
+  const uploadMutation = useMutation(
+    remoteApiQuery.skills.importUpload.mutationOptions(),
   );
 
   const installedQuery = useWorkspaceSkills(workspaceId);
@@ -243,16 +245,24 @@ export function SkillsStorePane({
       .finally(() => setPendingId(null));
   };
 
-  // Upload = install a SKILL.md the user already wrote. Unlike the URL import
-  // below it never reaches the org store (that endpoint only takes a URL), so an
-  // uploaded skill lives on this desktop only.
-  const uploadSkill = async (skill: ParsedSkillFile) => {
-    await installMutation.mutateAsync({
-      skillId: skill.skillId,
-      content: withSkillDisplayTitle(skill.content, skill.name),
-    });
+  // Upload hands the bytes to the runtime, which unpacks an archive and runs the
+  // same folder-aware import the agent's GitHub installer uses — so bundled
+  // scripts survive and Anthropic's `allowed-tools` maps to granted tools. It
+  // never reaches the org store (that endpoint only takes a URL), so an uploaded
+  // skill lives on this desktop only.
+  const uploadSkill = async (file: {
+    fileName: string;
+    dataBase64: string;
+  }) => {
+    const result = await uploadMutation.mutateAsync(file);
     refreshInstalled();
-    toast.success(`${skill.name} added`);
+    const extras = result.files.length - 1;
+    toast.success(`${result.name} added`, {
+      description:
+        extras > 0
+          ? `${extras} bundled file${extras === 1 ? "" : "s"} installed`
+          : undefined,
+    });
   };
 
   // HolaHub "Install" hand-off: auto-install the target skill once the directory

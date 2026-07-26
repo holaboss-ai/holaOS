@@ -3,13 +3,24 @@ import { useSetAtom } from "jotai";
 import { type DragEvent, useEffect, useRef, useState } from "react";
 import { overlayOpenCountAtom } from "@/components/layout/shell/overlay-presence";
 import { FolderPlus, Loader2, X } from "@/components/ui/icons";
-import {
-  type ParsedSkillFile,
-  parseSkillMarkdown,
-} from "@/lib/skillFileImport";
+import { parseSkillMarkdown } from "@/lib/skillFileImport";
 import { cn } from "@/lib/utils";
 
-const ACCEPT = ".md,.markdown,text/markdown";
+const ACCEPT = ".md,.markdown,.zip,.skill";
+const ARCHIVE = /\.(zip|skill)$/i;
+const MARKDOWN = /\.(md|markdown)$/i;
+// Mirrors MAX_UPLOAD_BYTES in the runtime — checked here too so an oversized
+// file fails instantly instead of after a base64 round trip.
+const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
+
+async function toBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
 
 /**
  * "Upload skill" — the self-serve half of New skill, for a SKILL.md the user
@@ -24,8 +35,8 @@ export function SkillUploadDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Resolves once the skill is installed; rejects to keep the dialog open. */
-  onUpload: (skill: ParsedSkillFile) => Promise<void>;
+  /** Resolves once the runtime installed it; rejects to keep the dialog open. */
+  onUpload: (file: { fileName: string; dataBase64: string }) => Promise<void>;
 }) {
   const setOverlayCount = useSetAtom(overlayOpenCountAtom);
   useEffect(() => {
@@ -52,18 +63,27 @@ export function SkillUploadDialog({
   const accept = async (file: File | undefined) => {
     if (!file || busy) return;
     setError("");
-    if (!/\.(md|markdown)$/i.test(file.name)) {
-      setError("Upload a .md file — archives aren't supported yet.");
+    const isArchive = ARCHIVE.test(file.name);
+    if (!(isArchive || MARKDOWN.test(file.name))) {
+      setError("Upload a .md, .zip or .skill file.");
       return;
     }
-    const parsed = parseSkillMarkdown(await file.text(), file.name);
-    if (!parsed.ok) {
-      setError(parsed.error);
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError(`That file is over ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
       return;
+    }
+    // A bare .md can be checked here; an archive's SKILL.md is only reachable
+    // after unpacking, which the runtime does.
+    if (!isArchive) {
+      const parsed = parseSkillMarkdown(await file.text(), file.name);
+      if (!parsed.ok) {
+        setError(parsed.error);
+        return;
+      }
     }
     setBusy(true);
     try {
-      await onUpload(parsed.skill);
+      await onUpload({ fileName: file.name, dataBase64: await toBase64(file) });
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't install that skill.");
@@ -142,8 +162,13 @@ export function SkillUploadDialog({
               File requirements
             </p>
             <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-muted-foreground text-xs">
-              <li>A .md file whose YAML frontmatter sets a name and description</li>
-              <li>The body is the instruction your agent follows</li>
+              <li>
+                A .md file whose YAML frontmatter sets a name and description
+              </li>
+              <li>
+                Or a .zip / .skill holding the folder — SKILL.md at its root,
+                alongside any scripts and references
+              </li>
             </ul>
 
             {error ? (

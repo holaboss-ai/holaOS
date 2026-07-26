@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import yaml from "js-yaml";
+import JSZip from "jszip";
 import * as tar from "tar";
 
 /**
@@ -19,6 +20,9 @@ import * as tar from "tar";
 const MAX_TARBALL_BYTES = 25 * 1024 * 1024;
 const MAX_SKILL_BYTES = 8 * 1024 * 1024;
 const MAX_FILES = 300;
+// Uploads ride base64-encoded inside the remote-api body, which the runtime caps
+// at 10 MB — 6 MB of file grows to ~8 MB encoded and still fits.
+const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
 
 export class SkillImportError extends Error {
   readonly statusCode: number;
@@ -331,6 +335,173 @@ export async function previewSkillFromGithub(params: { url: string; ref?: string
   }
 }
 
+/**
+ * Land a prepared skill folder (anything with a SKILL.md at its root) into the
+ * workspace. The half of an import that has nothing to do with where the folder
+ * came from — a GitHub tarball and an uploaded archive both end up here, so both
+ * get the frontmatter mapping, the traversal guards and the executable bits.
+ */
+function installSkillFolder(params: {
+  workspaceDir: string;
+  skillSrc: string;
+  sourceUrl: string;
+  ref: string;
+}): SkillImportResult {
+  const { id, mapped, files } = readSkill(params.skillSrc);
+  const skillDir = path.resolve(params.workspaceDir, "skills", id);
+  const skillsRoot = path.resolve(params.workspaceDir, "skills");
+  if (skillDir !== path.join(skillsRoot, id)) {
+    throw new SkillImportError(400, "resolved skill id is not a safe directory name");
+  }
+  const replaced = fs.existsSync(skillDir);
+  if (replaced) {
+    fs.rmSync(skillDir, { recursive: true, force: true });
+  }
+
+  for (const file of files) {
+    const dest = path.resolve(skillDir, file.path);
+    if (dest !== skillDir && !dest.startsWith(`${skillDir}${path.sep}`)) {
+      throw new SkillImportError(400, `path traversal not allowed: ${file.path}`);
+    }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (file.path === "SKILL.md") {
+      fs.writeFileSync(dest, mapped.content, "utf8");
+    } else {
+      fs.copyFileSync(path.join(params.skillSrc, file.path), dest);
+    }
+    if (file.executable) {
+      fs.chmodSync(dest, fs.statSync(dest).mode | 0o111);
+    }
+  }
+
+  return {
+    id,
+    name: mapped.name,
+    description: mapped.description,
+    granted_tools: mapped.grantedTools,
+    files,
+    source_url: params.sourceUrl,
+    ref: params.ref,
+    replaced,
+  };
+}
+
+const UPLOAD_ARCHIVE_EXTENSIONS = /\.(zip|skill)$/i;
+const UPLOAD_MARKDOWN_EXTENSIONS = /\.(md|markdown)$/i;
+
+/**
+ * Unpack an uploaded skill into a temp folder shaped the way `readSkill` expects
+ * (a directory with SKILL.md at its root).
+ *
+ * A bare SKILL.md is the minimum a skill can be, so it is accepted on its own.
+ * An archive follows the convention the ecosystem settled on: either SKILL.md
+ * sits at the root, or there is exactly one top-level folder holding it.
+ */
+async function unpackUploadedSkill(
+  fileName: string,
+  data: Buffer,
+): Promise<ExtractedSkill> {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hb-skill-upload-"));
+  try {
+    const skillSrc = path.join(tmpRoot, "skill");
+    fs.mkdirSync(skillSrc);
+
+    if (UPLOAD_MARKDOWN_EXTENSIONS.test(fileName)) {
+      fs.writeFileSync(path.join(skillSrc, "SKILL.md"), data);
+      return { tmpRoot, skillSrc };
+    }
+    if (!UPLOAD_ARCHIVE_EXTENSIONS.test(fileName)) {
+      throw new SkillImportError(400, "upload a .md, .zip or .skill file");
+    }
+
+    let zip: JSZip;
+    try {
+      zip = await JSZip.loadAsync(data);
+    } catch {
+      throw new SkillImportError(400, "that archive could not be opened as a zip");
+    }
+
+    // Write every entry first, then decide which directory is the skill root —
+    // a zip made by "compress this folder" nests everything one level down.
+    let written = 0;
+    let totalBytes = 0;
+    for (const entry of Object.values(zip.files)) {
+      if (entry.dir) {
+        continue;
+      }
+      // Zip entry names are attacker-controlled: keep them inside the temp dir.
+      const dest = path.resolve(skillSrc, entry.name);
+      if (!dest.startsWith(`${skillSrc}${path.sep}`)) {
+        throw new SkillImportError(400, `path traversal not allowed: ${entry.name}`);
+      }
+      if (++written > MAX_FILES) {
+        throw new SkillImportError(400, `skill has too many files (>${MAX_FILES})`);
+      }
+      const content = await entry.async("nodebuffer");
+      totalBytes += content.byteLength;
+      if (totalBytes > MAX_SKILL_BYTES) {
+        throw new SkillImportError(
+          400,
+          `skill is too large (>${Math.round(MAX_SKILL_BYTES / 1024 / 1024)} MB)`,
+        );
+      }
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, content);
+      // JSZip carries the unix mode in the high 16 bits when the zip was made on
+      // a unix host; a Windows-made zip has none, and scripts land non-executable.
+      const mode = (entry.unixPermissions as number | null) ?? 0;
+      if (typeof mode === "number" && (mode & 0o111) !== 0) {
+        fs.chmodSync(dest, fs.statSync(dest).mode | 0o111);
+      }
+    }
+
+    if (fs.existsSync(path.join(skillSrc, "SKILL.md"))) {
+      return { tmpRoot, skillSrc };
+    }
+    const roots = fs
+      .readdirSync(skillSrc, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory());
+    if (roots.length === 1) {
+      const nested = path.join(skillSrc, roots[0].name);
+      if (fs.existsSync(path.join(nested, "SKILL.md"))) {
+        return { tmpRoot, skillSrc: nested };
+      }
+    }
+    throw new SkillImportError(
+      400,
+      "no SKILL.md found — the archive needs one at its root or in a single top-level folder",
+    );
+  } catch (error) {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/** Install a skill the user uploaded from their machine. */
+export async function importSkillFromUpload(params: {
+  workspaceDir: string;
+  fileName: string;
+  data: Buffer;
+}): Promise<SkillImportResult> {
+  if (params.data.byteLength > MAX_UPLOAD_BYTES) {
+    throw new SkillImportError(
+      400,
+      `upload too large (>${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB)`,
+    );
+  }
+  const { tmpRoot, skillSrc } = await unpackUploadedSkill(params.fileName, params.data);
+  try {
+    return installSkillFolder({
+      workspaceDir: params.workspaceDir,
+      skillSrc,
+      sourceUrl: "",
+      ref: "upload",
+    });
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+}
+
 export async function importSkillFromGithub(params: {
   workspaceDir: string;
   url: string;
@@ -340,43 +511,12 @@ export async function importSkillFromGithub(params: {
   const buffer = await downloadTarball(ref);
   const { tmpRoot, skillSrc } = await extractSkillFolder(buffer, ref);
   try {
-    const { id, mapped, files } = readSkill(skillSrc);
-    const skillDir = path.resolve(params.workspaceDir, "skills", id);
-    const skillsRoot = path.resolve(params.workspaceDir, "skills");
-    if (skillDir !== path.join(skillsRoot, id)) {
-      throw new SkillImportError(400, "resolved skill id is not a safe directory name");
-    }
-    const replaced = fs.existsSync(skillDir);
-    if (replaced) {
-      fs.rmSync(skillDir, { recursive: true, force: true });
-    }
-
-    for (const file of files) {
-      const dest = path.resolve(skillDir, file.path);
-      if (dest !== skillDir && !dest.startsWith(`${skillDir}${path.sep}`)) {
-        throw new SkillImportError(400, `path traversal not allowed: ${file.path}`);
-      }
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      if (file.path === "SKILL.md") {
-        fs.writeFileSync(dest, mapped.content, "utf8");
-      } else {
-        fs.copyFileSync(path.join(skillSrc, file.path), dest);
-      }
-      if (file.executable) {
-        fs.chmodSync(dest, fs.statSync(dest).mode | 0o111);
-      }
-    }
-
-    return {
-      id,
-      name: mapped.name,
-      description: mapped.description,
-      granted_tools: mapped.grantedTools,
-      files,
-      source_url: params.url.trim(),
+    return installSkillFolder({
+      workspaceDir: params.workspaceDir,
+      skillSrc,
+      sourceUrl: params.url.trim(),
       ref: ref.ref,
-      replaced,
-    };
+    });
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }

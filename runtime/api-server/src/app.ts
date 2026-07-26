@@ -234,7 +234,7 @@ import {
 import { loadCapabilityCatalog, installCapability, uninstallCapability, setCapabilityEnabled } from "./workspace-capabilities.js";
 import { clearMcpOAuthToken } from "../../harnesses/src/index.js";
 import { materializeSkill } from "./workspace-skills-catalog.js";
-import { importSkillFromGithub, previewSkillFromGithub, SkillImportError } from "./workspace-skill-import.js";
+import { importSkillFromGithub, importSkillFromUpload, previewSkillFromGithub, SkillImportError } from "./workspace-skill-import.js";
 import { importPluginAsCapability } from "./import-plugin.js";
 import {
   NativeRunnerExecutor,
@@ -3631,6 +3631,25 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
             skillId: input.skillId,
             content: input.content,
           });
+        },
+        // Shares the folder-aware path with the GitHub import, so an uploaded
+        // skill gets the same frontmatter mapping (allowed-tools →
+        // holaboss_granted_tools) and the same traversal/size guards.
+        importUpload: async (input) => {
+          const ws = resolveCanonicalWs();
+          const result = await importSkillFromUpload({
+            workspaceDir: store.workspaceDir(ws),
+            fileName: input.fileName,
+            data: Buffer.from(input.dataBase64, "base64"),
+          });
+          return {
+            id: result.id,
+            name: result.name,
+            description: result.description,
+            grantedTools: result.granted_tools,
+            files: result.files.map((file) => file.path),
+            replaced: result.replaced,
+          };
         },
       },
     });
