@@ -1,6 +1,6 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useSetAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { overlayOpenCountAtom } from "@/components/layout/shell/overlay-presence";
 import { Button } from "@/components/ui/button";
 import { AppWindow, Loader2, Plus, X } from "@/components/ui/icons";
@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
 	type CustomHolaApp,
 	customHolaAppId,
+	deleteCustomHolaApp,
 	parseCustomMcpConfig,
 	upsertCustomHolaApp,
 } from "@/lib/localCustomHolaApps";
@@ -29,25 +30,26 @@ const MCP_PLACEHOLDER = `https://mcp.example.com/mcp
 async function runCustomAppOAuth(
 	workspaceId: string,
 	serverId: string,
-): Promise<void> {
+): Promise<boolean> {
 	for (let attempt = 0; attempt < 8; attempt += 1) {
 		const status = await window.electronAPI.workspace.mcpServerAuthorized(
 			workspaceId,
 			serverId,
 		);
 		if (status.authorized) {
-			return;
+			return true;
 		}
 		if (status.registered !== false) {
-			await window.electronAPI.workspace.authorizeMcpServer(
+			const result = await window.electronAPI.workspace.authorizeMcpServer(
 				workspaceId,
 				serverId,
 				false,
 			);
-			return;
+			return result.ok === true;
 		}
 		await new Promise((resolve) => setTimeout(resolve, 1200));
 	}
+	return false;
 }
 
 // A small "create your own app" form: a URL the desktop opens as the app's surface,
@@ -89,6 +91,10 @@ export function CustomHolaAppCreateDialog({
 	const [mcpJson, setMcpJson] = useState("");
 	const [error, setError] = useState("");
 	const [phase, setPhase] = useState<"idle" | "authorizing">("idle");
+	// The just-saved app awaiting sign-in — kept so a cancel can roll it back. authAbort
+	// guards handleCreate's success path when the user cancels while OAuth is in flight.
+	const pendingAppIdRef = useRef<string | null>(null);
+	const authAbortRef = useRef(false);
 
 	const resetForm = () => {
 		setTitle("");
@@ -144,19 +150,34 @@ export function CustomHolaAppCreateDialog({
 		// Fire the catalog refresh — attaches the app-owned MCP + shows the app.
 		onChanged();
 
-		// A header-less MCP is the OAuth case (a static-token server is already usable):
-		// run the browser sign-in now so the app works immediately. Best-effort — on any
-		// failure the reactive chat Authorize card prompts instead. Never blocks the close.
+		// A header-less MCP is the OAuth case (a static-token server is already usable). The
+		// app is only KEPT if sign-in succeeds: it's saved above so the MCP attaches (auth
+		// needs it registered), then rolled back below if the user cancels the sign-in.
 		const needsOAuth =
 			Boolean(mcp) && Object.keys(mcp?.headerKeys ?? {}).length === 0;
 		if (needsOAuth && workspaceId && mcp) {
+			pendingAppIdRef.current = holaAppId;
+			authAbortRef.current = false;
 			setPhase("authorizing");
+			let ok = false;
 			try {
-				await runCustomAppOAuth(workspaceId, mcp.id);
+				ok = await runCustomAppOAuth(workspaceId, mcp.id);
 			} catch {
 				// reactive fallback — ignore
 			}
 			setPhase("idle");
+			if (authAbortRef.current) {
+				return;
+			}
+			pendingAppIdRef.current = null;
+			if (!ok) {
+				deleteCustomHolaApp(holaAppId);
+				onChanged();
+				setError(
+					"Sign-in was cancelled — the app wasn't added. Try again to authorize it.",
+				);
+				return;
+			}
 		}
 
 		resetForm();
@@ -165,8 +186,28 @@ export function CustomHolaAppCreateDialog({
 
 	const busy = phase === "authorizing";
 
+	// Cancelling during "Signing in…" (Cancel, X, Esc, backdrop) aborts the add: roll the
+	// pending app back and close, so a cancelled sign-in never leaves an app behind.
+	const cancelSignIn = () => {
+		authAbortRef.current = true;
+		if (pendingAppIdRef.current) {
+			deleteCustomHolaApp(pendingAppIdRef.current);
+			pendingAppIdRef.current = null;
+			onChanged();
+		}
+		setPhase("idle");
+		onOpenChange(false);
+	};
+	const handleRootOpenChange = (next: boolean) => {
+		if (!next && busy) {
+			cancelSignIn();
+			return;
+		}
+		onOpenChange(next);
+	};
+
 	return (
-		<DialogPrimitive.Root onOpenChange={onOpenChange} open={open}>
+		<DialogPrimitive.Root onOpenChange={handleRootOpenChange} open={open}>
 			<DialogPrimitive.Portal>
 				<DialogPrimitive.Backdrop className="fixed inset-0 z-[90] bg-foreground/20 backdrop-blur-sm ease-emphasized data-open:duration-snappy data-open:animate-in data-open:fade-in-0 data-closed:duration-tap data-closed:animate-out data-closed:fade-out-0" />
 				<DialogPrimitive.Popup className="fixed top-[12%] left-1/2 z-[100] flex max-h-[80vh] w-[520px] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl outline-none ease-emphasized data-open:duration-snappy data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:duration-tap data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
@@ -276,8 +317,8 @@ export function CustomHolaAppCreateDialog({
 					<div className="flex items-center justify-end gap-2 border-border border-t px-4 py-3">
 						<DialogPrimitive.Close
 							render={
-								<Button disabled={busy} size="sm" type="button" variant="ghost">
-									Cancel
+								<Button size="sm" type="button" variant="ghost">
+									{busy ? "Cancel sign-in" : "Cancel"}
 								</Button>
 							}
 						/>
