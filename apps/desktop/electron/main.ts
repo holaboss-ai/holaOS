@@ -17990,22 +17990,25 @@ function getOrCreateAppSurfaceView(
     pendingOAuthBridge = null;
     if (oauthBridge) {
       let bridged = false;
-      const bridgeBack = (visitedUrl: string) => {
+      // Bridge only on a COMMITTED navigation (did-navigate) to the app origin — NOT on
+      // did-redirect-navigation, which fires on the callback url BEFORE its Set-Cookie
+      // lands (bridging there would reload the surface still-logged-out). And DEFER the
+      // close/reload with setImmediate: doing it synchronously inside the popup's own
+      // navigation event frees a WebContents Chromium still references → SIGSEGV.
+      childWindow.webContents.on("did-navigate", (_e, visitedUrl) => {
         if (bridged || httpOrigin(visitedUrl) !== oauthBridge.appOrigin) {
           return;
         }
         bridged = true;
-        if (!view.webContents.isDestroyed()) {
-          void view.webContents.loadURL(oauthBridge.returnUrl);
-        }
-        if (!childWindow.isDestroyed()) {
-          childWindow.close();
-        }
-      };
-      childWindow.webContents.on("did-navigate", (_e, u) => bridgeBack(u));
-      childWindow.webContents.on("did-redirect-navigation", (_e, u) =>
-        bridgeBack(u),
-      );
+        setImmediate(() => {
+          if (!view.webContents.isDestroyed()) {
+            void view.webContents.loadURL(oauthBridge.returnUrl);
+          }
+          if (!childWindow.isDestroyed()) {
+            childWindow.close();
+          }
+        });
+      });
     }
     try {
       const cw = childWindow.webContents;
