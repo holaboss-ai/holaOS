@@ -27,7 +27,6 @@ import {
   ChevronDown,
   ChevronLeft,
   Feather,
-  Link2,
   Loader2,
   Plus,
   Search,
@@ -52,11 +51,9 @@ import {
   workspaceSkillsKey,
 } from "@/lib/useWorkspaceSkills";
 import {
-  importOrgSkillFromUrl,
   listOrgSkills,
   type OrgSkill,
 } from "@/lib/orgSkillsClient";
-import { RenameDialog } from "@/components/ui/rename-dialog";
 
 /**
  * Browse-first skills store — the same shape as the capabilities marketplace:
@@ -98,9 +95,7 @@ export function SkillsStorePane({
   const [removingId, setRemovingId] = useState<string | null>(null);
   // The user's org skill library (backend, shared with the web platform) + import dialog.
   const [principal, setPrincipal] = useState<string | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [importing, setImporting] = useState(false);
 
   const marketQuery = useQuery({
     queryKey: ["directory-central", "skills"],
@@ -260,27 +255,6 @@ export function SkillsStorePane({
     toast.success(`${skill.name} added`);
   };
 
-  // "Add your own" = import a SKILL.md URL into the shared org store, then materialize it
-  // locally. It also appears on the web employee platform (same backend store).
-  const importOrgSkill = (url: string) => {
-    if (!principal) {
-      return;
-    }
-    setImporting(true);
-    void importOrgSkillFromUrl(principal, url)
-      .then((skill) => {
-        setImportOpen(false);
-        void orgQuery.refetch();
-        addOrgSkill(skill);
-      })
-      .catch(() =>
-        toast.error(
-          "Couldn't import that skill — the URL must point to a raw, public SKILL.md.",
-        ),
-      )
-      .finally(() => setImporting(false));
-  };
-
   // HolaHub "Install" hand-off: auto-install the target skill once the directory
   // loads (skills are keyless — no second click). Skips an already-installed one.
   useEffect(() => {
@@ -334,7 +308,6 @@ export function SkillsStorePane({
           <NewSkillMenu
             className="ml-auto h-7"
             onCreateSkill={onCreateSkill}
-            onImportUrl={() => setImportOpen(true)}
             onUpload={() => setUploadOpen(true)}
           />
         </div>
@@ -368,7 +341,6 @@ export function SkillsStorePane({
           <NewSkillMenu
             className="ml-auto h-8 shrink-0"
             onCreateSkill={onCreateSkill}
-            onImportUrl={() => setImportOpen(true)}
             onUpload={() => setUploadOpen(true)}
           />
         </div>
@@ -432,7 +404,6 @@ export function SkillsStorePane({
                     <NewSkillMenu
                       className="h-8 shrink-0"
                       onCreateSkill={onCreateSkill}
-                      onImportUrl={() => setImportOpen(true)}
                       onUpload={() => setUploadOpen(true)}
                     />
                   ) : null}
@@ -548,19 +519,6 @@ export function SkillsStorePane({
         onUpload={uploadSkill}
         open={uploadOpen}
       />
-      <RenameDialog
-        confirmLabel={importing ? "Importing…" : "Import"}
-        initial=""
-        onConfirm={importOrgSkill}
-        onOpenChange={(o) => {
-          if (!importing) {
-            setImportOpen(o);
-          }
-        }}
-        open={importOpen}
-        placeholder="https://raw.githubusercontent.com/…/SKILL.md"
-        title="Add your own skill"
-      />
       <ConfirmDialog
         open={pendingRemove !== null}
         onOpenChange={(open) => {
@@ -582,9 +540,10 @@ export function SkillsStorePane({
   );
 }
 
-// The user's org skill library (backend, shared with the web platform) as a store
-// section — always present so importing is discoverable. Rows install by materializing
-// the backend SKILL.md body locally so the desktop agent can run them.
+// The user's org skill library (backend, shared with the web platform). Skills land
+// there from the web platform; rows install by materializing the backend SKILL.md body
+// locally so the desktop agent can run them. Renders nothing until it has something —
+// there is no way to add to it from here, so an empty library is not worth a heading.
 function YourSkillsSection({
   skills,
   installedIds,
@@ -598,29 +557,23 @@ function YourSkillsSection({
   loading: boolean;
   onAdd: (skill: OrgSkill) => void;
 }) {
+  if (loading || skills.length === 0) {
+    return null;
+  }
   return (
     <section className="flex flex-col gap-2.5">
       <h3 className="font-medium text-foreground text-sm">Your skills</h3>
-      {loading ? (
-        <p className="text-muted-foreground text-xs">Loading your library…</p>
-      ) : skills.length === 0 ? (
-        <p className="max-w-2xl text-muted-foreground text-xs">
-          Skills you add on the web platform — or import here — land in your org
-          library. Install one to use it on this desktop.
-        </p>
-      ) : (
-        <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
-          {skills.map((skill) => (
-            <OrgSkillRow
-              installed={installedIds.has(skill.id)}
-              key={skill.id}
-              onAdd={() => onAdd(skill)}
-              pending={pendingId === skill.id}
-              skill={skill}
-            />
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+        {skills.map((skill) => (
+          <OrgSkillRow
+            installed={installedIds.has(skill.id)}
+            key={skill.id}
+            onAdd={() => onAdd(skill)}
+            pending={pendingId === skill.id}
+            skill={skill}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -918,12 +871,10 @@ function NewSkillMenu({
   className,
   onCreateSkill,
   onUpload,
-  onImportUrl,
 }: {
   className?: string;
   onCreateSkill: () => void;
   onUpload: () => void;
-  onImportUrl: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -945,10 +896,6 @@ function NewSkillMenu({
         <DropdownMenuItem onClick={onUpload}>
           <Upload className="size-3.5" />
           Upload skill
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={onImportUrl}>
-          <Link2 className="size-3.5" />
-          Import from URL
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
