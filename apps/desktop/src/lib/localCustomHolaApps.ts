@@ -24,6 +24,9 @@ export interface CustomHolaApp {
 	mcp?: McpAttachInput;
 	/** The raw JSON the user pasted, kept so the create form can pre-fill on edit. */
 	mcpConfigJson?: string;
+	/** True while a headerless-MCP app is mid-sign-in (a DRAFT): committed apps drop it, and
+	 *  a draft left by a session killed mid-add is purged on next startup. */
+	pending?: boolean;
 }
 
 const KEY = "holaboss.holaapps.custom.v1";
@@ -97,6 +100,7 @@ function normalizeStored(value: unknown): CustomHolaApp | null {
 		...(typeof value.mcpConfigJson === "string"
 			? { mcpConfigJson: value.mcpConfigJson }
 			: {}),
+		...(value.pending === true ? { pending: true } : {}),
 	};
 }
 
@@ -145,6 +149,22 @@ export function deleteCustomHolaApp(holaAppId: string): void {
 	writeCustomHolaApps(
 		readCustomHolaApps().filter((a) => a.holaAppId !== holaAppId),
 	);
+}
+
+// One-time (per app session) cleanup of orphaned DRAFT apps: a headerless-MCP app saved
+// mid-sign-in (`pending`) that a killed session never committed or discarded. Runs once, so
+// it only sweeps drafts from a PREVIOUS session — never the one being added right now.
+let orphanDraftsPurged = false;
+export function purgeOrphanedDraftApps(): void {
+	if (orphanDraftsPurged) {
+		return;
+	}
+	orphanDraftsPurged = true;
+	const all = readCustomHolaApps();
+	const kept = all.filter((app) => !app.pending);
+	if (kept.length !== all.length) {
+		writeCustomHolaApps(kept);
+	}
 }
 
 /** Custom apps as WebHolaApps (installed + ready) so they merge into the catalog and

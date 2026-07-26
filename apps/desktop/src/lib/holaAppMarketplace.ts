@@ -16,6 +16,7 @@ import {
 	customHolaAppMcpAttachInputs,
 	customHolaAppsAsWebApps,
 	deleteCustomHolaApp,
+	purgeOrphanedDraftApps,
 	readCustomHolaApps,
 } from "./localCustomHolaApps";
 import {
@@ -670,6 +671,9 @@ async function backendBaseUrl(): Promise<string | null> {
 export function createServerMarketplaceSource(): MarketplaceSource {
 	return {
 		async listCatalog() {
+			// Once per session: drop orphaned draft apps left by a session killed mid-sign-in
+			// (before the app-owned sync below re-attaches their MCPs).
+			purgeOrphanedDraftApps();
 			const serverApps = await listWebHolaApps();
 			// Fold in LOCAL user-created custom HolaApps (localCustomHolaApps) — they're
 			// absent from the backend catalog; each carries installed:true + a `url`

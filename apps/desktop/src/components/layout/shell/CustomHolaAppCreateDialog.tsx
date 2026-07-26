@@ -147,15 +147,16 @@ export function CustomHolaAppCreateDialog({
 			...(mcp ? { mcp } : {}),
 			...(rawMcp ? { mcpConfigJson: rawMcp } : {}),
 		};
-		upsertCustomHolaApp(app);
+		// A header-less MCP is the OAuth case (a static-token server is already usable). The
+		// app is only KEPT if sign-in succeeds: save it as a DRAFT (`pending`) so the MCP
+		// attaches (auth needs it registered) yet a killed session's leftover can be purged on
+		// startup; a retry reuses it, it commits on success, and it's discarded if you close.
+		const needsOAuth =
+			Boolean(mcp) && Object.keys(mcp?.headerKeys ?? {}).length === 0;
+		upsertCustomHolaApp(needsOAuth ? { ...app, pending: true } : app);
 		// Fire the catalog refresh — attaches the app-owned MCP + shows the app.
 		onChanged();
 
-		// A header-less MCP is the OAuth case (a static-token server is already usable). The
-		// app is only KEPT if sign-in succeeds: it's saved above so the MCP attaches (auth
-		// needs it registered); a retry reuses it, and it's discarded if you close the dialog.
-		const needsOAuth =
-			Boolean(mcp) && Object.keys(mcp?.headerKeys ?? {}).length === 0;
 		if (needsOAuth && workspaceId && mcp) {
 			pendingAppIdRef.current = holaAppId;
 			authAbortRef.current = false;
@@ -183,6 +184,8 @@ export function CustomHolaAppCreateDialog({
 				);
 				return;
 			}
+			// Authorized — commit the app (drop its draft `pending` flag).
+			upsertCustomHolaApp(app);
 		}
 
 		// Committed — release the draft so a later add starts a fresh app.
