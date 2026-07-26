@@ -358,28 +358,43 @@ function CustomAppAuthorize({
 			return;
 		}
 		let cancelled = false;
-		window.electronAPI.workspace
-			.mcpServerAuthorized(workspaceId, serverId)
-			.then((result) => {
-				if (cancelled) {
-					return;
-				}
-				if (result.authorized) {
-					setState("authorized");
-				} else if (result.registered === false) {
-					// Not attached yet (its catalog sync is still in flight) — nothing to do.
-					setState("hidden");
-				} else {
-					setState("needs");
-				}
-			})
-			.catch(() => {
-				if (!cancelled) {
-					setState("hidden");
-				}
-			});
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let attempts = 0;
+		const check = () => {
+			window.electronAPI.workspace
+				.mcpServerAuthorized(workspaceId, serverId)
+				.then((result) => {
+					if (cancelled) {
+						return;
+					}
+					if (result.authorized) {
+						setState("authorized");
+					} else if (result.registered === false) {
+						// The MCP attaches asynchronously after Add (catalog refresh →
+						// syncAppOwned), so a fresh row often isn't registered yet. Poll a
+						// few times before giving up so the button appears once it lands.
+						attempts += 1;
+						if (attempts < 6) {
+							timer = setTimeout(check, 1500);
+						} else {
+							setState("hidden");
+						}
+					} else {
+						setState("needs");
+					}
+				})
+				.catch(() => {
+					if (!cancelled) {
+						setState("hidden");
+					}
+				});
+		};
+		check();
 		return () => {
 			cancelled = true;
+			if (timer) {
+				clearTimeout(timer);
+			}
 		};
 	}, [workspaceId, serverId]);
 
