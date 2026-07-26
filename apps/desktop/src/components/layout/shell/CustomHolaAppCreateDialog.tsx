@@ -14,14 +14,12 @@ import {
 	upsertCustomHolaApp,
 } from "@/lib/localCustomHolaApps";
 
-const MCP_PLACEHOLDER = `{
-  "mcpServers": {
-    "my-server": {
-      "url": "https://example.com/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
-    }
-  }
-}`;
+// Lead with the simplest form — a bare URL — so the field doesn't look like it demands
+// a full JSON blob. The help text + parser also accept a { mcpServers } config and an
+// `npx mcp-remote <url>` config.
+const MCP_PLACEHOLDER = `https://mcp.example.com/mcp
+
+…or a full JSON / "npx mcp-remote <url>" config`;
 
 // Run the browser OAuth for a just-added custom app's MCP. The MCP attaches
 // asynchronously (onChanged → catalog refresh → syncAppOwned), so poll until the
@@ -251,7 +249,7 @@ export function CustomHolaAppCreateDialog({
 								className="text-foreground text-xs"
 								htmlFor="custom-app-mcp"
 							>
-								MCP server config{" "}
+								MCP server{" "}
 								<span className="text-muted-foreground">(optional)</span>
 							</Label>
 							<Textarea
