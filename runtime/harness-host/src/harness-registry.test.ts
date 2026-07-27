@@ -10,7 +10,6 @@ test("listHarnessHostPlugins exposes registered harness host plugins", () => {
       { id: "pi", command: "run-pi" },
       { id: "claude-code", command: "run-claude-code" },
       { id: "codex", command: "run-codex" },
-      { id: "bossman", command: "run-bossman" },
     ]
   );
 });

@@ -283,15 +283,11 @@ function buildCliRuntimeHarnessPlugin(adapter: RuntimeHarnessAdapter): RuntimeHa
 
 const claudeCodeRuntimeHarnessPlugin = buildCliRuntimeHarnessPlugin(requireBaseAdapter("claude-code"));
 const codexRuntimeHarnessPlugin = buildCliRuntimeHarnessPlugin(requireBaseAdapter("codex"));
-// Bossman (Claude Agent SDK) runs via harness-host like the CLI harnesses — no
-// persistent backend — so it uses the same generic runtime plugin factory.
-const bossmanRuntimeHarnessPlugin = buildCliRuntimeHarnessPlugin(requireBaseAdapter("bossman"));
 
 const HARNESS_PLUGINS = [
   piRuntimeHarnessPlugin,
   claudeCodeRuntimeHarnessPlugin,
   codexRuntimeHarnessPlugin,
-  bossmanRuntimeHarnessPlugin,
 ] as const;
 const HARNESS_ADAPTERS = HARNESS_PLUGINS.map((plugin) => plugin.adapter);
 

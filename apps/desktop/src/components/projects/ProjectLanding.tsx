@@ -115,11 +115,10 @@ export function ProjectLanding({
       setSelectedHarnessId(fallback.id);
     }
   }, [availableHarnesses, selectedHarnessId]);
-  // pi/bossman ride the Hola model catalogue; CLI harnesses carry their own
+  // pi rides the Hola model catalogue; CLI harnesses carry their own
   // supported_models, so the composer's model picker must swap namespaces
   // with the harness (same split as ChatPane's empty composer).
-  const harnessUsesHolaModelCatalog =
-    selectedHarnessId === "pi" || selectedHarnessId === "bossman";
+  const harnessUsesHolaModelCatalog = selectedHarnessId === "pi";
   const harnessSupportedModels = useMemo(
     () =>
       harnessUsesHolaModelCatalog

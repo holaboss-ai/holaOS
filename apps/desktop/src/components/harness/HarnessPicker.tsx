@@ -133,10 +133,10 @@ export function HarnessPicker({
               title={ready ? entry.detection : "Set up in Settings → Agents"}
               className="flex items-center gap-2.5"
             >
-              {/* Each agent shows its own avatar (Hola → the Hola face,
-                  Bossman → Hola in shades); vendor harnesses fall through to
-                  their provider-mark tile. All render at the same size-6 box so
-                  the icon column stays aligned. */}
+              {/* Each agent shows its own avatar (Hola → the Hola face);
+                  vendor harnesses fall through to their provider-mark tile.
+                  All render at the same size-6 box so the icon column stays
+                  aligned. */}
               <HarnessAvatar harnessId={entry.id} size="md" />
               <span className="flex min-w-0 flex-1 items-center gap-1.5">
                 <span className="truncate text-sm">{entry.display_name}</span>

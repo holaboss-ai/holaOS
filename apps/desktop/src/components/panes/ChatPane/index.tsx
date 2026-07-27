@@ -9052,13 +9052,10 @@ export function ChatPane({
     activeSessionRecord?.harness_id ??
     desktopMainSession?.harness_id ??
     "pi";
-  // pi (Hola) and bossman both use the runtime's dynamic model catalogue
-  // (empty supportedModels) + the Hola thinking values, so they share the
-  // ModelCombobox + reasoning-effort path. Bossman's Agent-SDK engine accepts
-  // any catalog model (routed via the proxy's /anthropic route → LiteLLM) and
-  // low/medium/high thinking, so it behaves like Hola for model selection.
-  const harnessUsesHolaModelCatalog =
-    currentSessionHarnessId === "pi" || currentSessionHarnessId === "bossman";
+  // pi (Hola) uses the runtime's dynamic model catalogue (empty
+  // supportedModels) + the Hola thinking values, so it uses the ModelCombobox
+  // + reasoning-effort path.
+  const harnessUsesHolaModelCatalog = currentSessionHarnessId === "pi";
   // Pull the harness's static catalogue once so both Composer call
   // sites can render the same dropdown without re-fetching. The hook
   // is cached on the renderer side; this call piggybacks on whatever
@@ -9079,8 +9076,8 @@ export function ChatPane({
   // default, and nothing ever re-seeds it from the session. We seed once per
   // session (ref-guarded) so we never stomp an explicit in-composer pick the
   // user makes before sending. Mirrors the Hola-catalogue `sessionModelAnchor`,
-  // which derives from the same `selected_model` field; Hola/bossman ignore
-  // this state entirely and read that anchor instead.
+  // which derives from the same `selected_model` field; Hola ignores this
+  // state entirely and reads that anchor instead.
   const harnessModelSeededSessionRef = useRef<string | null>(null);
   useEffect(() => {
     if (harnessUsesHolaModelCatalog) {

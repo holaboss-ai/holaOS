@@ -56,16 +56,6 @@ export const collapseSidebarForAppSurfaceAtom = atom(null, (_get, set) => {
 });
 
 /**
- * Experimental: expose the Bossman (Claude Agent SDK) harness in the picker.
- * Off by default — Bossman is a spike; flip it on in Settings → App →
- * Experimental. When off, `useAvailableHarnesses` filters it out everywhere.
- */
-export const bossmanExperimentalEnabledAtom = atomWithStorage(
-  "holaboss.experimental.bossman",
-  false,
-);
-
-/**
  * Experimental: Cloud mode — the Local/Cloud sidebar switcher and the cloud
  * surface it reveals. Off by default; when off, the switcher is hidden and the
  * sidebar stays in Local mode. Flip it on in Settings → App → Experimental.

@@ -1,6 +1,4 @@
-import { useAtomValue } from "jotai";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { bossmanExperimentalEnabledAtom } from "@/components/layout/shell/state/ui";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * Fetches the runtime's harness inventory and tracks loading / error
@@ -23,25 +21,13 @@ export interface AvailableHarnessesState {
 export function useAvailableHarnesses(
   workspaceId: string | null,
 ): AvailableHarnessesState {
-  const [rawHarnesses, setRawHarnesses] = useState<HarnessAvailabilityEntryPayload[]>([]);
+  const [harnesses, setHarnesses] = useState<HarnessAvailabilityEntryPayload[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Experimental: hide Bossman unless the toggle is on. A ref keeps `refresh`
-  // (memoized on workspaceId) filtering with the current value without a
-  // re-fetch when the toggle flips; the derived `harnesses` re-filters live.
-  const bossmanEnabled = useAtomValue(bossmanExperimentalEnabledAtom);
-  const bossmanEnabledRef = useRef(bossmanEnabled);
-  bossmanEnabledRef.current = bossmanEnabled;
-  const filterList = useCallback(
-    (list: HarnessAvailabilityEntryPayload[]): HarnessAvailabilityEntryPayload[] =>
-      bossmanEnabledRef.current ? list : list.filter((h) => h.id !== "bossman"),
-    [],
-  );
-
   const refresh = useCallback(async () => {
     if (!workspaceId) {
-      setRawHarnesses([]);
+      setHarnesses([]);
       setError(null);
       return [];
     }
@@ -51,25 +37,19 @@ export function useAvailableHarnesses(
       const response =
         await window.electronAPI.workspace.listHarnessAvailability(workspaceId);
       const next = response.harnesses ?? [];
-      setRawHarnesses(next);
-      return filterList(next);
+      setHarnesses(next);
+      return next;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load harnesses");
       return [];
     } finally {
       setIsLoading(false);
     }
-  }, [workspaceId, filterList]);
+  }, [workspaceId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const harnesses = useMemo(
-    () => filterList(rawHarnesses),
-    // re-filter when the raw list OR the toggle changes
-    [rawHarnesses, filterList, bossmanEnabled],
-  );
 
   return { harnesses, isLoading, error, refresh };
 }

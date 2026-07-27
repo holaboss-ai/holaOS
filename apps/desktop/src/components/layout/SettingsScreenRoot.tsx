@@ -24,7 +24,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AuthPanel } from "@/components/auth/AuthPanel";
 import {
-  bossmanExperimentalEnabledAtom,
   cloudModeEnabledAtom,
   discoverEnabledAtom,
 } from "@/components/layout/shell/state/ui";
@@ -971,9 +970,6 @@ function WorkspaceConfigDiagnosticsCard() {
 }
 
 function ExperimentalPanel() {
-  const [bossmanEnabled, setBossmanEnabled] = useAtom(
-    bossmanExperimentalEnabledAtom,
-  );
   const [cloudModeEnabled, setCloudModeEnabled] = useAtom(cloudModeEnabledAtom);
   const [discoverEnabled, setDiscoverEnabled] = useAtom(discoverEnabledAtom);
   return (
@@ -983,12 +979,6 @@ function ExperimentalPanel() {
         description="Show the HolaHub community — the Discover feed plus posting and sharing. When off, HolaHub opens straight to the Marketplace for installing skills, apps, MCPs, and combos. Off by default."
         checked={discoverEnabled}
         onCheckedChange={setDiscoverEnabled}
-      />
-      <SettingsToggle
-        label="Bossman agent"
-        description="Add the experimental Bossman harness to the harness picker. It runs any model through the holaOS proxy. Off by default."
-        checked={bossmanEnabled}
-        onCheckedChange={setBossmanEnabled}
       />
       <SettingsToggle
         label="Cloud mode"

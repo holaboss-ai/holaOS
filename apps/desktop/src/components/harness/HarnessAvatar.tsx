@@ -1,6 +1,5 @@
-import { bossmanSunglassesUrl } from "@/lib/assetPaths";
 import { cn } from "@/lib/utils";
-import { AgentAvatar, HOLA_AVATAR_URL } from "@/components/ui/agent-avatar";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 import { HarnessIcon, type HarnessIconSize, harnessHasFavicon } from "./harnessIcon";
 
 type HarnessAvatarSize = "sm" | "md" | "lg";
@@ -11,14 +10,6 @@ const ICON_SIZE_BY_AVATAR_SIZE: Record<HarnessAvatarSize, HarnessIconSize> = {
   sm: "xs",
   md: "sm",
   lg: "md",
-};
-
-// Bossman's box mirrors AgentAvatar's size variants (same px + rounding) so the
-// shaded Hola stays interchangeable with the plain Hola avatar.
-const BOSSMAN_BOX_BY_SIZE: Record<HarnessAvatarSize, string> = {
-  sm: "size-5 rounded",
-  md: "size-6 rounded-md",
-  lg: "size-7 rounded-md",
 };
 
 /**
@@ -40,35 +31,6 @@ export function HarnessAvatar({
   className?: string;
 }) {
   const id = harnessId ?? "pi";
-  if (id.toLowerCase() === "bossman") {
-    // Bossman = the Hola face wearing sunglasses. Composite the exact Hola
-    // avatar (hola.webp) with a transparent sunglasses SVG overlaid on top; the
-    // overlay's 0..100 viewBox maps 1:1 onto the square box so the lenses land
-    // on Hola's eyes. Same box as AgentAvatar → interchangeable in header/turns.
-    return (
-      <span
-        className={cn(
-          "relative inline-flex shrink-0 scale-90 select-none items-center justify-center overflow-hidden bg-fg-6",
-          BOSSMAN_BOX_BY_SIZE[size],
-          className,
-        )}
-      >
-        <img
-          src={HOLA_AVATAR_URL}
-          alt="Bossman"
-          loading="lazy"
-          decoding="async"
-          className="size-full object-cover"
-        />
-        <img
-          src={bossmanSunglassesUrl}
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 size-full"
-        />
-      </span>
-    );
-  }
   if (!harnessHasFavicon(id)) {
     // The full-bleed saturated face reads optically heavier than a glyph
     // tile at the same box — scale it down a notch so both sit level.

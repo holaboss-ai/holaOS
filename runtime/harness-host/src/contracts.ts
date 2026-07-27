@@ -468,16 +468,6 @@ export function decodeHarnessHostCodexRequestBase64(encoded: string): HarnessHos
   return decodeHarnessHostPiRequestBase64(encoded);
 }
 
-// Bossman (Claude Agent SDK harness) uses the identical wire payload as pi.
-// Unlike claude-code (native CLI auth), the Bossman runner actually consumes
-// `model_client` to point the SDK at the Holaboss model proxy — so billing +
-// any-model routing (via LiteLLM/OpenRouter) apply. Reuse pi's decoder.
-export type HarnessHostBossmanRequest = HarnessHostPiRequest;
-
-export function decodeHarnessHostBossmanRequestBase64(encoded: string): HarnessHostBossmanRequest {
-  return decodeHarnessHostPiRequestBase64(encoded);
-}
-
 export function decodeAgentRuntimeConfigCliRequestBase64(encoded: string): AgentRuntimeConfigCliRequest {
   const parsed = decodeRequestBase64<unknown>(encoded);
   if (!isRecord(parsed)) {

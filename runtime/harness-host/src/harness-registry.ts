@@ -1,11 +1,9 @@
 import { HARNESS_DEFINITIONS, type HarnessHostPlugin } from "../../harnesses/src/index.js";
 import {
-  decodeHarnessHostBossmanRequestBase64,
   decodeHarnessHostClaudeCodeRequestBase64,
   decodeHarnessHostCodexRequestBase64,
   decodeHarnessHostPiRequestBase64,
 } from "./contracts.js";
-import { runBossman } from "./bossman.js";
 import { runClaudeCode } from "./claude-code.js";
 import { runCodex } from "./codex.js";
 import { runPi } from "./pi.js";
@@ -22,10 +20,6 @@ const HARNESS_HOST_IMPLEMENTATIONS = {
   codex: {
     decodeRequestBase64: (encoded: string) => decodeHarnessHostCodexRequestBase64(encoded),
     run: async (request: unknown) => await runCodex(request as Parameters<typeof runCodex>[0]),
-  },
-  bossman: {
-    decodeRequestBase64: (encoded: string) => decodeHarnessHostBossmanRequestBase64(encoded),
-    run: async (request: unknown) => await runBossman(request as Parameters<typeof runBossman>[0]),
   },
 } as const;
 
