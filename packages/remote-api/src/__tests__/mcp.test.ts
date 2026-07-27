@@ -3,26 +3,13 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { createRemoteApiMcpServer } from "../mcp";
 import type { RemoteApiContext, RemoteApiIdentity } from "../server";
-
-const notUsed = () => {
-  throw new Error("not used");
-};
+import { makeTestContext } from "./testContext";
 
 function makeContext(identity?: RemoteApiIdentity): RemoteApiContext {
-  return {
-    memory: {
-      search: notUsed,
-      get: notUsed,
-      upsert: notUsed,
-      status: notUsed,
-      sync: notUsed,
-      browseTree: notUsed,
-      readFile: notUsed,
-      readNodeDetail: notUsed,
-      browseGraph: notUsed,
-    },
+  return makeTestContext({
+    memory: { search: (input) => ({ ok: true, workspaceId: input.workspaceId }) },
     outputs: {
-      list: (input) => ({
+      list: () => ({
         items: [
           {
             id: "out_1",
@@ -47,51 +34,8 @@ function makeContext(identity?: RemoteApiIdentity): RemoteApiContext {
         ],
       }),
     },
-    notifications: { list: notUsed, update: notUsed },
-    cronjobs: {
-      list: notUsed,
-      runNow: notUsed,
-      create: notUsed,
-      update: notUsed,
-      delete: notUsed,
-    },
-    skills: {
-      catalog: () => ({ skills: [] }),
-      install: () => {
-        throw new Error("not used");
-      },
-      importUpload: () => {
-        throw new Error("not used");
-      },
-    },
-    channels: {
-      list: () => ({ channels: [], count: 0 }),
-      validate: () => ({ ok: false, bot_username: null, error: null }),
-      startDeviceAuth: () => ({ device_code: "", qr_url: "", interval_sec: 5, expires_in_sec: 600 }),
-      pollDeviceAuth: () => ({ status: "pending" as const, connection: null }),
-      create: () => {
-        throw new Error("not used");
-      },
-      delete: () => ({ success: true }),
-      setModel: () => {
-        throw new Error("not used");
-      },
-      setHarness: () => {
-        throw new Error("not used");
-      },
-      listSessions: () => ({ sessions: [], count: 0 }),
-    },
-    capabilities: {
-      catalog: notUsed,
-      listInstalled: notUsed,
-      install: notUsed,
-      create: notUsed,
-      importPlugin: notUsed,
-      uninstall: notUsed,
-      toggle: notUsed,
-    },
     identity,
-  };
+  });
 }
 
 async function connect(context: RemoteApiContext) {

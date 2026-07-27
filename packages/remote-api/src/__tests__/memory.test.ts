@@ -1,7 +1,7 @@
-import { createRouterClient } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { remoteApiRouter } from "../server/router";
 import type { MemoryService } from "../server";
+import { makeTestClient } from "./testContext";
 
 function makeMemory(): MemoryService {
   return {
@@ -22,73 +22,8 @@ function makeMemory(): MemoryService {
 }
 
 function makeClient() {
-  return createRouterClient(remoteApiRouter, {
-    context: {
-      memory: makeMemory(),
-      outputs: { list: () => ({ items: [] }) },
-      notifications: {
-        list: () => ({ items: [], count: 0 }),
-        update: () => {
-          throw new Error("not used");
-        },
-      },
-      cronjobs: {
-        list: () => ({ jobs: [], count: 0 }),
-        runNow: () => {
-          throw new Error("not used");
-        },
-        create: () => {
-          throw new Error("not used");
-        },
-        update: () => {
-          throw new Error("not used");
-        },
-        delete: () => ({ success: true }),
-      },
-      skills: {
-        catalog: () => ({ skills: [] }),
-        install: () => {
-          throw new Error("not used");
-        },
-        importUpload: () => {
-          throw new Error("not used");
-        },
-      },
-      channels: {
-        list: () => ({ channels: [], count: 0 }),
-        validate: () => ({ ok: false, bot_username: null, error: null }),
-        startDeviceAuth: () => ({ device_code: "", qr_url: "", interval_sec: 5, expires_in_sec: 600 }),
-        pollDeviceAuth: () => ({ status: "pending" as const, connection: null }),
-        create: () => {
-          throw new Error("not used");
-        },
-        delete: () => ({ success: true }),
-        setModel: () => {
-          throw new Error("not used");
-        },
-        setHarness: () => {
-          throw new Error("not used");
-        },
-        listSessions: () => ({ sessions: [], count: 0 }),
-      },
-      capabilities: {
-        catalog: () => ({ capabilities: [] }),
-        listInstalled: () => ({ capabilities: [] }),
-        install: () => {
-          throw new Error("not used");
-        },
-        create: () => {
-          throw new Error("not used");
-        },
-        importPlugin: () => {
-          throw new Error("not used");
-        },
-        uninstall: () => ({ removed: false }),
-        toggle: () => {
-          throw new Error("not used");
-        },
-      },
-    },
+  return makeTestClient({
+    memory: makeMemory(),
   });
 }
 

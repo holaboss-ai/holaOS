@@ -1,24 +1,7 @@
-import { createRouterClient } from "@orpc/server";
 import { describe, expect, it } from "vitest";
-import type { CapabilitiesService, RemoteApiContext } from "../server";
+import type { CapabilitiesService } from "../server";
+import { makeTestClient } from "./testContext";
 import { CapabilitiesServiceError } from "../server";
-import { remoteApiRouter } from "../server/router";
-
-const notUsed = () => {
-  throw new Error("not used");
-};
-
-const memoryStub: RemoteApiContext["memory"] = {
-  search: notUsed,
-  get: notUsed,
-  upsert: notUsed,
-  status: notUsed,
-  sync: notUsed,
-  browseTree: notUsed,
-  readFile: notUsed,
-  readNodeDetail: notUsed,
-  browseGraph: notUsed,
-};
 
 function makeWorkspaceCapability(workspaceId: string, capabilityId: string) {
   return {
@@ -66,43 +49,7 @@ function makeCapabilities(): CapabilitiesService {
 }
 
 function makeClient(capabilities: CapabilitiesService) {
-  return createRouterClient(remoteApiRouter, {
-    context: {
-      memory: memoryStub,
-      outputs: { list: () => ({ items: [] }) },
-      notifications: { list: () => ({ items: [], count: 0 }), update: notUsed },
-      cronjobs: {
-        list: () => ({ jobs: [], count: 0 }),
-        runNow: notUsed,
-        create: notUsed,
-        update: notUsed,
-        delete: () => ({ success: true }),
-      },
-      skills: {
-        catalog: () => ({ skills: [] }),
-        install: notUsed,
-        importUpload: notUsed,
-      },
-      channels: {
-        list: () => ({ channels: [], count: 0 }),
-        validate: () => ({ ok: false, bot_username: null, error: null }),
-        startDeviceAuth: () => ({ device_code: "", qr_url: "", interval_sec: 5, expires_in_sec: 600 }),
-        pollDeviceAuth: () => ({ status: "pending" as const, connection: null }),
-        create: () => {
-          throw new Error("not used");
-        },
-        delete: () => ({ success: true }),
-        setModel: () => {
-          throw new Error("not used");
-        },
-        setHarness: () => {
-          throw new Error("not used");
-        },
-        listSessions: () => ({ sessions: [], count: 0 }),
-      },
-      capabilities,
-    },
-  });
+  return makeTestClient({ capabilities });
 }
 
 describe("remoteApiRouter.capabilities", () => {
