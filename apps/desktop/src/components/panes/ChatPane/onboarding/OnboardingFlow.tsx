@@ -4,15 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import { holabossLogoUrl } from "@/lib/assetPaths";
 import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import { BrowserOnboardingStage } from "./BrowserOnboardingStage";
 import { HarnessOnboardingStage } from "./HarnessOnboardingStage";
 import { IntegrationsOnboardingStage } from "./IntegrationsOnboardingStage";
 import { onboardingDismissedAtom, onboardingStageAtom } from "./state";
 
-const TOTAL_STAGES = 2;
+const TOTAL_STAGES = 3;
 
 /**
  * Top-level onboarding router. Owns which stage is visible (driven by
  * `onboardingStageAtom`) and the cross-stage transitions.
+ *
+ * Three stages: connect tools, seed the browser profile, pick an agent.
+ * Browser sits in the middle because it needs no workspace and decides
+ * whether the agent's first browsing turn lands signed in.
  *
  * In the single-workspace world the legacy "name your workspace" stage
  * is gone: the server lazily provisions one workspace on first sign-in
@@ -134,6 +139,15 @@ export function OnboardingFlow() {
 							/>
 						) : null}
 						{stage === 1 ? (
+							<BrowserOnboardingStage
+								onBack={goBack}
+								onNext={() => advance()}
+								onSkip={dismiss}
+								stageIndex={2}
+								totalStages={TOTAL_STAGES}
+							/>
+						) : null}
+						{stage === 2 ? (
 							// Agents stage — needs a workspace id for harness detection +
 							// connection tests. If provisioning failed and nothing is
 							// selected, there's nothing to detect against, so just finish.
@@ -142,7 +156,7 @@ export function OnboardingFlow() {
 									onBack={goBack}
 									onFinish={dismiss}
 									onSkip={dismiss}
-									stageIndex={2}
+									stageIndex={3}
 									totalStages={TOTAL_STAGES}
 									workspaceId={selectedWorkspaceId}
 								/>
