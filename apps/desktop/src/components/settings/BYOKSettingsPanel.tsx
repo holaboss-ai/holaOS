@@ -29,6 +29,11 @@ import {
   saveOrgProviderModels,
 } from "@/lib/app-sdk-client";
 import { useOrganizations } from "@/lib/auth/useOrganizations";
+import {
+  CUSTOM_PROVIDER_PRESET_ID,
+  PROVIDER_FORM_PRESETS,
+  providerFormPreset,
+} from "@/lib/providerFormPresets";
 import { type ProviderBrand, ProviderBrandIcon } from "@/lib/providerBrandIcon";
 import { cn } from "@/lib/utils";
 import { SettingsCard } from "./SettingsCard";
@@ -447,6 +452,7 @@ function CreateProviderForm({
   onDone: () => void;
 }) {
   const queryClient = useQueryClient();
+  const [presetId, setPresetId] = useState(CUSTOM_PROVIDER_PRESET_ID);
   const [name, setName] = useState("");
   const [type, setType] = useState<string>(CUSTOM_TYPES[0].value);
   const [apiKey, setApiKey] = useState("");
@@ -455,7 +461,17 @@ function CreateProviderForm({
   const [error, setError] = useState<string | null>(null);
 
   const placeholder =
-    CUSTOM_TYPES.find((t) => t.value === type)?.placeholder ?? "sk-…";
+    presetId === CUSTOM_PROVIDER_PRESET_ID
+      ? (CUSTOM_TYPES.find((t) => t.value === type)?.placeholder ?? "sk-…")
+      : providerFormPreset(presetId).keyPlaceholder;
+
+  const applyPreset = (nextPresetId: string) => {
+    const preset = providerFormPreset(nextPresetId);
+    setPresetId(preset.id);
+    setName(preset.displayName);
+    setType(preset.providerType);
+    setApiHost(preset.apiHost);
+  };
 
   const create = useMutation({
     mutationFn: () => {
@@ -492,6 +508,29 @@ function CreateProviderForm({
         </Button>
       </div>
       <div className="grid gap-3">
+        <div>
+          <Label htmlFor="provider-preset">Provider Preset</Label>
+          <Select
+            onValueChange={(value) =>
+              applyPreset(value ?? CUSTOM_PROVIDER_PRESET_ID)
+            }
+            value={presetId}
+          >
+            <SelectTrigger
+              className="mt-1 w-full bg-background"
+              id="provider-preset"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="min-w-[220px]">
+              {PROVIDER_FORM_PRESETS.map((preset) => (
+                <SelectItem key={preset.id} value={preset.id}>
+                  {preset.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div>
           <Label htmlFor="provider-name">Provider Name</Label>
           <Input
