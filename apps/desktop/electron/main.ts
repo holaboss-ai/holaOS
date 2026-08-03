@@ -599,8 +599,10 @@ const DEV_SHELL_CSP = [
   "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: wss:",
   "worker-src 'self' blob:",
   // App surfaces are rendered in renderer iframes and resolve to local
-  // runtime ports such as http://localhost:38090 during development.
-  "frame-src 'self' http://localhost:* http://127.0.0.1:* https:",
+  // runtime ports such as http://localhost:38090 during development. `data:`
+  // is what a file preview frames a PDF from — the payload arrives as a data
+  // URL, the same way images and video already do under img-src/media-src.
+  "frame-src 'self' data: http://localhost:* http://127.0.0.1:* https:",
   "media-src 'self' data: blob: https:",
   "object-src 'none'",
   "base-uri 'self'",
