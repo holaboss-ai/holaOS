@@ -191,6 +191,15 @@ interface EnterpriseServiceModule {
   createFingerprintServiceClient(): FingerprintServiceClient;
 }
 
+// A subpath into the enterprise package that pulls ONLY the lightweight service
+// CLIENT (a `fork()` wrapper — ~2ms to load). We deliberately DON'T import the
+// package barrel here: its `createCamoufoxEngine` re-export eagerly evaluates
+// camoufox-js + exceljs + playwright (~0.5s) on the MAIN thread, which the main
+// process never needs (all that runs in the forked service). Importing the barrel
+// on a Launch click is what stalls the UI. Held in a variable so bundlers treat
+// the optional package as an external runtime import.
+const ENTERPRISE_SERVICE_MODULE_ID = "@holaboss/fingerprint-ee/service-client";
+
 let cachedService: FingerprintServiceClient | null | undefined;
 
 /**
@@ -203,7 +212,7 @@ export async function loadFingerprintService(): Promise<FingerprintServiceClient
     return cachedService;
   }
   try {
-    const mod = (await import(ENTERPRISE_MODULE_ID)) as EnterpriseServiceModule;
+    const mod = (await import(ENTERPRISE_SERVICE_MODULE_ID)) as EnterpriseServiceModule;
     cachedService =
       typeof mod.createFingerprintServiceClient === "function"
         ? mod.createFingerprintServiceClient()
