@@ -105,3 +105,99 @@ export async function loadFingerprintEngine(): Promise<FingerprintBrowserEngine 
 export function isFingerprintEngineAvailable(): boolean {
   return Boolean(cached);
 }
+
+// --- Standalone fingerprint SERVICE client ----------------------------------
+//
+// The full "fingerprint browser is its own app" surface: the enterprise engine
+// runs in its OWN process (crash-isolated, off the Electron main thread) and the
+// core drives it entirely over IPC through this client. Mirrors the enterprise
+// `FingerprintServiceClient`; structural typing keeps the two sides compatible.
+
+export interface ServicePageInfo {
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
+export interface ServiceCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  session: boolean;
+  sameSite: string;
+  expirationDate: number | null;
+}
+
+export interface ServiceKeyboardOpts {
+  action: "press" | "insert_text";
+  text?: string;
+  key?: string;
+  clear?: boolean;
+  submit?: boolean;
+}
+
+export interface FingerprintServiceClient {
+  launch(input: LaunchProfileInput): Promise<{ ok: boolean }>;
+  close(id: string): Promise<void>;
+  running(): Promise<string[]>;
+  isLive(id: string): Promise<boolean>;
+  importProfiles(bytes: Uint8Array): Promise<ImportedProfile[]>;
+  navigate(id: string, url: string, sessionId?: string | null): Promise<void>;
+  evaluate(id: string, expression: string, sessionId?: string | null): Promise<unknown>;
+  pageInfo(id: string, sessionId?: string | null): Promise<ServicePageInfo>;
+  openTab(id: string, url: string, sessionId?: string | null): Promise<ServicePageInfo>;
+  screenshot(
+    id: string,
+    options?: { fullPage?: boolean; format?: "png" | "jpeg"; quality?: number },
+    sessionId?: string | null,
+  ): Promise<Buffer>;
+  mouse(
+    id: string,
+    x: number,
+    y: number,
+    action: "click" | "double_click" | "hover" | "context",
+    sessionId?: string | null,
+  ): Promise<void>;
+  keyboard(id: string, opts: ServiceKeyboardOpts, sessionId?: string | null): Promise<void>;
+  cookies(
+    id: string,
+    filter: { url?: string; name?: string; domain?: string },
+    sessionId?: string | null,
+  ): Promise<ServiceCookie[]>;
+  setCookie(id: string, cookie: Record<string, unknown>): Promise<void>;
+  addCookies(id: string, cookies: EngineCookie[]): Promise<{ added: number }>;
+  onRunningChanged(cb: (ids: string[]) => void): void;
+  dispose(): void;
+}
+
+interface EnterpriseServiceModule {
+  createFingerprintServiceClient(): FingerprintServiceClient;
+}
+
+let cachedService: FingerprintServiceClient | null | undefined;
+
+/**
+ * Spawn (once) and return the enterprise fingerprint service, or null when the
+ * licensed package is absent (OSS builds). Cached — the service process is a
+ * singleton for the app's lifetime.
+ */
+export async function loadFingerprintService(): Promise<FingerprintServiceClient | null> {
+  if (cachedService !== undefined) {
+    return cachedService;
+  }
+  try {
+    const mod = (await import(ENTERPRISE_MODULE_ID)) as EnterpriseServiceModule;
+    cachedService =
+      typeof mod.createFingerprintServiceClient === "function"
+        ? mod.createFingerprintServiceClient()
+        : null;
+  } catch {
+    cachedService = null;
+  }
+  return cachedService;
+}

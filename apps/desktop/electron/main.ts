@@ -242,8 +242,8 @@ import {
   validateFingerprintCoherence,
 } from "./browser-pane/fingerprint.js";
 import {
-  type LaunchedProfileBrowser,
-  loadFingerprintEngine,
+  type FingerprintServiceClient,
+  loadFingerprintService,
 } from "./browser-pane/fingerprint-engine-seam.js";
 import {
   addFingerprintTemplate,
@@ -279,7 +279,6 @@ import {
   profileCdpScreenshot,
   profileCdpSetCookie,
   profileCdpTryAdopt,
-  registerProfileContext,
 } from "./profile-cdp.js";
 import type {
   BrowserProfile,
@@ -20133,28 +20132,31 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
   // control service routes its low-level ops to that real window over CDP
   // instead of the embedded Electron BrowserView.
   profileCdp: {
-    isLive: (profileId) => profileChromiumPort(profileId) !== null,
+    isLive: (profileId) =>
+      engineRunningIds.has(profileId) || profileChromiumPort(profileId) !== null,
     // Auto-launch on first drive: a browser tool targeting a not-yet-running
-    // profile spawns its real Chromium, so browsing always drives a profile
-    // window (the CDP connect retries until Chrome's debug port is listening).
-    // Land on about:blank (not HOME_URL) so the first drive CLAIMS that blank
-    // landing tab (see profile-cdp `activePage`) instead of opening a second tab
-    // and leaving a stray home page behind. Human-initiated launches (Browsers
-    // page / browser_launch_profile) still land on HOME_URL.
+    // profile spawns its real Chromium (or, for a cloak profile, starts it in the
+    // fingerprint service), so browsing always drives a profile window. Land on
+    // about:blank (not HOME_URL) so the first drive CLAIMS that blank landing tab
+    // (see profile-cdp / service `activePage`) instead of opening a second tab and
+    // leaving a stray home page behind.
     ensureLive: async (profileId) => {
       if (!isBrowserProfileId(profileId)) {
         return false;
       }
+      // Engine (cloak) profile → run through the fingerprint service.
+      if (engineRunningIds.has(profileId)) {
+        return true;
+      }
+      if (getBrowserProfile(browserProfileIndex, profileId)?.engine === "cloak") {
+        const result = await launchProfileChromium(profileId, "about:blank");
+        return result.ok && engineRunningIds.has(profileId);
+      }
       const trackedPort = profileChromiumPort(profileId);
       if (trackedPort !== null) {
-        // A SPAWNED instance we own is trustworthy — if its Chrome had died, the
-        // proc's exit would already have cleared the tracked port. But an ADOPTED
-        // instance (proc:null) counts as "running" forever, so a Chrome that has
-        // since been closed/crashed would be driven on a dead port: every call
-        // ECONNREFUSEs and the connect layer burns ~20s before failing, with no
-        // relaunch. For an adopted instance, relaunch when its port is
-        // DEFINITIVELY refused — never on a transient stall, so we don't tear
-        // down a live-but-busy browser mid-session.
+        // A SPAWNED instance we own is trustworthy. An ADOPTED instance
+        // (proc:null) counts as running forever, so relaunch only when its port is
+        // DEFINITIVELY refused — never on a transient stall.
         const instance = profileChromeInstances.get(profileId);
         const staleAdopted =
           instance?.proc === null &&
@@ -20173,6 +20175,9 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return result.ok && profileChromiumPort(profileId) !== null;
     },
     openTab: (profileId, url, sessionId) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().openTab(profileId, url, sessionId);
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -20180,6 +20185,9 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return profileCdpOpenTab(profileId, port, url, sessionId);
     },
     evaluate: (profileId, expression, sessionId) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().evaluate(profileId, expression, sessionId);
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -20187,6 +20195,9 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return profileCdpEvaluate(profileId, port, expression, sessionId);
     },
     pageInfo: (profileId, sessionId) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().pageInfo(profileId, sessionId);
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -20194,6 +20205,9 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return profileCdpPageInfo(profileId, port, sessionId);
     },
     navigate: (profileId, url, sessionId) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().navigate(profileId, url, sessionId);
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -20201,6 +20215,9 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return profileCdpNavigate(profileId, port, url, sessionId);
     },
     screenshot: (profileId, options, sessionId) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().screenshot(profileId, options, sessionId);
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -20208,6 +20225,9 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return profileCdpScreenshot(profileId, port, options, sessionId);
     },
     mouse: (profileId, x, y, action, sessionId) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().mouse(profileId, x, y, action, sessionId);
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -20215,6 +20235,9 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return profileCdpMouse(profileId, port, x, y, action, sessionId);
     },
     keyboard: (profileId, options, sessionId) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().keyboard(profileId, options, sessionId);
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -20222,6 +20245,9 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return profileCdpKeyboard(profileId, port, options, sessionId);
     },
     cookies: (profileId, filter, sessionId) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().cookies(profileId, filter, sessionId);
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -20229,6 +20255,12 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       return profileCdpCookies(profileId, port, filter, sessionId);
     },
     setCookie: (profileId, cookie) => {
+      if (engineRunningIds.has(profileId)) {
+        return fingerprintServiceOrThrow().setCookie(
+          profileId,
+          cookie as Record<string, unknown>,
+        );
+      }
       const port = profileChromiumPort(profileId);
       if (port === null) {
         throw new Error("The profile browser is not running.");
@@ -24376,21 +24408,44 @@ interface ProfileChromeInstance {
 
 const profileChromeInstances = new Map<string, ProfileChromeInstance>();
 
-// Engine-backed (`cloak`) profiles run a DIFFERENT lifecycle from the detached-
-// Chrome model above: the enterprise engine (Camoufox) owns a browser SERVER we
-// attach to over a ws endpoint (`LaunchedProfileBrowser`), so there's no spawned
-// proc and nothing to adopt by a fixed CDP port. Tracked separately; the browser
-// is registered under the profile's debug port so the SAME `profileCdp*` drive
-// path (agent + human) reaches it via `profileChromiumPort` → `connect`.
-interface EngineProfileInstance {
-  handle: LaunchedProfileBrowser;
-  port: number;
-}
-const engineProfileInstances = new Map<string, EngineProfileInstance>();
+// The fingerprint browser runs as its OWN process (see fingerprint-engine-seam
+// `loadFingerprintService`): a cloak profile's Camoufox + relay + driving all live
+// there, and the core drives it over IPC. We track the loaded client + the set of
+// running engine profiles (kept in sync by the service's `onRunningChanged`).
+let fingerprintService: FingerprintServiceClient | null = null;
+const engineRunningIds = new Set<string>();
 
-/** A cloak/engine profile is running while its persistent context is open (tracked). */
+/** Load the fingerprint service once + subscribe to its running-set changes. */
+async function ensureFingerprintService(): Promise<FingerprintServiceClient | null> {
+  if (fingerprintService) {
+    return fingerprintService;
+  }
+  const client = await loadFingerprintService();
+  if (!client) {
+    return null;
+  }
+  fingerprintService = client;
+  client.onRunningChanged((ids) => {
+    engineRunningIds.clear();
+    for (const id of ids) {
+      engineRunningIds.add(id);
+    }
+    emitProfilesRunning();
+  });
+  return client;
+}
+
+/** The loaded fingerprint service, or throw — call sites gate on `engineRunningIds`. */
+function fingerprintServiceOrThrow(): FingerprintServiceClient {
+  if (!fingerprintService) {
+    throw new Error("The fingerprint browser is not running.");
+  }
+  return fingerprintService;
+}
+
+/** A cloak/engine profile is running while the service reports it running. */
 function engineProfileRunning(profileId: string): boolean {
-  return engineProfileInstances.has(profileId);
+  return engineRunningIds.has(profileId);
 }
 
 /**
@@ -24915,13 +24970,13 @@ async function setBrowserProfileFingerprint(
  * the enterprise engine seam. Each row becomes a `cloak` profile carrying its
  * fingerprint + proxy; its cookies are staged for injection on first launch
  * (reusing the pending-cookies path). Requires the licensed engine
- * (`loadFingerprintEngine`); OSS builds return an actionable error.
+ * (`loadFingerprintService`); OSS builds return an actionable error.
  */
 async function importFingerprintBrowserProfiles(
   fileBytes: Uint8Array,
 ): Promise<{ ok: boolean; error?: string; imported: number; warnings: string[] }> {
-  const engine = await loadFingerprintEngine();
-  if (!engine) {
+  const service = await ensureFingerprintService();
+  if (!service) {
     return {
       ok: false,
       error:
@@ -24932,7 +24987,7 @@ async function importFingerprintBrowserProfiles(
   }
   let parsed;
   try {
-    parsed = await engine.importProfiles(fileBytes);
+    parsed = await service.importProfiles(fileBytes);
   } catch (error) {
     return {
       ok: false,
@@ -25017,20 +25072,19 @@ async function seedPendingImportedCookies(
 }
 
 /**
- * Launch a `cloak` profile through the enterprise fingerprint engine (Camoufox):
- * start its browser server, attach over the ws endpoint (registered under the
- * profile's debug port so the shared `profileCdp*` drive path reaches it), inject
- * any staged import cookies into the live context, and open the landing URL.
- * Tracked in `engineProfileInstances`. Reuses the running browser (opens a tab)
- * when already live; no detached proc, so no adopt-across-restart.
+ * Launch a `cloak` profile through the fingerprint SERVICE (its own process):
+ * the service starts Camoufox (persistent context) + the relay + driving; the core
+ * then injects any staged import cookies and opens the landing URL over IPC.
+ * Tracked in `engineRunningIds` (kept in sync by the service). Reuses the running
+ * browser (opens a tab) when already live.
  */
 async function launchEngineProfile(
   profileId: string,
   profile: BrowserProfile,
   url?: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const engine = await loadFingerprintEngine();
-  if (!engine) {
+  const service = await ensureFingerprintService();
+  if (!service) {
     return {
       ok: false,
       error:
@@ -25041,22 +25095,19 @@ async function launchEngineProfile(
     typeof url === "string" && url.trim() ? url.trim() : HOME_URL,
   );
 
-  // Already running: open the URL as a new tab in the existing context.
-  const live = engineProfileInstances.get(profileId);
-  if (live) {
+  // Already running (per the service): open the URL as a new tab.
+  if (engineRunningIds.has(profileId)) {
     if (typeof url === "string" && url.trim()) {
-      await profileCdpOpenTab(profileId, live.port, landingUrl).catch(() => {});
+      await service.openTab(profileId, landingUrl).catch(() => {});
     }
     return { ok: true };
   }
 
-  const port = await resolveProfileDebugPort(profileId);
   const userDataDir = profileChromeUserDataDir(profileId, "cloak");
   await fs.mkdir(userDataDir, { recursive: true });
 
-  let handle: LaunchedProfileBrowser;
   try {
-    handle = await engine.launch({
+    await service.launch({
       id: profileId,
       name: profile.name,
       fingerprint: profile.fingerprint ?? {
@@ -25073,41 +25124,23 @@ async function launchEngineProfile(
       error: `Couldn't start the fingerprint browser: ${(error as Error).message}`,
     };
   }
+  // Mark running eagerly so a drive call right after launch routes to the service
+  // (the service's runningChanged notification confirms it a beat later).
+  engineRunningIds.add(profileId);
 
-  // The engine hands us the live persistent context; register it so the whole
-  // profileCdp* drive path (agent + human) reaches it via the profile's port.
-  registerProfileContext(profileId, handle.context, port);
-  engineProfileInstances.set(profileId, { handle, port });
-  handle.context.on("close", () => {
-    if (engineProfileInstances.get(profileId)?.handle === handle) {
-      engineProfileInstances.delete(profileId);
-      void handle.close().catch(() => {});
-    }
-    // Window closed (user quit / crash) → flip the row back to Launch.
-    emitProfilesRunning();
-  });
-
-  // First launch after an import: seed the staged cookies into the context (they
-  // then persist in the profile's user_data_dir). Open the landing page in the
-  // context's initial tab.
+  // First launch after an import: seed the staged cookies into the persistent
+  // context (they then persist in the profile's user_data_dir), then open the
+  // landing page — all inside the service process.
   try {
     const pending = await readPendingImportedCookies(userDataDir);
     if (pending.length > 0) {
-      await handle.context.addCookies(pending);
+      await service.addCookies(profileId, pending);
       await clearPendingImportedCookies(userDataDir);
     }
   } catch {
     // Best-effort; leave the pending file so a later launch can retry.
   }
-  try {
-    const page =
-      handle.context.pages()[0] ?? (await handle.context.newPage());
-    await page
-      .goto(landingUrl, { waitUntil: "domcontentloaded", timeout: 30000 })
-      .catch(() => {});
-  } catch {
-    // A window with no page is still usable; the agent opens tabs on demand.
-  }
+  await service.navigate(profileId, landingUrl).catch(() => {});
 
   emitProfilesRunning();
   return { ok: true };
@@ -25246,8 +25279,8 @@ function runningProfileChromiumIds(): string[] {
       ids.push(id);
     }
   }
-  for (const id of engineProfileInstances.keys()) {
-    if (engineProfileRunning(id) && !ids.includes(id)) {
+  for (const id of engineRunningIds) {
+    if (!ids.includes(id)) {
       ids.push(id);
     }
   }
@@ -25256,10 +25289,6 @@ function runningProfileChromiumIds(): string[] {
 
 /** The remote-debugging port of a profile's LIVE Chromium, or null if not running. */
 function profileChromiumPort(profileId: string): number | null {
-  const engineInstance = engineProfileInstances.get(profileId);
-  if (engineInstance) {
-    return engineInstance.port;
-  }
   const instance = profileChromeInstances.get(profileId);
   return instance && profileChromeInstanceRunning(instance)
     ? instance.port
@@ -25401,14 +25430,12 @@ setInterval(() => {
  * during shutdown can't spawn a second instance on the same user-data-dir.
  */
 function closeProfileChromium(profileId: string): { ok: boolean } {
-  // Engine-backed (cloak) profile: drop the CDP link + close the browser server
-  // (which also tears down the proxy relay). The 'disconnected' handler clears the
-  // instance, but delete eagerly so a re-launch doesn't see a dead entry.
-  const engineInstance = engineProfileInstances.get(profileId);
-  if (engineInstance) {
-    engineProfileInstances.delete(profileId);
-    disconnectProfileCdp(profileId);
-    void engineInstance.handle.close().catch(() => {});
+  // Engine-backed (cloak) profile: the service owns the browser + relay; tell it to
+  // close. Delete eagerly so a re-launch doesn't see a stale entry (the service's
+  // runningChanged confirms).
+  if (engineRunningIds.has(profileId)) {
+    engineRunningIds.delete(profileId);
+    void fingerprintService?.close(profileId).catch(() => {});
     emitProfilesRunning();
     return { ok: true };
   }
