@@ -41,3 +41,8 @@ apps/docs/build/
 
 # Brainstorming/spec scratch — not tracked
 docs/superpowers/
+
+# Enterprise (licensed) fingerprint-browser engine — lives in a separate private
+# repo, loaded by the OSS core at runtime via the FingerprintBrowserEngine seam.
+# Kept OUT of the public repo; enterprise devs clone it into this path.
+packages/fingerprint-ee/

@@ -8,7 +8,7 @@
  * Profiles are independent of workspace, so this pane takes no workspaceId.
  * Layout mirrors the sibling panes (Projects / Automations / Channels).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BrowserNameDialog } from "@/components/panes/BrowserNameDialog";
 import { ContactSalesDialog } from "@/components/panes/ContactSalesDialog";
 import { FingerprintDialog } from "@/components/panes/FingerprintDialog";
@@ -173,6 +173,40 @@ export function ProfilesPane() {
     [refresh],
   );
 
+  // Import an AdsPower .xlsx export → fingerprint (cloak) profiles. The renderer
+  // reads the picked file to bytes; main hands them to the enterprise engine.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const handleSpreadsheetSelected = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = ""; // allow re-picking the same file later
+      if (!file || !api?.importSpreadsheet) {
+        return;
+      }
+      const bytes = await file.arrayBuffer();
+      const result = await api.importSpreadsheet(bytes);
+      if (!result.ok) {
+        setImportNote(result.error ?? "Import failed.");
+        return;
+      }
+      await refresh();
+      const extra =
+        result.warnings.length > 0
+          ? ` ${result.warnings[0]}${
+              result.warnings.length > 1
+                ? ` (+${result.warnings.length - 1} more)`
+                : ""
+            }`
+          : "";
+      setImportNote(
+        `Imported ${result.imported} profile${
+          result.imported === 1 ? "" : "s"
+        } from AdsPower.${extra}`,
+      );
+    },
+    [api, refresh],
+  );
+
   const renderAddItems = () => (
     <>
       <DropdownMenuItem
@@ -192,6 +226,15 @@ export function ProfilesPane() {
         <UploadCloud className="size-4" />
         Import from browser…
       </DropdownMenuItem>
+      {FEATURES.fingerprintBrowser ? (
+        <DropdownMenuItem
+          className="gap-2 rounded-md px-2 py-1.5 text-[13px]"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <ShieldCheck className="size-4 text-violet-500" />
+          Import from AdsPower…
+        </DropdownMenuItem>
+      ) : null}
     </>
   );
 
@@ -462,6 +505,13 @@ export function ProfilesPane() {
       <ContactSalesDialog
         open={contactSalesOpen}
         onOpenChange={setContactSalesOpen}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="hidden"
+        onChange={handleSpreadsheetSelected}
       />
     </div>
   );

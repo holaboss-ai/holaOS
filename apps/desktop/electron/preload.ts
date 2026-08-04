@@ -3080,6 +3080,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
 				"profiles:import",
 				payload,
 			) as Promise<ProfileImportResultPayload>,
+		importSpreadsheet: (fileBytes: ArrayBuffer) =>
+			ipcRenderer.invoke("profiles:importSpreadsheet", fileBytes) as Promise<{
+				ok: boolean;
+				error?: string;
+				imported: number;
+				warnings: string[];
+			}>,
 		close: (profileId: string) =>
 			ipcRenderer.invoke("profiles:close", profileId) as Promise<{
 				ok: boolean;

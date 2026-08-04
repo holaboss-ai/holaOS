@@ -3171,6 +3171,12 @@ declare global {
 			import: (
 				payload: ProfileImportRequestPayload,
 			) => Promise<ProfileImportResultPayload>;
+			importSpreadsheet: (fileBytes: ArrayBuffer) => Promise<{
+				ok: boolean;
+				error?: string;
+				imported: number;
+				warnings: string[];
+			}>;
 			close: (profileId: string) => Promise<{ ok: boolean }>;
 			runningIds: () => Promise<string[]>;
 			setEngine: (

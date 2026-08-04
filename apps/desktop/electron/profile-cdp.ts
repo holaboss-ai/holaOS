@@ -20,13 +20,19 @@
  */
 import {
   type Browser,
+  type BrowserContext,
   chromium,
   type CDPSession,
   type Page,
 } from "playwright-core";
 
 interface ProfileConnection {
-  browser: Browser;
+  // A chromium profile connects to a `browser` (over CDP) and drives its default
+  // context. An engine (`cloak`) profile is driven through a PERSISTENT `context`
+  // launched in-process (Camoufox/Firefox) — a persistent context has no parent
+  // Browser (`context.browser()` is null), so exactly one of these is set.
+  browser: Browser | null;
+  context: BrowserContext | null;
   port: number;
   cdpByPage: WeakMap<Page, CDPSession>;
   // Per-agent tab isolation: each agent SESSION driving this profile gets its
@@ -59,7 +65,11 @@ function bindSessionPage(profileId: string, key: string, page: Page): void {
 /** Connect to (or reuse a connection to) a profile's Chromium debugging port. */
 async function connect(profileId: string, port: number): Promise<Browser> {
   const existing = connections.get(profileId);
-  if (existing && existing.port === port && existing.browser.isConnected()) {
+  if (
+    existing?.browser &&
+    existing.port === port &&
+    existing.browser.isConnected()
+  ) {
     return existing.browser;
   }
   if (existing) {
@@ -75,6 +85,7 @@ async function connect(profileId: string, port: number): Promise<Browser> {
       const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
       connections.set(profileId, {
         browser,
+        context: null,
         port,
         cdpByPage: new WeakMap(),
         pageBySession: new Map(),
@@ -98,6 +109,56 @@ async function connect(profileId: string, port: number): Promise<Browser> {
 }
 
 /**
+ * Register an engine-launched PERSISTENT context (a `cloak` profile's Camoufox
+ * Firefox context, launched in-process with a `user_data_dir` so cookies/logins
+ * persist) under a profile's connection slot, so the whole drive path (navigate /
+ * cookies / screenshot / input via the `profileCdp*` fns) works against it
+ * UNCHANGED — they resolve through `resolveContext(profileId, port)`, which
+ * returns this context once registered. A persistent context has no parent
+ * Browser, so it IS the drive unit. `port` is the profile's stable debug port,
+ * reused purely as the connection key so `profileChromiumPort` round-trips back.
+ */
+export function registerProfileContext(
+  profileId: string,
+  context: BrowserContext,
+  port: number,
+): void {
+  const existing = connections.get(profileId);
+  if (existing) {
+    connections.delete(profileId);
+  }
+  connections.set(profileId, {
+    browser: null,
+    context,
+    port,
+    cdpByPage: new WeakMap(),
+    pageBySession: new Map(),
+  });
+  context.on("close", () => {
+    if (connections.get(profileId)?.context === context) {
+      connections.delete(profileId);
+    }
+  });
+}
+
+/**
+ * The BrowserContext a caller drives: the engine's registered persistent context
+ * if present, else the default context of the profile's connected Chromium
+ * (connecting to the debug port on demand).
+ */
+async function resolveContext(
+  profileId: string,
+  port: number,
+): Promise<BrowserContext> {
+  const existing = connections.get(profileId);
+  if (existing?.context) {
+    return existing.context;
+  }
+  const browser = await connect(profileId, port);
+  return browser.contexts()[0] ?? (await browser.newContext());
+}
+
+/**
  * Try to adopt a Chrome ALREADY reachable on `port` for this profile — e.g. one
  * that survived an app restart (our spawns are detached). A single quick attempt
  * (no retry): the caller only wants to know "is one already listening?" so it can
@@ -109,7 +170,11 @@ export async function profileCdpTryAdopt(
   port: number,
 ): Promise<boolean> {
   const existing = connections.get(profileId);
-  if (existing && existing.port === port && existing.browser.isConnected()) {
+  if (
+    existing?.browser &&
+    existing.port === port &&
+    existing.browser.isConnected()
+  ) {
     return true;
   }
   try {
@@ -121,6 +186,7 @@ export async function profileCdpTryAdopt(
     }
     connections.set(profileId, {
       browser,
+      context: null,
       port,
       cdpByPage: new WeakMap(),
       pageBySession: new Map(),
@@ -167,8 +233,7 @@ async function activePage(
   port: number,
   sessionId?: string | null,
 ): Promise<Page> {
-  const browser = await connect(profileId, port);
-  const context = browser.contexts()[0] ?? (await browser.newContext());
+  const context = await resolveContext(profileId, port);
   const connection = connections.get(profileId);
   const live = context.pages().filter((page) => !page.isClosed());
 
@@ -298,8 +363,7 @@ export async function profileCdpOpenTab(
   url: string,
   sessionId?: string | null,
 ): Promise<ProfileCdpPageInfo> {
-  const browser = await connect(profileId, port);
-  const context = browser.contexts()[0] ?? (await browser.newContext());
+  const context = await resolveContext(profileId, port);
   const page = await context.newPage();
   // The agent moved to a new tab: make it this session's active page so
   // subsequent ops act on it (and it stays isolated from other agents).
@@ -429,11 +493,7 @@ export async function profileCdpCookies(
   filter: { url?: string; name?: string; domain?: string },
   sessionId?: string | null,
 ): Promise<ProfileCdpCookie[]> {
-  const browser = await connect(profileId, port);
-  const context = browser.contexts()[0];
-  if (!context) {
-    return [];
-  }
+  const context = await resolveContext(profileId, port);
   let url = filter.url?.trim() ?? "";
   if (!url) {
     try {
@@ -491,8 +551,7 @@ export async function profileCdpSetCookie(
     expires?: number;
   },
 ): Promise<void> {
-  const browser = await connect(profileId, port);
-  const context = browser.contexts()[0] ?? (await browser.newContext());
+  const context = await resolveContext(profileId, port);
   await context.addCookies([
     {
       name: cookie.name,
@@ -534,8 +593,7 @@ export async function profileCdpAddCookies(
   if (cookies.length === 0) {
     return { added: 0, failed: 0 };
   }
-  const browser = await connect(profileId, port);
-  const context = browser.contexts()[0] ?? (await browser.newContext());
+  const context = await resolveContext(profileId, port);
   let added = 0;
   let failed = 0;
   // addCookies is all-or-nothing per call, so add one at a time — a single
@@ -573,6 +631,11 @@ export function disconnectProfileCdp(profileId: string): void {
   const existing = connections.get(profileId);
   if (existing) {
     connections.delete(profileId);
-    void existing.browser.close().catch(() => undefined);
+    // Chromium: close the CDP connection. Engine (persistent context): the context
+    // is owned by the engine handle (closed via closeProfileChromium), so only drop
+    // the connection here — don't close the context out from under the handle.
+    if (existing.browser) {
+      void existing.browser.close().catch(() => undefined);
+    }
   }
 }
