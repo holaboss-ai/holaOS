@@ -346,6 +346,11 @@ const verboseTelemetryEnabled =
 const chromiumStderrLoggingEnabled =
   process.env.HOLABOSS_CHROMIUM_STDERR_LOGS?.trim() === "1";
 const HOME_URL = "https://www.google.com";
+// A fingerprint (anti-detect) profile lands here on a plain human Launch, so you
+// immediately see how the identity presents — IP/WebRTC/DNS leaks, timezone
+// coherence, canvas/WebGL, bot detection. Overridable per launch (a named URL) and
+// skipped for agent auto-launches (they land on about:blank to claim the tab).
+const FINGERPRINT_DEFAULT_LANDING_URL = "https://www.browserscan.net";
 const AUTH_POPUP_WIDTH = 380;
 const AUTH_POPUP_HEIGHT = 460;
 const AUTH_POPUP_CLOSE_DELAY_MS = 260;
@@ -25017,8 +25022,12 @@ async function launchEngineProfile(
         "The fingerprint browser is an enterprise feature and isn't available in this build.",
     };
   }
+  // A named URL wins (agent drive / open-tab); a plain human Launch lands on the
+  // leak-check page so the identity is verifiable the moment the browser opens.
   const landingUrl = safeChromiumPositionalUrl(
-    typeof url === "string" && url.trim() ? url.trim() : HOME_URL,
+    typeof url === "string" && url.trim()
+      ? url.trim()
+      : FINGERPRINT_DEFAULT_LANDING_URL,
   );
 
   // Already running (per the service): open the URL as a new tab.
