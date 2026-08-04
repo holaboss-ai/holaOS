@@ -154,7 +154,8 @@ export interface ServiceKeyboardOpts {
 }
 
 export interface FingerprintServiceClient {
-  launch(input: LaunchProfileInput): Promise<{ ok: boolean }>;
+  /** `restoredTabs` = how many previous-session tabs the service reopened. */
+  launch(input: LaunchProfileInput): Promise<{ ok: boolean; restoredTabs?: number }>;
   close(id: string): Promise<void>;
   running(): Promise<string[]>;
   isLive(id: string): Promise<boolean>;

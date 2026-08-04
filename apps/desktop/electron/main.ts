@@ -25027,18 +25027,16 @@ async function launchEngineProfile(
         "The fingerprint browser is an enterprise feature and isn't available in this build.",
     };
   }
-  // A named URL wins (agent drive / open-tab); a plain human Launch lands on the
-  // leak-check page so the identity is verifiable the moment the browser opens.
-  const landingUrl = safeChromiumPositionalUrl(
+  // A caller-named URL (agent drive / open-tab) always wins over restore/landing.
+  const namedUrl =
     typeof url === "string" && url.trim()
-      ? url.trim()
-      : FINGERPRINT_DEFAULT_LANDING_URL,
-  );
+      ? safeChromiumPositionalUrl(url.trim())
+      : null;
 
-  // Already running (per the service): open the URL as a new tab.
+  // Already running (per the service): open the named URL as a new tab.
   if (engineRunningIds.has(profileId)) {
-    if (typeof url === "string" && url.trim()) {
-      await service.openTab(profileId, landingUrl).catch(() => {});
+    if (namedUrl) {
+      await service.openTab(profileId, namedUrl).catch(() => {});
     }
     return { ok: true };
   }
@@ -25046,8 +25044,9 @@ async function launchEngineProfile(
   const userDataDir = profileChromeUserDataDir(profileId, "fingerprint");
   await fs.mkdir(userDataDir, { recursive: true });
 
+  let launchResult: { ok: boolean; restoredTabs?: number };
   try {
-    await service.launch({
+    launchResult = await service.launch({
       id: profileId,
       name: profile.name,
       fingerprint: profile.fingerprint ?? {
@@ -25084,7 +25083,16 @@ async function launchEngineProfile(
   } catch {
     // Best-effort; leave the pending file so a later launch can retry.
   }
-  await service.navigate(profileId, landingUrl).catch(() => {});
+  // Where to land: a named URL wins; otherwise the service has already reopened
+  // the previous session's tabs — only fall back to the leak-check page when there
+  // was nothing to restore (a brand-new profile).
+  if (namedUrl) {
+    await service.navigate(profileId, namedUrl).catch(() => {});
+  } else if (!launchResult.restoredTabs) {
+    await service
+      .navigate(profileId, safeChromiumPositionalUrl(FINGERPRINT_DEFAULT_LANDING_URL))
+      .catch(() => {});
+  }
 
   emitProfilesRunning();
   return { ok: true };
