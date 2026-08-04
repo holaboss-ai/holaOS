@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   ChevronDown,
+  Loader2,
   Pencil,
   Plus,
   ShieldCheck,
@@ -73,6 +74,10 @@ export function ProfilesPane() {
   const [importOpen, setImportOpen] = useState(false);
   const [importNote, setImportNote] = useState<string | null>(null);
   const [running, setRunning] = useState<ReadonlySet<string>>(new Set());
+  // Profiles whose browser is starting but not yet live — the window can take a
+  // couple seconds to appear (fingerprint engine cold-start), so the Launch button
+  // shows a spinner in the gap between click and the pushed `running` update.
+  const [launching, setLaunching] = useState<ReadonlySet<string>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<Profile | null>(null);
   const [fingerprintProfile, setFingerprintProfile] = useState<Profile | null>(
     null,
@@ -139,6 +144,34 @@ export function ProfilesPane() {
     [api],
   );
 
+  // Launch a profile with a live "Launching…" state on its card, so there's clear
+  // feedback while the browser starts (the window can take a beat to appear). The
+  // pushed `running` update flips the button to Close once it's actually live.
+  const beginLaunch = useCallback(
+    async (id: string, url?: string) => {
+      if (!api) {
+        return;
+      }
+      setLaunchError(null);
+      setLaunching((prev) => new Set(prev).add(id));
+      try {
+        const result = await api.launch(id, url);
+        setLaunchError(
+          result && !result.ok ? (result.error ?? "Failed to launch.") : null,
+        );
+      } catch (error) {
+        setLaunchError((error as Error)?.message ?? "Failed to launch.");
+      } finally {
+        setLaunching((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+    },
+    [api],
+  );
+
   const toggleLaunch = useCallback(
     async (id: string) => {
       if (!api) {
@@ -148,12 +181,9 @@ export function ProfilesPane() {
         await api.close(id);
         return;
       }
-      const result = await api.launch(id);
-      setLaunchError(
-        result && !result.ok ? (result.error ?? "Failed to launch.") : null,
-      );
+      await beginLaunch(id);
     },
-    [api, running],
+    [api, running, beginLaunch],
   );
 
   const onImported = useCallback(
@@ -297,6 +327,7 @@ export function ProfilesPane() {
               const isPermanent = profile.id === DEFAULT_PROFILE_ID;
               const isDefault = profile.isDefault ?? false;
               const isRunning = running.has(profile.id);
+              const isLaunching = launching.has(profile.id);
               return (
                 <div
                   key={profile.id}
@@ -344,10 +375,20 @@ export function ProfilesPane() {
                       type="button"
                       size="sm"
                       variant={isRunning ? "outline" : "default"}
-                      className="h-7 px-2.5 text-xs"
+                      className="h-7 gap-1.5 px-2.5 text-xs"
+                      disabled={isLaunching}
                       onClick={() => void toggleLaunch(profile.id)}
                     >
-                      {isRunning ? "Close" : "Launch"}
+                      {isLaunching ? (
+                        <>
+                          <Loader2 className="size-3.5 animate-spin" />
+                          Launching…
+                        </>
+                      ) : isRunning ? (
+                        "Close"
+                      ) : (
+                        "Launch"
+                      )}
                     </Button>
                     <div className="flex items-center gap-1.5">
                       {isRunning ? (
@@ -491,15 +532,7 @@ export function ProfilesPane() {
         profile={fingerprintProfile}
         onSaved={(next) => setProfiles(next)}
         onTest={(profileId) => {
-          void api
-            ?.launch(profileId, "https://browserscan.net")
-            .then((result) =>
-              setLaunchError(
-                result && !result.ok
-                  ? (result.error ?? "Failed to launch.")
-                  : null,
-              ),
-            );
+          void beginLaunch(profileId, "https://browserscan.net");
         }}
       />
       <ContactSalesDialog
