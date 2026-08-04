@@ -73,9 +73,12 @@ export function normalizeBrowserProfileIndex(raw: unknown): BrowserProfileIndex 
     const source: BrowserProfileSource =
       candidate.source === "imported" ? "imported" : "created";
     const engine =
-      candidate.engine === "cloak" || candidate.engine === "system"
-        ? candidate.engine
-        : undefined;
+      // Persisted data may carry the legacy CloakBrowser-era value — migrate it.
+      (candidate.engine as string) === "cloak"
+        ? "fingerprint"
+        : candidate.engine === "fingerprint" || candidate.engine === "system"
+          ? candidate.engine
+          : undefined;
     // Re-validate on load: a persisted fingerprint/proxy is untrusted input too.
     const fingerprint = candidate.fingerprint
       ? coerceFingerprint(candidate.fingerprint)

@@ -258,7 +258,8 @@ test("normalizeBrowserProfileIndex preserves engine/fingerprint/proxy and saniti
     ],
   });
   const p = getBrowserProfile(normalized, idA);
-  assert.equal(p?.engine, "cloak");
+  // The legacy CloakBrowser-era "cloak" value migrates to "fingerprint" on load.
+  assert.equal(p?.engine, "fingerprint");
   assert.equal(p?.fingerprint?.seed, 42069);
   assert.equal(p?.fingerprint?.brand, "Chrome");
   assert.equal(p?.fingerprint?.gpuVendor, undefined); // sanitized out

@@ -317,13 +317,13 @@ export function ProfilesPane() {
                             Default
                           </span>
                         ) : null}
-                        {profile.engine === "cloak" ? (
+                        {profile.engine === "fingerprint" ? (
                           <span
                             className="inline-flex shrink-0 items-center gap-0.5 rounded bg-violet-500/15 px-1.5 py-0.5 font-medium text-[10px] text-violet-600 dark:text-violet-400"
-                            title="Fingerprint-spoofed (CloakBrowser) identity"
+                            title="Anti-detect fingerprint identity"
                           >
                             <ShieldCheck className="size-2.5" />
-                            Cloak
+                            Fingerprint
                           </span>
                         ) : null}
                       </div>

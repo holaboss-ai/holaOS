@@ -254,7 +254,7 @@ interface BrowserProfilePayload {
 	createdAt: string;
 	source: string;
 	importedFrom?: string;
-	engine?: "system" | "cloak";
+	engine?: "system" | "fingerprint";
 	fingerprint?: FingerprintPayload;
 	proxy?: ProfileProxyPayload;
 }
@@ -3093,7 +3093,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 			}>,
 		runningIds: () =>
 			ipcRenderer.invoke("profiles:runningIds") as Promise<string[]>,
-		setEngine: (profileId: string, engine: "system" | "cloak") =>
+		setEngine: (profileId: string, engine: "system" | "fingerprint") =>
 			ipcRenderer.invoke("profiles:setEngine", profileId, engine) as Promise<
 				BrowserProfilePayload[]
 			>,

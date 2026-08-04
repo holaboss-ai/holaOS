@@ -20148,7 +20148,7 @@ const browserHttpService: BrowserHttpService = createBrowserHttpService({
       if (engineRunningIds.has(profileId)) {
         return true;
       }
-      if (getBrowserProfile(browserProfileIndex, profileId)?.engine === "cloak") {
+      if (getBrowserProfile(browserProfileIndex, profileId)?.engine === "fingerprint") {
         const result = await launchProfileChromium(profileId, "about:blank");
         return result.ok && engineRunningIds.has(profileId);
       }
@@ -24741,7 +24741,7 @@ function profileChromeUserDataDir(
     // newer system Chrome stamped — Chromium SIGTRAPs on the version downgrade.
     // The two engines' cookies are encrypted differently anyway (§8: cloak = a
     // fresh identity), so separate dirs are correct, not just a crash workaround.
-    engine === "cloak" ? "cloak" : "chrome",
+    engine === "fingerprint" ? "fingerprint" : "chrome",
   );
 }
 
@@ -24869,7 +24869,7 @@ function resolveCloakBinary(): string | null {
 
 /** The browser binary for a profile: Cloak for `cloak`, else system Chrome. */
 function resolveProfileBrowserBinary(profile: BrowserProfile | null): string | null {
-  if (profile?.engine === "cloak") {
+  if (profile?.engine === "fingerprint") {
     return resolveCloakBinary();
   }
   return findChromiumBinary(profile ? profileLaunchFamily(profile.id) : null);
@@ -24920,7 +24920,7 @@ async function setBrowserProfileEngine(
       p.id === profileId ? { ...p, engine } : p,
     ),
   };
-  if (engine === "cloak") {
+  if (engine === "fingerprint") {
     browserProfileIndex = ensureProfileFingerprint(
       browserProfileIndex,
       profileId,
@@ -24955,7 +24955,7 @@ async function setBrowserProfileFingerprint(
     profile.fingerprint?.platform ??
     hostFingerprintPlatform();
   const fingerprint: ProfileFingerprint = { ...value, seed, platform };
-  const updated: BrowserProfile = { ...profile, engine: "cloak", fingerprint };
+  const updated: BrowserProfile = { ...profile, engine: "fingerprint", fingerprint };
   browserProfileIndex = {
     ...browserProfileIndex,
     profiles: browserProfileIndex.profiles.map((p) =>
@@ -25022,7 +25022,7 @@ async function importFingerprintBrowserProfiles(
       ...browserProfileIndex,
       profiles: browserProfileIndex.profiles.map((p) =>
         p.id === id
-          ? { ...p, engine: "cloak", fingerprint, ...(proxy ? { proxy } : {}) }
+          ? { ...p, engine: "fingerprint", fingerprint, ...(proxy ? { proxy } : {}) }
           : p,
       ),
     };
@@ -25031,7 +25031,7 @@ async function importFingerprintBrowserProfiles(
     // is structurally the pending `TransferableCookie` shape.
     if (entry.cookies.length > 0) {
       await writePendingImportedCookies(
-        profileChromeUserDataDir(id, "cloak"),
+        profileChromeUserDataDir(id, "fingerprint"),
         entry.cookies,
       );
     }
@@ -25103,7 +25103,7 @@ async function launchEngineProfile(
     return { ok: true };
   }
 
-  const userDataDir = profileChromeUserDataDir(profileId, "cloak");
+  const userDataDir = profileChromeUserDataDir(profileId, "fingerprint");
   await fs.mkdir(userDataDir, { recursive: true });
 
   try {
@@ -25153,10 +25153,10 @@ async function launchProfileChromium(
   const profile = getBrowserProfile(browserProfileIndex, profileId);
   // `cloak` profiles run through the enterprise fingerprint engine (Camoufox),
   // not the detached-Chrome path below.
-  if (profile && profile.engine === "cloak") {
+  if (profile && profile.engine === "fingerprint") {
     return launchEngineProfile(profileId, profile, url);
   }
-  const isCloak = profile?.engine === "cloak";
+  const isCloak = profile?.engine === "fingerprint";
   const binary = resolveProfileBrowserBinary(profile);
   if (!binary) {
     return {
@@ -26663,7 +26663,7 @@ app.whenReady().then(async () => {
     async (_event, profileId: string, engine: ProfileEngine) => {
       await setBrowserProfileEngine(
         profileId,
-        engine === "cloak" ? "cloak" : "system",
+        engine === "fingerprint" ? "fingerprint" : "system",
       );
       return listBrowserProfilePayloads();
     },

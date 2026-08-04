@@ -143,12 +143,12 @@ export interface BrowserProfile {
    */
   debugPort?: number;
   /**
-   * Which browser binary drives this profile: `system` = the OS Chrome/Edge/…
-   * (default, keeps real logins), `cloak` = the CloakBrowser stealth binary that
-   * spoofs `fingerprint`. See docs/cdp/fingerprint-profiles.md.
+   * Which engine drives this profile: `system` = the OS Chrome/Edge/… (default,
+   * keeps real logins), `fingerprint` = the enterprise anti-detect engine
+   * (Camoufox, run out-of-process) that spoofs `fingerprint`.
    */
   engine?: ProfileEngine;
-  /** The spoofed fingerprint for a `cloak` profile (ignored when `system`). */
+  /** The spoofed fingerprint for a `fingerprint` profile (ignored when `system`). */
   fingerprint?: ProfileFingerprint;
   /** Per-profile network identity (proxy), independent of the fingerprint. */
   proxy?: ProfileProxy;
@@ -160,8 +160,8 @@ export interface BrowserProfile {
   isDefault?: boolean;
 }
 
-/** The browser binary that drives a profile. */
-export type ProfileEngine = "system" | "cloak";
+/** The engine that drives a profile. */
+export type ProfileEngine = "system" | "fingerprint";
 
 /** OS a fingerprint presents as (`--fingerprint-platform`). */
 export type FingerprintPlatform = "windows" | "macos" | "linux";

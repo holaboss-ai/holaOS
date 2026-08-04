@@ -373,7 +373,7 @@ declare global {
 		createdAt: string;
 		source: string;
 		importedFrom?: string;
-		engine?: "system" | "cloak";
+		engine?: "system" | "fingerprint";
 		fingerprint?: FingerprintPayload;
 		proxy?: ProfileProxyPayload;
 		/** True for the pinned default browser the agent drives when none is named. */
@@ -3181,7 +3181,7 @@ declare global {
 			runningIds: () => Promise<string[]>;
 			setEngine: (
 				profileId: string,
-				engine: "system" | "cloak",
+				engine: "system" | "fingerprint",
 			) => Promise<BrowserProfilePayload[]>;
 			setFingerprint: (
 				profileId: string,

@@ -1,6 +1,6 @@
 /**
  * Fingerprint editor — turns a Browser Profile into an AdsPower-style anti-detect
- * identity. Toggle the engine (system Chrome ⇄ CloakBrowser stealth), edit the
+ * identity. Toggle the engine (system Chrome ⇄ Fingerprint), edit the
  * spoofed fingerprint (platform / seed / GPU / hardware / screen / locale) and
  * per-profile proxy, with a live flag preview + coherence warnings from main.
  * See docs/cdp/fingerprint-profiles.md §5.
@@ -11,7 +11,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { RefreshCw, ShieldCheck, X } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
 
-type Engine = "system" | "cloak";
+type Engine = "system" | "fingerprint";
 type Draft = FingerprintPayload;
 
 const PLATFORMS: FingerprintPayload["platform"][] = ["windows", "macos", "linux"];
@@ -77,7 +77,7 @@ export function FingerprintDialog({
   // Seed the form each time the dialog opens.
   useEffect(() => {
     if (open && profile) {
-      setEngine(profile.engine === "cloak" ? "cloak" : "system");
+      setEngine(profile.engine === "fingerprint" ? "fingerprint" : "system");
       setFp(profile.fingerprint ?? { seed: randomSeed(), platform: "windows" });
       setSaving(false);
     }
@@ -95,7 +95,7 @@ export function FingerprintDialog({
 
   // Live preview (flags + coherence) as the draft changes — computed by main.
   useEffect(() => {
-    if (!open || engine !== "cloak" || !api) {
+    if (!open || engine !== "fingerprint" || !api) {
       setPreview({ args: [], warnings: [] });
       return;
     }
@@ -130,7 +130,7 @@ export function FingerprintDialog({
     if (!api) {
       return null;
     }
-    return engine === "cloak"
+    return engine === "fingerprint"
       ? api.setFingerprint(profile.id, fp)
       : api.setEngine(profile.id, "system");
   };
@@ -249,13 +249,13 @@ export function FingerprintDialog({
             {/* Engine toggle */}
             <div className="mb-5 flex items-center gap-1 rounded-lg bg-fg-2 p-1">
               {engineButton("system", "System Chrome")}
-              {engineButton("cloak", "Cloak (fingerprinted)")}
+              {engineButton("fingerprint", "Fingerprint")}
             </div>
 
             {engine === "system" ? (
               <p className="rounded-lg border border-border bg-fg-2 px-3 py-2.5 text-muted-foreground text-sm">
                 This profile launches your installed Chrome with real logins and
-                no spoofing. Switch to <strong>Cloak</strong> to give it a
+                no spoofing. Switch to <strong>Fingerprint</strong> to give it a
                 distinct, detection-resistant fingerprint (a fresh identity —
                 sign in inside it).
               </p>
@@ -560,7 +560,7 @@ export function FingerprintDialog({
             <Button
               type="button"
               variant="ghost"
-              disabled={engine !== "cloak" || saving}
+              disabled={engine !== "fingerprint" || saving}
               onClick={() => void commit(true)}
               title="Save & open browserscan.net in this profile"
             >
