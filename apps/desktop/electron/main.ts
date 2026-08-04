@@ -234,7 +234,6 @@ import {
   setDefaultBrowserProfile,
 } from "./browser-pane/profile-store.js";
 import {
-  buildFingerprintArgs,
   FINGERPRINT_SEED_MAX,
   FINGERPRINT_SEED_MIN,
   sanitizeFingerprint,
@@ -24802,14 +24801,13 @@ async function openUrlInProfileWindow(
   }
 }
 
-// --- Fingerprint (cloak) engine plumbing ------------------------------------
-// A `cloak` profile spawns the CloakBrowser stealth binary (instead of system
-// Chrome) with the profile's persisted fingerprint as `--fingerprint-*` flags,
-// then drives it over CDP exactly like a `system` profile. See
-// docs/cdp/fingerprint-profiles.md.
+// --- Fingerprint identity helpers -------------------------------------------
+// `fingerprint`-engine profiles run OUT-OF-PROCESS in the fingerprint service
+// (see launchEngineProfile). Only these small seed helpers, used when creating /
+// backfilling a profile's identity, live here.
 
-/** The fingerprint platform to seed a new cloak profile with — the host OS, so
- *  we never spoof Windows-on-Mac by default (a font/GPU mismatch tell). */
+/** The fingerprint platform to seed a new profile with — the host OS, so we never
+ *  spoof Windows-on-Mac by default (a font/GPU mismatch tell). */
 function hostFingerprintPlatform(): FingerprintPlatform {
   if (process.platform === "win32") {
     return "windows";
@@ -24825,81 +24823,9 @@ function randomFingerprintSeed(): number {
   return FINGERPRINT_SEED_MIN + Math.floor(Math.random() * span);
 }
 
-/** The stealth executable inside a `~/.cloakbrowser/chromium-<ver>` dir. */
-function cloakExecutableInDir(dir: string): string {
-  if (process.platform === "darwin") {
-    return path.join(dir, "Chromium.app", "Contents", "MacOS", "Chromium");
-  }
-  if (process.platform === "win32") {
-    return path.join(dir, "chrome.exe");
-  }
-  return path.join(dir, "chrome");
-}
-
-/**
- * Resolve the CloakBrowser stealth-Chromium binary: an explicit
- * `CLOAKBROWSER_BINARY_PATH` override, else the newest managed binary under
- * `~/.cloakbrowser/chromium-*` (downloaded by the cloakbrowser CLI). Null when
- * none is installed — the launcher surfaces an actionable error.
- */
-function resolveCloakBinary(): string | null {
-  const override = process.env.CLOAKBROWSER_BINARY_PATH;
-  if (override && existsSync(override)) {
-    return override;
-  }
-  const cacheDir = path.join(os.homedir(), ".cloakbrowser");
-  let entries: string[];
-  try {
-    entries = readdirSync(cacheDir);
-  } catch {
-    return null;
-  }
-  const dirs = entries
-    .filter((d) => d.startsWith("chromium-"))
-    .sort()
-    .reverse(); // newest version dir first
-  for (const d of dirs) {
-    const bin = cloakExecutableInDir(path.join(cacheDir, d));
-    if (existsSync(bin)) {
-      return bin;
-    }
-  }
-  return null;
-}
-
-/** The browser binary for a profile: Cloak for `cloak`, else system Chrome. */
+/** The browser binary for a (system) profile — the OS Chrome/Chromium/Edge/Brave. */
 function resolveProfileBrowserBinary(profile: BrowserProfile | null): string | null {
-  if (profile?.engine === "fingerprint") {
-    return resolveCloakBinary();
-  }
   return findChromiumBinary(profile ? profileLaunchFamily(profile.id) : null);
-}
-
-/**
- * Fingerprint (+ proxy) spawn args for a cloak profile. Seeds a stable
- * fingerprint on first launch (host platform; the user can re-spoof in the UI),
- * persisting it so the identity is a returning one.
- */
-async function ensureCloakFingerprintArgs(profileId: string): Promise<string[]> {
-  let profile = getBrowserProfile(browserProfileIndex, profileId);
-  if (profile && !profile.fingerprint) {
-    browserProfileIndex = ensureProfileFingerprint(
-      browserProfileIndex,
-      profileId,
-      randomFingerprintSeed(),
-      hostFingerprintPlatform(),
-    );
-    await saveBrowserProfiles();
-    profile = getBrowserProfile(browserProfileIndex, profileId);
-  }
-  if (!profile?.fingerprint) {
-    return [];
-  }
-  const args = buildFingerprintArgs(profile.fingerprint);
-  if (profile.proxy?.server) {
-    args.push(`--proxy-server=${profile.proxy.server}`);
-  }
-  return args;
 }
 
 /**
@@ -25156,18 +25082,14 @@ async function launchProfileChromium(
   if (profile && profile.engine === "fingerprint") {
     return launchEngineProfile(profileId, profile, url);
   }
-  const isCloak = profile?.engine === "fingerprint";
   const binary = resolveProfileBrowserBinary(profile);
   if (!binary) {
     return {
       ok: false,
-      error: isCloak
-        ? "CloakBrowser stealth binary not found. Set CLOAKBROWSER_BINARY_PATH, or install it (see docs/cdp/fingerprint-profiles.md)."
-        : "No Chrome / Chromium / Edge / Brave found. Install Google Chrome to use browser profiles.",
+      error:
+        "No Chrome / Chromium / Edge / Brave found. Install Google Chrome to use browser profiles.",
     };
   }
-  // A cloak profile spawns with its persisted fingerprint (seeded on first use).
-  const stealthArgs = isCloak ? await ensureCloakFingerprintArgs(profileId) : [];
   const userDataDir = profileChromeUserDataDir(profileId, profile?.engine);
   await fs.mkdir(userDataDir, { recursive: true });
   // Security: reject non-http(s)/about landing URLs and dash-prefixed argv
@@ -25235,7 +25157,6 @@ async function launchProfileChromium(
       `--remote-debugging-port=${port}`,
       "--no-first-run",
       "--no-default-browser-check",
-      ...stealthArgs,
       "--new-window",
       // `--` terminates flag parsing so the (validated) URL can never be read
       // as a Chromium flag.
@@ -26655,8 +26576,8 @@ app.whenReady().then(async () => {
       return importFingerprintBrowserProfiles(bytes);
     },
   );
-  // Opt a profile into the CloakBrowser fingerprint engine (or back to system
-  // Chrome). Switching to `cloak` seeds a fingerprint so the next launch spoofs.
+  // Opt a profile into the fingerprint (anti-detect) engine, or back to system
+  // Chrome. Switching seeds a fingerprint so the next launch spoofs.
   handleTrustedIpc(
     "profiles:setEngine",
     ["main"],
@@ -26676,8 +26597,8 @@ app.whenReady().then(async () => {
       return listBrowserProfilePayloads();
     },
   );
-  // Preview the flags + coherence warnings for an in-progress fingerprint edit
-  // (the editor's live preview) — pure, persists nothing.
+  // Coherence warnings for an in-progress fingerprint edit (the editor's live
+  // check) — pure, persists nothing.
   handleTrustedIpc(
     "profiles:previewFingerprint",
     ["main"],
@@ -26688,10 +26609,7 @@ app.whenReady().then(async () => {
         seed: typeof value.seed === "number" ? value.seed : FINGERPRINT_SEED_MIN,
         platform: value.platform ?? "windows",
       };
-      return {
-        args: buildFingerprintArgs(fingerprint),
-        warnings: validateFingerprintCoherence(fingerprint),
-      };
+      return { warnings: validateFingerprintCoherence(fingerprint) };
     },
   );
   // Fingerprint templates: built-in presets + user-saved/imported, reusable

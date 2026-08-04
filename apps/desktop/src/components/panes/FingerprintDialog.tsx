@@ -8,7 +8,7 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useCallback, useEffect, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { RefreshCw, ShieldCheck, X } from "@/components/ui/icons";
+import { RefreshCw, X } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
 
 type Engine = "system" | "fingerprint";
@@ -61,8 +61,7 @@ export function FingerprintDialog({
   const api = window.electronAPI?.profiles;
   const [engine, setEngine] = useState<Engine>("system");
   const [fp, setFp] = useState<Draft>({ seed: randomSeed(), platform: "windows" });
-  const [preview, setPreview] = useState<{ args: string[]; warnings: string[] }>({
-    args: [],
+  const [preview, setPreview] = useState<{ warnings: string[] }>({
     warnings: [],
   });
   const [saving, setSaving] = useState(false);
@@ -93,10 +92,10 @@ export function FingerprintDialog({
     }
   }, [open, tapi]);
 
-  // Live preview (flags + coherence) as the draft changes — computed by main.
+  // Live coherence check as the draft changes — computed by main.
   useEffect(() => {
     if (!open || engine !== "fingerprint" || !api) {
-      setPreview({ args: [], warnings: [] });
+      setPreview({ warnings: [] });
       return;
     }
     let cancelled = false;
@@ -541,17 +540,6 @@ export function FingerprintDialog({
                   />
                   Canvas / WebGL / audio noise (recommended)
                 </label>
-
-                {/* Preview */}
-                <div className="rounded-lg border border-border bg-fg-2 px-3 py-2">
-                  <div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-                    <ShieldCheck className="size-3.5" />
-                    {preview.args.length} launch flags
-                  </div>
-                  <code className="mt-1 block max-h-16 overflow-y-auto break-all font-mono text-[11px] text-muted-foreground leading-relaxed">
-                    {preview.args.join(" ")}
-                  </code>
-                </div>
               </div>
             )}
           </div>

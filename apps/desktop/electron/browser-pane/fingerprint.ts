@@ -1,15 +1,14 @@
 /**
- * Pure fingerprint logic for `cloak`-engine Browser Profiles.
+ * Pure fingerprint logic for `fingerprint`-engine Browser Profiles.
  *
- * Leaf-level (no electron, no fs, no clock) so it's unit-testable and shared by
- * the launcher (main.ts turns a fingerprint into `--fingerprint-*` flags) and,
- * later, the renderer's flag preview. See docs/cdp/fingerprint-profiles.md.
+ * Leaf-level (no electron, no fs, no clock) so it's unit-testable — the sanitize
+ * gate + the coherence check, shared by the import/edit paths and the editor.
  *
- * SECURITY: every fingerprint field is interpolated into a browser command-line
- * flag. `sanitizeFingerprint` is the mandatory gate on ALL set-paths (import,
- * paste, adapter, manual edit) — key-whitelist + enum + range-clamp + charset +
- * length caps — so an untrusted template can never inject a flag or a
- * pathological value. `buildFingerprintArgs` assumes it was given sanitized data.
+ * SECURITY: every fingerprint field eventually reaches the fingerprint engine
+ * (Camoufox config, applied out-of-process). `sanitizeFingerprint` is the
+ * mandatory gate on ALL set-paths (import, paste, adapter, manual edit) —
+ * key-whitelist + enum + range-clamp + charset + length caps — so an untrusted
+ * template can never inject a pathological value.
  */
 import type {
   FingerprintBrand,
@@ -29,48 +28,6 @@ const BRANDS: readonly FingerprintBrand[] = [
   "Opera",
   "Vivaldi",
 ];
-
-// --- Flag builder -----------------------------------------------------------
-
-/**
- * Materialise a (sanitized) fingerprint into CloakBrowser stealth flags. Omitted
- * fields fall through to seed-derived binary defaults. `--fingerprint` +
- * `--fingerprint-platform` are the baseline.
- *
- * We deliberately do NOT emit `--no-sandbox` (CloakBrowser's Docker/Linux-root
- * default): on a headed desktop it shows an "unsupported command-line flag"
- * infobar, disables the sandbox, and is itself a bot tell — the exact opposite of
- * what a stealth browser wants. The binary runs sandboxed fine on macOS/Windows.
- */
-export function buildFingerprintArgs(fp: ProfileFingerprint): string[] {
-  const args = [
-    `--fingerprint=${fp.seed}`,
-    `--fingerprint-platform=${fp.platform}`,
-  ];
-  const push = (flag: string, value: unknown) => {
-    if (value !== undefined && value !== "") {
-      args.push(`${flag}=${value}`);
-    }
-  };
-  push("--fingerprint-gpu-vendor", fp.gpuVendor);
-  push("--fingerprint-gpu-renderer", fp.gpuRenderer);
-  push("--fingerprint-hardware-concurrency", fp.hardwareConcurrency);
-  push("--fingerprint-device-memory", fp.deviceMemory);
-  push("--fingerprint-screen-width", fp.screenWidth);
-  push("--fingerprint-screen-height", fp.screenHeight);
-  push("--fingerprint-brand", fp.brand);
-  push("--fingerprint-brand-version", fp.brandVersion);
-  push("--fingerprint-platform-version", fp.platformVersion);
-  push("--fingerprint-timezone", fp.timezone);
-  push("--fingerprint-locale", fp.locale);
-  push("--fingerprint-storage-quota", fp.storageQuota);
-  push("--fingerprint-fonts-dir", fp.fontsDir);
-  push("--fingerprint-webrtc-ip", fp.webrtcIp);
-  if (fp.noise === false) {
-    args.push("--fingerprint-noise=false");
-  }
-  return args;
-}
 
 /** A minimal fingerprint: just an identity seed + a platform. */
 export function defaultFingerprint(

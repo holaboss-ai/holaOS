@@ -2,10 +2,10 @@
  * Built-in fingerprint preset library — the "pick a realistic device" gallery.
  *
  * Each preset is a COHERENT device profile (platform ↔ typical hardware/screen ↔
- * brand), deliberately WITHOUT a pinned GPU or seed: the CloakBrowser binary
- * derives a coherent GPU from platform + the profile's own seed, and each profile
- * keeps its own seed (its returning identity). `createdAt` is empty — these are
- * static, not user-created. See docs/cdp/fingerprint-profiles.md §2.3.
+ * brand), deliberately WITHOUT a pinned GPU or seed: the fingerprint engine derives
+ * a coherent GPU from platform + the profile's own seed, and each profile keeps its
+ * own seed (its returning identity). `createdAt` is empty — these are static, not
+ * user-created.
  */
 import type { FingerprintTemplate } from "../../shared/browser-pane-protocol.js";
 

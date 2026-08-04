@@ -3189,7 +3189,7 @@ declare global {
 			) => Promise<BrowserProfilePayload[]>;
 			previewFingerprint: (
 				fingerprint: FingerprintPayload,
-			) => Promise<{ args: string[]; warnings: string[] }>;
+			) => Promise<{ warnings: string[] }>;
 			onRunningChange: (listener: (runningIds: string[]) => void) => () => void;
 		};
 		fingerprintTemplates: {

@@ -1,10 +1,10 @@
 /**
- * Contact Sales gate for the fingerprint (cloak) Browser Profiles engine.
+ * Contact Sales gate for the fingerprint Browser Profiles engine.
  *
  * Shown instead of the fingerprint editor when `FEATURES.fingerprintBrowser` is
- * off (the default) — the anti-detect engine needs the OEM-licensed CloakBrowser
- * binary, so it's positioned as an Enterprise capability. The primary CTA opens
- * the sales URL in the user's default browser.
+ * off (the default) — the anti-detect engine is the licensed
+ * `@holaboss/fingerprint-ee` package, loaded at runtime, so it's positioned as an
+ * Enterprise capability. The primary CTA opens the sales URL in the default browser.
  */
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Button, buttonVariants } from "@/components/ui/button";

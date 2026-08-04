@@ -3107,7 +3107,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 			ipcRenderer.invoke(
 				"profiles:previewFingerprint",
 				fingerprint,
-			) as Promise<{ args: string[]; warnings: string[] }>,
+			) as Promise<{ warnings: string[] }>,
 		onRunningChange: (listener: (runningIds: string[]) => void) => {
 			const wrapped = (
 				_event: Electron.IpcRendererEvent,

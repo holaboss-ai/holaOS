@@ -170,12 +170,11 @@ export type FingerprintPlatform = "windows" | "macos" | "linux";
 export type FingerprintBrand = "Chrome" | "Edge" | "Opera" | "Vivaldi";
 
 /**
- * A spoofed browser fingerprint, materialised into CloakBrowser `--fingerprint-*`
- * flags by `browser-pane/fingerprint` `buildFingerprintArgs`. `seed` is the
- * master identity (canvas/WebGL/audio noise derive from it deterministically);
- * the optional fields explicitly override individual seed-derived values. Every
- * field is validated before it becomes a command-line flag (untrusted-import
- * safety) — see `sanitizeFingerprint`.
+ * A spoofed browser fingerprint, materialised into the fingerprint engine's config
+ * (Camoufox, applied out-of-process). `seed` is the master identity (canvas/WebGL/
+ * audio noise derive from it deterministically); the optional fields explicitly
+ * override individual seed-derived values. Every field is validated on all
+ * set-paths (untrusted-import safety) — see `sanitizeFingerprint`.
  */
 export interface ProfileFingerprint {
   /** Master seed → returning identity. Stable per profile (10000–99999). */

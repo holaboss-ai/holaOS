@@ -3,44 +3,12 @@ import { test } from "node:test";
 
 import type { ProfileFingerprint } from "../../shared/browser-pane-protocol.js";
 import {
-  buildFingerprintArgs,
   coerceFingerprint,
   defaultFingerprint,
   sanitizeFingerprint,
   sanitizeProxy,
   validateFingerprintCoherence,
 } from "./fingerprint.js";
-
-test("buildFingerprintArgs emits the baseline + explicit overrides, omits undefined", () => {
-  const args = buildFingerprintArgs({
-    seed: 12345,
-    platform: "windows",
-    gpuVendor: "Google Inc. (NVIDIA)",
-    hardwareConcurrency: 8,
-  });
-  // No --no-sandbox: it shows a desktop infobar + is a bot tell (dropped on purpose).
-  assert.ok(!args.includes("--no-sandbox"));
-  assert.ok(args.includes("--fingerprint=12345"));
-  assert.ok(args.includes("--fingerprint-platform=windows"));
-  assert.ok(args.includes("--fingerprint-gpu-vendor=Google Inc. (NVIDIA)"));
-  assert.ok(args.includes("--fingerprint-hardware-concurrency=8"));
-  // Unset fields produce no flag.
-  assert.ok(!args.some((a) => a.startsWith("--fingerprint-device-memory")));
-  assert.ok(!args.some((a) => a.startsWith("--fingerprint-locale")));
-});
-
-test("buildFingerprintArgs only adds the noise flag when noise === false", () => {
-  assert.ok(
-    buildFingerprintArgs({ seed: 1_0000, platform: "macos", noise: false }).includes(
-      "--fingerprint-noise=false",
-    ),
-  );
-  assert.ok(
-    !buildFingerprintArgs({ seed: 1_0000, platform: "macos", noise: true }).some(
-      (a) => a.startsWith("--fingerprint-noise"),
-    ),
-  );
-});
 
 test("sanitizeFingerprint keeps well-formed fields", () => {
   const { value, warnings } = sanitizeFingerprint({
