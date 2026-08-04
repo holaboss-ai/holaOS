@@ -49,6 +49,17 @@ export interface EngineBinaryStatus {
   error?: string;
 }
 
+/**
+ * Host-product branding for the shared browser bundle (dock name + app icon). The
+ * OSS core supplies the identity; the engine stamps it onto the Camoufox.app so a
+ * launched profile presents as the product, not "Camoufox". (Product owns the
+ * brand policy; the engine owns the mechanism.)
+ */
+export interface BundleBranding {
+  name?: string;
+  icnsPath?: string;
+}
+
 export interface LaunchProfileInput {
   id: string;
   name: string;
@@ -56,6 +67,7 @@ export interface LaunchProfileInput {
   proxy?: ProfileProxy | null;
   headless?: boolean;
   userDataDir?: string;
+  branding?: BundleBranding;
 }
 
 export interface LaunchedProfileBrowser {

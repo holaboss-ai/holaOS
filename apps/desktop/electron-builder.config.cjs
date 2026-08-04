@@ -141,6 +141,12 @@ const extraResources = [
     to: "icon.png"
   },
   {
+    // Handed to the fingerprint engine to re-icon the Camoufox.app bundle so a
+    // launched profile shows the holaOS icon (see fingerprintBrandIconPath).
+    from: "resources/icon.icns",
+    to: "icon.icns"
+  },
+  {
     from: "electron/blank-templates",
     to: "blank-templates"
   },

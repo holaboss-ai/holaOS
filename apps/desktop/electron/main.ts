@@ -351,6 +351,11 @@ const HOME_URL = "https://www.google.com";
 // coherence, canvas/WebGL, bot detection. Overridable per launch (a named URL) and
 // skipped for agent auto-launches (they land on about:blank to claim the tab).
 const FINGERPRINT_DEFAULT_LANDING_URL = "https://www.browserscan.net";
+// A launched fingerprint profile presents as the host product (not "Camoufox") in
+// the macOS dock / menu bar — the engine stamps this name + icon onto the shared
+// Camoufox.app bundle (see @holaboss/fingerprint-ee brand.ts). One constant to
+// change if we ever want a distinct browser sub-brand (e.g. "holaOS Browser").
+const FINGERPRINT_BROWSER_BRAND_NAME = "holaOS";
 const AUTH_POPUP_WIDTH = 380;
 const AUTH_POPUP_HEIGHT = 460;
 const AUTH_POPUP_CLOSE_DELAY_MS = 260;
@@ -25052,6 +25057,10 @@ async function launchEngineProfile(
       proxy: profile.proxy ?? null,
       headless: false,
       userDataDir,
+      branding: {
+        name: FINGERPRINT_BROWSER_BRAND_NAME,
+        icnsPath: fingerprintBrandIconPath(),
+      },
     });
   } catch (error) {
     return {
@@ -25868,6 +25877,15 @@ function desktopAppIconPath(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, "icon.png")
     : path.join(__dirname, "..", "..", "resources", "icon.png");
+}
+
+// The `.icns` handed to the fingerprint engine to re-icon the Camoufox.app bundle
+// (the dock icon of a launched profile). Bundled to `process.resourcesPath` via
+// electron-builder `extraResources`; the repo copy in dev.
+function fingerprintBrandIconPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "icon.icns")
+    : path.join(__dirname, "..", "..", "resources", "icon.icns");
 }
 
 function desktopStatusItemIconPath(): string {
