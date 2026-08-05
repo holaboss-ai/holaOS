@@ -3177,6 +3177,7 @@ declare global {
 				imported: number;
 				warnings: string[];
 			}>;
+			fingerprintAvailable: () => Promise<boolean>;
 			close: (profileId: string) => Promise<{ ok: boolean }>;
 			runningIds: () => Promise<string[]>;
 			setEngine: (

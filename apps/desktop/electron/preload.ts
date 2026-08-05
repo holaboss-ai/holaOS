@@ -3087,6 +3087,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 				imported: number;
 				warnings: string[];
 			}>,
+		fingerprintAvailable: () =>
+			ipcRenderer.invoke("profiles:fingerprintAvailable") as Promise<boolean>,
 		close: (profileId: string) =>
 			ipcRenderer.invoke("profiles:close", profileId) as Promise<{
 				ok: boolean;

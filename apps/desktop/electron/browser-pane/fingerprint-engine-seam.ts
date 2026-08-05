@@ -8,10 +8,22 @@
  * null and callers fall back to the Contact-Sales flow. Nothing here depends on the
  * enterprise package at build time.
  *
- * Build note: the import specifier is held in a variable so bundlers don't try to
- * resolve it statically (which would break the OSS build where it's absent). The
- * main-process bundler must treat `@holaboss/fingerprint-ee` as external/optional.
+ * Two ways the engine attaches (both optional; absent → Contact Sales):
+ *   1. BUILD-TIME — the package present in `node_modules` (bare specifier below).
+ *   2. RUNTIME PLUGIN — a self-contained prebuilt engine bundle (its `dist/` plus
+ *      its `node_modules/`) dropped into `<userData>/fingerprint-ee/` (or the dir
+ *      named by `$HOLABOSS_FINGERPRINT_ENGINE_PATH`), loaded by ABSOLUTE PATH. This
+ *      lets an already-released OSS app gain the feature with NO rebuild.
+ *
+ * Build note: the bare specifier is held in a variable so bundlers don't resolve it
+ * statically (it's absent in OSS builds); treat `@holaboss/fingerprint-ee` as
+ * external/optional.
  */
+import { app } from "electron";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
 import type { BrowserContext } from "playwright-core";
 
 import type {
@@ -92,23 +104,66 @@ interface EnterpriseModule {
 
 const ENTERPRISE_MODULE_ID = "@holaboss/fingerprint-ee";
 
+// --- Runtime plugin path -----------------------------------------------------
+//
+// A drop-in engine bundle for an already-released app lives at:
+//     <dir>/dist/index.js  +  <dir>/dist/service-client.js
+// with the engine's own `node_modules/` beside `dist/` (self-contained, so the
+// forked service child — a plain node process — resolves camoufox-js/etc. there).
+// `dir` = $HOLABOSS_FINGERPRINT_ENGINE_PATH or `<userData>/fingerprint-ee`.
+
+function pluginEngineDir(): string | null {
+  const override = process.env.HOLABOSS_FINGERPRINT_ENGINE_PATH?.trim();
+  if (override) {
+    return override;
+  }
+  try {
+    return path.join(app.getPath("userData"), "fingerprint-ee");
+  } catch {
+    return null; // Electron app not ready yet — no userData path
+  }
+}
+
+/** Absolute path to a built entry in the plugin bundle, if the file exists. */
+function pluginEntry(name: "index" | "service-client"): string | null {
+  const dir = pluginEngineDir();
+  if (!dir) {
+    return null;
+  }
+  const abs = path.join(dir, "dist", `${name}.js`);
+  return existsSync(abs) ? abs : null;
+}
+
 let cached: FingerprintBrowserEngine | null | undefined;
 
 /**
- * Load the enterprise engine if the licensed package is present, else null.
- * Cached after the first call (including the null result, so OSS builds don't
- * retry the import on every profile action).
+ * Load the enterprise engine — from `node_modules` (build-time attach) OR a runtime
+ * plugin drop-in — else null. Cached (incl. the null, so OSS builds don't retry).
  */
 export async function loadFingerprintEngine(): Promise<FingerprintBrowserEngine | null> {
   if (cached !== undefined) {
     return cached;
   }
+  cached = null;
   try {
-    const mod = (await import(ENTERPRISE_MODULE_ID)) as EnterpriseModule;
-    cached = typeof mod.createCamoufoxEngine === "function" ? mod.createCamoufoxEngine() : null;
+    const mod = (await import(ENTERPRISE_MODULE_ID)) as EnterpriseModule; // build-time attach
+    if (typeof mod.createCamoufoxEngine === "function") {
+      cached = mod.createCamoufoxEngine();
+      return cached;
+    }
   } catch {
-    // Absent (OSS build) or failed to load → feature is off; caller shows Contact Sales.
-    cached = null;
+    // not in node_modules — fall through to the runtime plugin path
+  }
+  const entry = pluginEntry("index");
+  if (entry) {
+    try {
+      const mod = (await import(pathToFileURL(entry).href)) as EnterpriseModule;
+      if (typeof mod.createCamoufoxEngine === "function") {
+        cached = mod.createCamoufoxEngine();
+      }
+    } catch {
+      // a bundle is present but failed to load → leave the feature off
+    }
   }
   return cached;
 }
@@ -116,6 +171,15 @@ export async function loadFingerprintEngine(): Promise<FingerprintBrowserEngine 
 /** True when a licensed engine is loaded — gate main-process feature paths on this. */
 export function isFingerprintEngineAvailable(): boolean {
   return Boolean(cached);
+}
+
+/**
+ * Cheap synchronous check for the renderer's UI gate: is an engine ATTACHED —
+ * already loaded, or a plugin drop-in present on disk? No heavy import. (A build-
+ * time attach is surfaced instead by the build-time `FEATURES.fingerprintBrowser`.)
+ */
+export function isFingerprintEnginePresent(): boolean {
+  return Boolean(cached) || pluginEntry("index") !== null;
 }
 
 // --- Standalone fingerprint SERVICE client ----------------------------------
@@ -212,14 +276,26 @@ export async function loadFingerprintService(): Promise<FingerprintServiceClient
   if (cachedService !== undefined) {
     return cachedService;
   }
+  cachedService = null;
   try {
-    const mod = (await import(ENTERPRISE_SERVICE_MODULE_ID)) as EnterpriseServiceModule;
-    cachedService =
-      typeof mod.createFingerprintServiceClient === "function"
-        ? mod.createFingerprintServiceClient()
-        : null;
+    const mod = (await import(ENTERPRISE_SERVICE_MODULE_ID)) as EnterpriseServiceModule; // build-time
+    if (typeof mod.createFingerprintServiceClient === "function") {
+      cachedService = mod.createFingerprintServiceClient();
+      return cachedService;
+    }
   } catch {
-    cachedService = null;
+    // not in node_modules — fall through to the runtime plugin path
+  }
+  const entry = pluginEntry("service-client");
+  if (entry) {
+    try {
+      const mod = (await import(pathToFileURL(entry).href)) as EnterpriseServiceModule;
+      if (typeof mod.createFingerprintServiceClient === "function") {
+        cachedService = mod.createFingerprintServiceClient();
+      }
+    } catch {
+      // a bundle is present but failed to load
+    }
   }
   return cachedService;
 }

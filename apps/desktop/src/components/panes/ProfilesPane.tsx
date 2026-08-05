@@ -83,6 +83,13 @@ export function ProfilesPane() {
     null,
   );
   const [contactSalesOpen, setContactSalesOpen] = useState(false);
+  // The fingerprint feature shows when the engine is ATTACHED: the build-time flag,
+  // OR a runtime plugin drop-in (main reports the latter via fingerprintAvailable).
+  // This is what lets a released OSS app light up the feature when the engine is
+  // dropped into <userData>/fingerprint-ee — no rebuild.
+  const [engineAvailable, setEngineAvailable] = useState(
+    FEATURES.fingerprintBrowser,
+  );
 
   const refresh = useCallback(async () => {
     if (!api) {
@@ -105,6 +112,18 @@ export function ProfilesPane() {
     }
     void api.runningIds().then((ids) => setRunning(new Set(ids)));
     return api.onRunningChange((ids) => setRunning(new Set(ids)));
+  }, [api]);
+
+  // Detect a runtime engine plugin drop-in (skip if the build flag already enables it).
+  useEffect(() => {
+    if (FEATURES.fingerprintBrowser || !api?.fingerprintAvailable) {
+      return;
+    }
+    void api.fingerprintAvailable().then((ok) => {
+      if (ok) {
+        setEngineAvailable(true);
+      }
+    });
   }, [api]);
 
   const handleCreate = useCallback(
@@ -256,7 +275,7 @@ export function ProfilesPane() {
         <UploadCloud className="size-4" />
         Import from browser…
       </DropdownMenuItem>
-      {FEATURES.fingerprintBrowser ? (
+      {engineAvailable ? (
         <DropdownMenuItem
           className="gap-2 rounded-md px-2 py-1.5 text-[13px]"
           onClick={() => fileInputRef.current?.click()}
@@ -274,7 +293,7 @@ export function ProfilesPane() {
         title="Browsers"
         actions={
           <>
-            {FEATURES.fingerprintBrowser ? null : (
+            {engineAvailable ? null : (
               <Button
                 type="button"
                 size="sm"
@@ -412,7 +431,7 @@ export function ProfilesPane() {
                           <Star className="size-3.5" />
                         </Button>
                       )}
-                      {FEATURES.fingerprintBrowser ? (
+                      {engineAvailable ? (
                         <Button
                           type="button"
                           size="sm"

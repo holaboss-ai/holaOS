@@ -242,6 +242,7 @@ import {
 } from "./browser-pane/fingerprint.js";
 import {
   type FingerprintServiceClient,
+  isFingerprintEnginePresent,
   loadFingerprintService,
 } from "./browser-pane/fingerprint-engine-seam.js";
 import {
@@ -26610,6 +26611,13 @@ app.whenReady().then(async () => {
         fileBytes instanceof Uint8Array ? fileBytes : new Uint8Array(fileBytes);
       return importFingerprintBrowserProfiles(bytes);
     },
+  );
+  // Runtime engine presence for the renderer's feature gate: true when an engine is
+  // attached — build-time in node_modules, or a runtime plugin drop-in under
+  // <userData>/fingerprint-ee. Lets a released OSS app light up the fingerprint UI
+  // when the engine is dropped in, without needing the build-time flag.
+  handleTrustedIpc("profiles:fingerprintAvailable", ["main"], async () =>
+    isFingerprintEnginePresent(),
   );
   // Opt a profile into the fingerprint (anti-detect) engine, or back to system
   // Chrome. Switching seeds a fingerprint so the next launch spoofs.
