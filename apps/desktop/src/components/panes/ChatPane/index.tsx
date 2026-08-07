@@ -285,6 +285,19 @@ export {
   ConversationTurns,
 };
 
+/** A model's identity without the provider that serves it. Only the leading
+ *  segment goes: `holaboss_model_proxy/qwen/qwen3.7-plus` is the qwen3.7-plus of
+ *  the qwen family, and dropping more than the provider would merge two models
+ *  that only share a suffix. */
+function modelIdentity(token: string): string {
+  const trimmed = token.trim().toLowerCase();
+  const slash = trimmed.indexOf("/");
+  if (slash <= 0 || slash === trimmed.length - 1) {
+    return trimmed;
+  }
+  return trimmed.slice(slash + 1);
+}
+
 function sessionUserId(
   session: { user?: { id?: string | null } | null } | null | undefined,
 ): string {
@@ -9652,8 +9665,18 @@ export function ChatPane({
       onChatModelRequestConsumed?.(chatModelRequest.requestKey);
       return;
     }
-    if (availableChatModelOptions.some((o) => o.value === wanted)) {
-      applyComposerModelSelection(wanted);
+    const exact = availableChatModelOptions.find((o) => o.value === wanted);
+    // Same model, different route: a sharer on OpenAI natively writes
+    // `openai/gpt-5.4-mini` where a reader holding it through the proxy has
+    // `holaboss_model_proxy/gpt-5.4-mini`. Falling through to the default would
+    // reproduce the post on a different model entirely.
+    const sameModel =
+      exact ??
+      availableChatModelOptions.find(
+        (o) => modelIdentity(o.value) === modelIdentity(wanted),
+      );
+    if (sameModel) {
+      applyComposerModelSelection(sameModel.value);
     } else {
       // Falling back silently would let someone believe they reproduced
       // something on the model it was made with.
