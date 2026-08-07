@@ -12,7 +12,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-function displayThinkingValueLabel(value: string) {
+export function displayThinkingValueLabel(value: string) {
   const normalizedValue = value.trim().toLowerCase();
   if (!normalizedValue) {
     return "Thinking";

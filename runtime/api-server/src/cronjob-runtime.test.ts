@@ -152,3 +152,66 @@ test("fireCronjob records the fired session id on the cronjob", () => {
     store.close();
   }
 });
+
+test("fireCronjob pins the automation's reasoning effort onto the run", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "hb-cronjob-runtime-"));
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  try {
+    const workspace = seedWorkspaceRecord(store);
+    const cronjob = store.createCronjob({
+      workspaceId: workspace.id,
+      initiatedBy: "desktop_user",
+      name: "Deep recap",
+      cron: "0 9 * * 1",
+      description: "Deep recap",
+      instruction: "Write a thorough recap.",
+      delivery: { mode: "announce", channel: "session_run", to: null },
+      // Pinned model + reasoning effort, as the desktop dialogs persist them.
+      metadata: { selected_model: "claude-sonnet-4-6", thinking_value: "high" },
+    });
+
+    const fired = fireCronjob({ store, workspace, cronjob });
+
+    const input = store.getInput({
+      workspaceId: workspace.id,
+      inputId: fired.inputId,
+    });
+    assert.equal(input?.payload?.model, "claude-sonnet-4-6");
+    assert.equal(input?.payload?.thinking_value, "high");
+  } finally {
+    store.close();
+  }
+});
+
+test("fireCronjob leaves thinking_value null when the automation pins none", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "hb-cronjob-runtime-"));
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  try {
+    const workspace = seedWorkspaceRecord(store);
+    const cronjob = store.createCronjob({
+      workspaceId: workspace.id,
+      initiatedBy: "desktop_user",
+      name: "Plain recap",
+      cron: "0 9 * * 1",
+      description: "Plain recap",
+      instruction: "Write a recap.",
+      delivery: { mode: "announce", channel: "session_run", to: null },
+    });
+
+    const fired = fireCronjob({ store, workspace, cronjob });
+
+    const input = store.getInput({
+      workspaceId: workspace.id,
+      inputId: fired.inputId,
+    });
+    assert.equal(input?.payload?.thinking_value, null);
+  } finally {
+    store.close();
+  }
+});

@@ -3,7 +3,9 @@ import { test } from "node:test";
 
 import {
   automationModelChoiceForHarness,
+  automationThinkingChoiceForModel,
   reconcileAutomationModel,
+  reconcileAutomationThinkingValue,
 } from "./automationModelOptions.js";
 
 // Minimal harness inventory: pi has no namespace (uses the runtime catalogue),
@@ -86,5 +88,107 @@ test("reconcile keeps a valid pin, else falls back to harness default / null", (
   assert.equal(
     reconcileAutomationModel({ model: "deepseek/deepseek-v4-pro", choice: pi }),
     "deepseek/deepseek-v4-pro",
+  );
+});
+
+// A runtime provider group carrying explicit thinking metadata for a model.
+const PROVIDER_GROUPS = [
+  {
+    providerId: "holaboss_model_proxy",
+    providerLabel: "Holaboss",
+    kind: "backend",
+    models: [
+      {
+        token: "claude-sonnet-4-6",
+        modelId: "claude-sonnet-4-6",
+        reasoning: true,
+        thinkingValues: ["low", "medium", "high", "medium"], // dup on purpose
+        defaultThinkingValue: "medium",
+      },
+      {
+        token: "deepseek/deepseek-v4-pro",
+        modelId: "deepseek-v4-pro",
+        reasoning: false,
+        thinkingValues: [],
+      },
+    ],
+  },
+  // biome-ignore lint/suspicious/noExplicitAny: test double for the global payload type.
+] as any;
+
+test("thinking choice reads a configured model's effort levels (deduped)", () => {
+  const choice = automationThinkingChoiceForModel({
+    model: "claude-sonnet-4-6",
+    providerModelGroups: PROVIDER_GROUPS,
+  });
+  assert.deepEqual(choice.thinkingValues, ["low", "medium", "high"]);
+  assert.equal(choice.defaultThinkingValue, "medium");
+});
+
+test("thinking choice is empty for a non-reasoning model", () => {
+  const choice = automationThinkingChoiceForModel({
+    model: "deepseek/deepseek-v4-pro",
+    providerModelGroups: PROVIDER_GROUPS,
+  });
+  assert.deepEqual(choice.thinkingValues, []);
+  assert.equal(choice.defaultThinkingValue, null);
+});
+
+test("thinking choice falls back to the bundled catalogue for a known model", () => {
+  // gpt-5.4 isn't in PROVIDER_GROUPS but ships in the local model catalogue.
+  const choice = automationThinkingChoiceForModel({
+    model: "gpt-5.4",
+    providerModelGroups: PROVIDER_GROUPS,
+  });
+  assert.ok(choice.thinkingValues.includes("medium"));
+  assert.equal(choice.defaultThinkingValue, "medium");
+});
+
+test("thinking choice resolves the workspace default model when none is pinned", () => {
+  // model=null + a pi default model => the picker reflects the default's effort.
+  const choice = automationThinkingChoiceForModel({
+    model: null,
+    providerModelGroups: PROVIDER_GROUPS,
+    defaultModel: "claude-sonnet-4-6",
+  });
+  assert.deepEqual(choice.thinkingValues, ["low", "medium", "high"]);
+});
+
+test("thinking choice is empty when the model is unknown / absent", () => {
+  assert.deepEqual(
+    automationThinkingChoiceForModel({
+      model: "some/unknown-model",
+      providerModelGroups: PROVIDER_GROUPS,
+    }),
+    { thinkingValues: [], defaultThinkingValue: null },
+  );
+  assert.deepEqual(
+    automationThinkingChoiceForModel({
+      model: null,
+      providerModelGroups: PROVIDER_GROUPS,
+    }),
+    { thinkingValues: [], defaultThinkingValue: null },
+  );
+});
+
+test("reconcile keeps a still-offered effort, else drops to the model default", () => {
+  const choice = automationThinkingChoiceForModel({
+    model: "claude-sonnet-4-6",
+    providerModelGroups: PROVIDER_GROUPS,
+  });
+  // A pin the model still offers is kept.
+  assert.equal(
+    reconcileAutomationThinkingValue({ thinkingValue: "high", choice }),
+    "high",
+  );
+  // A pin the model no longer offers drops to null = "model default".
+  assert.equal(
+    reconcileAutomationThinkingValue({ thinkingValue: "xhigh", choice }),
+    null,
+  );
+  // Null stays null.
+  assert.equal(
+    reconcileAutomationThinkingValue({ thinkingValue: null, choice }),
+    null,
   );
 });

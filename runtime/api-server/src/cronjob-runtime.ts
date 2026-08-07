@@ -144,6 +144,14 @@ export function fireCronjob(params: {
     typeof pinnedModel === "string" && pinnedModel.trim()
       ? pinnedModel.trim()
       : null;
+  // The automation's pinned reasoning effort lives in metadata.thinking_value
+  // (written by the desktop's automation dialogs, same key read back there).
+  // Null => follow the model's own default effort.
+  const pinnedThinking = cronjob.metadata.thinking_value;
+  const thinkingValue =
+    typeof pinnedThinking === "string" && pinnedThinking.trim()
+      ? pinnedThinking.trim()
+      : null;
   const input = store.enqueueInput({
     workspaceId: workspace.id,
     sessionId,
@@ -152,7 +160,7 @@ export function fireCronjob(params: {
       attachments: [],
       image_urls: [],
       model,
-      thinking_value: null,
+      thinking_value: thinkingValue,
       context: {
         cronjob_id: cronjob.id,
         triggered_by: params.triggeredBy?.trim() || "cron_worker",

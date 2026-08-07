@@ -16,11 +16,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ModelCatalogRefreshButton } from "@/components/model/ModelCatalogRefreshButton";
 import { displayModelLabel } from "@/components/panes/ChatPane/helpers";
+import { displayThinkingValueLabel } from "@/components/panes/ChatPane/Composer/ThinkingValueSelect";
 import { useChatComposerModelSelection } from "@/lib/chat/useChatComposerModelSelection";
+import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import {
   automationModelChoiceForHarness,
+  automationThinkingChoiceForModel,
   reconcileAutomationModel,
+  reconcileAutomationThinkingValue,
 } from "./automationModelOptions";
 import { SchedulePicker } from "./AutomationsPaneInlineEditors";
 
@@ -40,6 +45,9 @@ export interface ManualAutomationDraft {
   /** Model pinned for the automation's runs (persisted as
    *  metadata.selected_model), or null to follow the workspace default. */
   model: string | null;
+  /** Reasoning effort pinned for the automation's runs (persisted as
+   *  metadata.thinking_value), or null to follow the model's default. */
+  thinkingValue: string | null;
 }
 
 interface ManualAutomationDialogProps {
@@ -59,6 +67,9 @@ const DEFAULT_CRON = "0 9 * * *"; // every day at 09:00
 // Sentinel <Select> value for "no pinned model → workspace default" (Select
 // can't hold null/empty).
 const MODEL_WORKSPACE_DEFAULT = "__workspace_default__";
+
+// Sentinel <Select> value for "no pinned reasoning effort → model default".
+const THINKING_MODEL_DEFAULT = "__model_default__";
 
 /**
  * Manual "New automation" builder — name + instruction + schedule + delivery,
@@ -118,12 +129,16 @@ function ManualAutomationForm({
     initialDraft?.projectId ?? null,
   );
   const [model, setModel] = useState<string | null>(initialDraft?.model ?? null);
+  const [thinkingValue, setThinkingValue] = useState<string | null>(
+    initialDraft?.thinkingValue ?? null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { harnesses, isLoading: harnessesLoading } =
     useAvailableHarnesses(workspaceId);
   const { projects } = useWorkspaceProjects(workspaceId);
+  const { runtimeConfig } = useWorkspaceDesktop();
   const { availableChatModelOptions, runtimeDefaultModelLabel } =
     useChatComposerModelSelection();
   // Models are scoped to the selected agent: pi/Hola uses the runtime catalogue
@@ -146,8 +161,24 @@ function ManualAutomationForm({
   const modelNotInCatalog =
     model !== null && !modelChoice.options.some((option) => option.value === model);
 
+  // Reasoning-effort levels for the pinned (or default) model. A CLI-namespace
+  // harness doesn't declare per-model effort, so pass no default fallback there
+  // — the field stays hidden. Recomputes whenever the model/agent changes.
+  const providerModelGroups = runtimeConfig?.providerModelGroups ?? [];
+  const thinkingChoiceFor = (nextModel: string | null, namespace: boolean) =>
+    automationThinkingChoiceForModel({
+      model: nextModel,
+      providerModelGroups,
+      defaultModel: namespace ? null : (runtimeConfig?.defaultModel ?? null),
+    });
+  const thinkingChoice = thinkingChoiceFor(
+    model,
+    modelChoice.usesHarnessNamespace,
+  );
+
   // Switching the agent re-scopes the model list; drop a now-invalid pin to the
-  // new agent's default (or workspace default for pi).
+  // new agent's default (or workspace default for pi), then reconcile the
+  // reasoning-effort pin against the resulting model.
   const handleHarnessChange = (nextHarness: string) => {
     setHarness(nextHarness);
     const nextChoice = automationModelChoiceForHarness({
@@ -155,8 +186,25 @@ function ManualAutomationForm({
       harnesses,
       chatModelOptions: availableChatModelOptions,
     });
-    setModel((prev) =>
-      reconcileAutomationModel({ model: prev, choice: nextChoice }),
+    const nextModel = reconcileAutomationModel({ model, choice: nextChoice });
+    setModel(nextModel);
+    setThinkingValue((prev) =>
+      reconcileAutomationThinkingValue({
+        thinkingValue: prev,
+        choice: thinkingChoiceFor(nextModel, nextChoice.usesHarnessNamespace),
+      }),
+    );
+  };
+
+  // Re-scope the reasoning-effort pin when the model changes under the same
+  // agent (a new model may not offer the previously-pinned effort).
+  const handleModelChange = (nextModel: string | null) => {
+    setModel(nextModel);
+    setThinkingValue((prev) =>
+      reconcileAutomationThinkingValue({
+        thinkingValue: prev,
+        choice: thinkingChoiceFor(nextModel, modelChoice.usesHarnessNamespace),
+      }),
     );
   };
 
@@ -185,6 +233,7 @@ function ManualAutomationForm({
         harness,
         projectId,
         model,
+        thinkingValue,
       });
       onCancel();
     } catch (err) {
@@ -252,41 +301,81 @@ function ManualAutomationForm({
       </Field>
 
       <Field label="Model">
-        <Select
-          items={[
-            { value: MODEL_WORKSPACE_DEFAULT, label: defaultOptionLabel },
-            ...(modelNotInCatalog && model
-              ? [{ value: model, label: displayModelLabel(model) }]
-              : []),
-            ...modelChoice.options,
-          ]}
-          value={model ?? MODEL_WORKSPACE_DEFAULT}
-          onValueChange={(value) =>
-            setModel(value === MODEL_WORKSPACE_DEFAULT ? null : value)
-          }
-        >
-          <SelectTrigger className="h-8 w-full bg-transparent text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="start" className="min-w-55">
-            <SelectItem value={MODEL_WORKSPACE_DEFAULT}>
-              {defaultOptionLabel}
-            </SelectItem>
-            {modelNotInCatalog && model ? (
-              <SelectItem value={model}>{displayModelLabel(model)}</SelectItem>
-            ) : null}
-            {modelChoice.options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
+        <div className="flex items-center gap-1.5">
+          <Select
+            items={[
+              { value: MODEL_WORKSPACE_DEFAULT, label: defaultOptionLabel },
+              ...(modelNotInCatalog && model
+                ? [{ value: model, label: displayModelLabel(model) }]
+                : []),
+              ...modelChoice.options,
+            ]}
+            value={model ?? MODEL_WORKSPACE_DEFAULT}
+            onValueChange={(value) =>
+              handleModelChange(value === MODEL_WORKSPACE_DEFAULT ? null : value)
+            }
+          >
+            <SelectTrigger className="h-8 min-w-0 flex-1 bg-transparent text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="min-w-55">
+              <SelectItem value={MODEL_WORKSPACE_DEFAULT}>
+                {defaultOptionLabel}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              {modelNotInCatalog && model ? (
+                <SelectItem value={model}>{displayModelLabel(model)}</SelectItem>
+              ) : null}
+              {modelChoice.options.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <ModelCatalogRefreshButton className="size-8 rounded-md border border-input" />
+        </div>
         <p className="text-[11px] leading-4 text-muted-foreground">
           Follows the agent's default unless you pin a specific model. The list
           changes with the selected agent.
         </p>
       </Field>
+
+      {thinkingChoice.thinkingValues.length > 0 ? (
+        <Field label="Thinking">
+          <Select
+            items={[
+              { value: THINKING_MODEL_DEFAULT, label: "Default (model's default)" },
+              ...thinkingChoice.thinkingValues.map((value) => ({
+                value,
+                label: displayThinkingValueLabel(value),
+              })),
+            ]}
+            value={thinkingValue ?? THINKING_MODEL_DEFAULT}
+            onValueChange={(value) =>
+              setThinkingValue(
+                value === THINKING_MODEL_DEFAULT ? null : value,
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-full bg-transparent text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="min-w-55">
+              <SelectItem value={THINKING_MODEL_DEFAULT}>
+                Default (model's default)
+              </SelectItem>
+              {thinkingChoice.thinkingValues.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {displayThinkingValueLabel(value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            Reasoning effort for each run. Defaults to the model's own setting.
+          </p>
+        </Field>
+      ) : null}
 
       {projects.length > 0 ? (
         <Field label="Project">

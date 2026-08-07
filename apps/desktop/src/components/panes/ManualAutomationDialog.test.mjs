@@ -22,6 +22,25 @@ test("manual create dialog exposes a model picker fed by the composer catalog", 
   assert.match(source, /projectId,\s*model,/);
 });
 
+test("create dialog exposes a reasoning-effort picker scoped to the model", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  // The create draft carries a pinned reasoning effort (null => model default).
+  assert.match(source, /thinkingValue: string \| null/);
+  // Effort levels come from the model-scoped helper, gated on the model
+  // actually offering any (non-reasoning models hide the field).
+  assert.match(source, /automationThinkingChoiceForModel\(/);
+  assert.match(source, /thinkingChoice\.thinkingValues\.length > 0/);
+  assert.match(source, /<Field label="Thinking">/);
+  // The chosen effort flows into the create draft handed to onCreate.
+  assert.match(source, /model,\s*thinkingValue,/);
+});
+
+test("create dialog offers a catalogue resync next to the model picker", async () => {
+  const source = await readFile(sourcePath, "utf8");
+  assert.match(source, /ModelCatalogRefreshButton/);
+});
+
 test("create dialog scopes the model list to the selected agent", async () => {
   const source = await readFile(sourcePath, "utf8");
 

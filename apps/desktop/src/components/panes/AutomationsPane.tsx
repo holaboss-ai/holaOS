@@ -54,13 +54,18 @@ import { useStartAutomationCreation } from "@/components/layout/shell/useStartAu
 import { cn } from "@/lib/utils";
 import { cronToHumanReadable } from "@/lib/cron";
 import { remoteApi } from "@/lib/remoteApiClient";
+import { ModelCatalogRefreshButton } from "@/components/model/ModelCatalogRefreshButton";
 import { displayModelLabel } from "@/components/panes/ChatPane/helpers";
+import { displayThinkingValueLabel } from "@/components/panes/ChatPane/Composer/ThinkingValueSelect";
 import { useChatComposerModelSelection } from "@/lib/chat/useChatComposerModelSelection";
+import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { HarnessPicker } from "@/components/harness/HarnessPicker";
 import { useAvailableHarnesses } from "@/components/harness/useAvailableHarnesses";
 import {
   automationModelChoiceForHarness,
+  automationThinkingChoiceForModel,
   reconcileAutomationModel,
+  reconcileAutomationThinkingValue,
 } from "@/components/panes/automationModelOptions";
 import { SchedulePicker } from "@/components/panes/AutomationsPaneInlineEditors";
 import {
@@ -171,6 +176,13 @@ function jobModel(job: CronjobRecordPayload): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+// The reasoning effort pinned to this automation (metadata.thinking_value), or
+// null to follow the model's own default at run time. Read back in fireCronjob.
+function jobThinkingValue(job: CronjobRecordPayload): string | null {
+  const value = job.metadata?.thinking_value;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 // The agent (harness) an automation's runs execute under (metadata.harness),
 // defaulting to pi/Hola.
 function jobHarness(job: CronjobRecordPayload): string {
@@ -228,6 +240,9 @@ function automationSearchScore(
 // Sentinel <Select> value for "no pinned model → workspace default" (Select
 // can't hold null/empty).
 const MODEL_WORKSPACE_DEFAULT = "__workspace_default__";
+
+// Sentinel <Select> value for "no pinned reasoning effort → model default".
+const THINKING_MODEL_DEFAULT = "__model_default__";
 
 function jobLastSessionId(job: CronjobRecordPayload): string | null {
   const value = job.metadata?.last_session_id;
@@ -604,6 +619,9 @@ export function AutomationsPane({
           harness: draft.harness,
           ...(draft.projectId ? { project_id: draft.projectId } : {}),
           ...(draft.model ? { selected_model: draft.model } : {}),
+          ...(draft.thinkingValue
+            ? { thinking_value: draft.thinkingValue }
+            : {}),
         },
       });
       toast.success(`Created "${draft.name || "automation"}"`);
@@ -625,6 +643,11 @@ export function AutomationsPane({
         metadata.selected_model = draft.model;
       } else {
         delete metadata.selected_model;
+      }
+      if (draft.thinkingValue) {
+        metadata.thinking_value = draft.thinkingValue;
+      } else {
+        delete metadata.thinking_value;
       }
       await handleUpdateCronjobField(
         job,
@@ -1326,6 +1349,7 @@ interface EditAutomationDraft {
   cron: string;
   projectId: string | null;
   model: string | null;
+  thinkingValue: string | null;
   harness: string;
 }
 
@@ -1382,12 +1406,16 @@ function EditAutomationForm({
   const [cronValid, setCronValid] = useState(true);
   const [projectId, setProjectId] = useState<string | null>(jobProjectId(job));
   const [model, setModel] = useState<string | null>(jobModel(job));
+  const [thinkingValue, setThinkingValue] = useState<string | null>(
+    jobThinkingValue(job),
+  );
   const [harness, setHarness] = useState(jobHarness(job));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { harnesses, isLoading: harnessesLoading } =
     useAvailableHarnesses(workspaceId);
+  const { runtimeConfig } = useWorkspaceDesktop();
   const { availableChatModelOptions, runtimeDefaultModelLabel } =
     useChatComposerModelSelection();
   // Models are scoped to the selected agent: pi/Hola uses the runtime catalogue
@@ -1408,8 +1436,24 @@ function EditAutomationForm({
   const modelNotInCatalog =
     model !== null && !modelChoice.options.some((option) => option.value === model);
 
+  // Reasoning-effort levels for the pinned (or default) model — same source as
+  // the composer. A CLI-namespace harness doesn't declare per-model effort, so
+  // no default fallback there and the field stays hidden.
+  const providerModelGroups = runtimeConfig?.providerModelGroups ?? [];
+  const thinkingChoiceFor = (nextModel: string | null, namespace: boolean) =>
+    automationThinkingChoiceForModel({
+      model: nextModel,
+      providerModelGroups,
+      defaultModel: namespace ? null : (runtimeConfig?.defaultModel ?? null),
+    });
+  const thinkingChoice = thinkingChoiceFor(
+    model,
+    modelChoice.usesHarnessNamespace,
+  );
+
   // Switching the agent re-scopes the model list; drop a now-invalid pin to the
-  // new agent's default (or workspace default for pi).
+  // new agent's default (or workspace default for pi), then reconcile the
+  // reasoning-effort pin against the resulting model.
   const handleHarnessChange = (nextHarness: string) => {
     setHarness(nextHarness);
     const nextChoice = automationModelChoiceForHarness({
@@ -1417,8 +1461,25 @@ function EditAutomationForm({
       harnesses,
       chatModelOptions: availableChatModelOptions,
     });
-    setModel((prev) =>
-      reconcileAutomationModel({ model: prev, choice: nextChoice }),
+    const nextModel = reconcileAutomationModel({ model, choice: nextChoice });
+    setModel(nextModel);
+    setThinkingValue((prev) =>
+      reconcileAutomationThinkingValue({
+        thinkingValue: prev,
+        choice: thinkingChoiceFor(nextModel, nextChoice.usesHarnessNamespace),
+      }),
+    );
+  };
+
+  // Re-scope the reasoning-effort pin when the model changes under the same
+  // agent (a new model may not offer the previously-pinned effort).
+  const handleModelChange = (nextModel: string | null) => {
+    setModel(nextModel);
+    setThinkingValue((prev) =>
+      reconcileAutomationThinkingValue({
+        thinkingValue: prev,
+        choice: thinkingChoiceFor(nextModel, modelChoice.usesHarnessNamespace),
+      }),
     );
   };
 
@@ -1442,6 +1503,7 @@ function EditAutomationForm({
         cron: cron.trim(),
         projectId,
         model,
+        thinkingValue,
         harness,
       });
       onCancel();
@@ -1501,41 +1563,79 @@ function EditAutomationForm({
       </EditField>
 
       <EditField label="Model">
-        <Select
-          items={[
-            { value: MODEL_WORKSPACE_DEFAULT, label: defaultOptionLabel },
-            ...(modelNotInCatalog && model
-              ? [{ value: model, label: displayModelLabel(model) }]
-              : []),
-            ...modelChoice.options,
-          ]}
-          value={model ?? MODEL_WORKSPACE_DEFAULT}
-          onValueChange={(value) =>
-            setModel(value === MODEL_WORKSPACE_DEFAULT ? null : value)
-          }
-        >
-          <SelectTrigger className="h-8 w-full bg-transparent text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="start" className="min-w-[240px]">
-            <SelectItem value={MODEL_WORKSPACE_DEFAULT}>
-              {defaultOptionLabel}
-            </SelectItem>
-            {modelNotInCatalog && model ? (
-              <SelectItem value={model}>{displayModelLabel(model)}</SelectItem>
-            ) : null}
-            {modelChoice.options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
+        <div className="flex items-center gap-1.5">
+          <Select
+            items={[
+              { value: MODEL_WORKSPACE_DEFAULT, label: defaultOptionLabel },
+              ...(modelNotInCatalog && model
+                ? [{ value: model, label: displayModelLabel(model) }]
+                : []),
+              ...modelChoice.options,
+            ]}
+            value={model ?? MODEL_WORKSPACE_DEFAULT}
+            onValueChange={(value) =>
+              handleModelChange(value === MODEL_WORKSPACE_DEFAULT ? null : value)
+            }
+          >
+            <SelectTrigger className="h-8 min-w-0 flex-1 bg-transparent text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="min-w-[240px]">
+              <SelectItem value={MODEL_WORKSPACE_DEFAULT}>
+                {defaultOptionLabel}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+              {modelNotInCatalog && model ? (
+                <SelectItem value={model}>{displayModelLabel(model)}</SelectItem>
+              ) : null}
+              {modelChoice.options.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <ModelCatalogRefreshButton className="size-8 rounded-md border border-input" />
+        </div>
         <p className="text-[11px] text-muted-foreground">
           Follows the agent's default unless you pin a specific model. The list
           changes with the selected agent.
         </p>
       </EditField>
+
+      {thinkingChoice.thinkingValues.length > 0 ? (
+        <EditField label="Thinking">
+          <Select
+            items={[
+              { value: THINKING_MODEL_DEFAULT, label: "Default (model's default)" },
+              ...thinkingChoice.thinkingValues.map((value) => ({
+                value,
+                label: displayThinkingValueLabel(value),
+              })),
+            ]}
+            value={thinkingValue ?? THINKING_MODEL_DEFAULT}
+            onValueChange={(value) =>
+              setThinkingValue(value === THINKING_MODEL_DEFAULT ? null : value)
+            }
+          >
+            <SelectTrigger className="h-8 w-full bg-transparent text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="start" className="min-w-[240px]">
+              <SelectItem value={THINKING_MODEL_DEFAULT}>
+                Default (model's default)
+              </SelectItem>
+              {thinkingChoice.thinkingValues.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {displayThinkingValueLabel(value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            Reasoning effort for each run. Defaults to the model's own setting.
+          </p>
+        </EditField>
+      ) : null}
 
       {showProjectField ? (
         <EditField label="Project">

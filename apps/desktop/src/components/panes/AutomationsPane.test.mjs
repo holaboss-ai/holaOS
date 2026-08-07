@@ -185,6 +185,30 @@ test("automations expose their model: shown in detail, editable in the dialog, p
   assert.match(source, /selected_model: draft\.model/);
 });
 
+test("automations expose a reasoning-effort pin: editable in the dialog, persisted to metadata", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  // Reads the pinned effort (metadata.thinking_value), null => model default.
+  assert.match(
+    source,
+    /function jobThinkingValue\(job: CronjobRecordPayload\): string \| null/,
+  );
+  // Edit dialog offers a Thinking picker, gated on the model exposing any.
+  assert.match(source, /automationThinkingChoiceForModel\(/);
+  assert.match(source, /thinkingChoice\.thinkingValues\.length > 0/);
+  assert.match(source, /<EditField label="Thinking">/);
+  // Saving pins (or clears) metadata.thinking_value while preserving the rest.
+  assert.match(source, /metadata\.thinking_value = draft\.thinkingValue;/);
+  assert.match(source, /delete metadata\.thinking_value;/);
+  // Manual create persists the same pinned-effort key.
+  assert.match(source, /thinking_value: draft\.thinkingValue/);
+});
+
+test("edit dialog offers a catalogue resync next to the model picker", async () => {
+  const source = await readFile(sourcePath, "utf8");
+  assert.match(source, /ModelCatalogRefreshButton/);
+});
+
 test("edit dialog exposes an agent picker that re-scopes the model list and persists the harness", async () => {
   const source = await readFile(sourcePath, "utf8");
 

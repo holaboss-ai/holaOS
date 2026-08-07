@@ -1,3 +1,5 @@
+import { catalogMetadataForProviderModel } from "../../../shared/model-catalog";
+
 /**
  * Model options for an automation, scoped to its selected agent (harness).
  *
@@ -61,4 +63,80 @@ export function reconcileAutomationModel(params: {
     return model;
   }
   return choice.usesHarnessNamespace ? choice.defaultModel : null;
+}
+
+function dedupeThinkingValues(values: string[] | null | undefined): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+/** The reasoning-effort levels a pinned automation model exposes, plus its
+ *  own default. Empty `thinkingValues` ⇒ the model has no selectable effort
+ *  (non-reasoning model, or a CLI-namespace model whose effort isn't declared),
+ *  so the dialog hides the field. */
+export interface AutomationThinkingChoice {
+  thinkingValues: string[];
+  defaultThinkingValue: string | null;
+}
+
+/**
+ * Reasoning-effort options for an automation's pinned model — the same source
+ * the composer uses: the model's `thinkingValues` from the runtime catalogue
+ * (`providerModelGroups`), falling back to the bundled model catalogue. When no
+ * model is pinned (`model` is null → follow the workspace default) pass the
+ * runtime `defaultModel` so the picker still reflects what will actually run;
+ * for a CLI-namespace harness leave `defaultModel` null (its effort levels
+ * aren't model-declared, so the dialog simply hides the field).
+ */
+export function automationThinkingChoiceForModel(params: {
+  model: string | null;
+  providerModelGroups: RuntimeProviderModelGroupPayload[];
+  defaultModel?: string | null;
+}): AutomationThinkingChoice {
+  const token = params.model?.trim() || params.defaultModel?.trim() || "";
+  if (!token) {
+    return { thinkingValues: [], defaultThinkingValue: null };
+  }
+  const configured = params.providerModelGroups
+    .flatMap((group) => group.models)
+    .find((entry) => entry.token === token);
+  if (configured) {
+    return {
+      thinkingValues: dedupeThinkingValues(configured.thinkingValues),
+      defaultThinkingValue: configured.defaultThinkingValue?.trim() || null,
+    };
+  }
+  const fallback = catalogMetadataForProviderModel(
+    "holaboss_model_proxy",
+    token,
+  );
+  if (fallback) {
+    return {
+      thinkingValues: dedupeThinkingValues(fallback.thinkingValues),
+      defaultThinkingValue: fallback.defaultThinkingValue,
+    };
+  }
+  return { thinkingValues: [], defaultThinkingValue: null };
+}
+
+/** Keep a pinned thinking value only while the current model still offers it;
+ *  otherwise drop to null = "follow the model's default reasoning effort". */
+export function reconcileAutomationThinkingValue(params: {
+  thinkingValue: string | null;
+  choice: AutomationThinkingChoice;
+}): string | null {
+  const { thinkingValue, choice } = params;
+  if (thinkingValue && choice.thinkingValues.includes(thinkingValue)) {
+    return thinkingValue;
+  }
+  return null;
 }

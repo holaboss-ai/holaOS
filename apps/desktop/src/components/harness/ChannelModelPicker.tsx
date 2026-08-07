@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ModelCatalogRefreshButton } from "@/components/model/ModelCatalogRefreshButton";
 import { ChevronDown } from "@/components/ui/icons";
 import {
   Popover,
@@ -78,6 +79,12 @@ export function ChannelModelPicker({
         sideOffset={8}
         className="w-[260px] gap-0 overflow-hidden rounded-xl border border-border/70 bg-popover/95 p-0 shadow-2xl ring-1 ring-foreground/[0.04] backdrop-blur-xl"
       >
+        <div className="flex items-center justify-between border-b border-border/60 py-1 pr-1 pl-2.5">
+          <span className="text-[10px] font-medium uppercase text-foreground/40">
+            Model
+          </span>
+          <ModelCatalogRefreshButton />
+        </div>
         <div className="chat-scrollbar-thin max-h-[280px] overflow-y-auto p-1">
           <button
             type="button"

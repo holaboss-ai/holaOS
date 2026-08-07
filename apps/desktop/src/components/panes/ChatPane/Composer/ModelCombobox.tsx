@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, Search } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { ModelCatalogRefreshButton } from "@/components/model/ModelCatalogRefreshButton";
 import {
   Popover,
   PopoverContent,
@@ -207,6 +208,7 @@ export function ModelCombobox({
               placeholder="Search models…"
               className="embedded-input h-6 w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/35"
             />
+            <ModelCatalogRefreshButton />
           </div>
         </div>
         <div className="chat-scrollbar-thin max-h-[280px] overflow-y-auto p-1">
