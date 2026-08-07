@@ -18,6 +18,7 @@ import { normalizeInlineImageMaterialization } from "./image-normalization";
 import { app as electronApp } from "electron";
 
 import {
+  type ChatStartAttachment,
   type ChatStartInput,
   type ChatStartResult,
   type EmployeesChangedInput,
@@ -468,9 +469,8 @@ function maybeAuthCallbackUrl(argument: string | undefined): string | null {
 // the scheme-prefix filter (picks our URL out of argv / commandLine); the host
 // then decides intent — `open-app` opens a HolaApp surface, anything else is
 // the OAuth callback. e.g. ai.holaboss.app://open-app?appId=gofunds[&path=/x]
-function maybeOpenAppUrl(
-  argument: string | undefined,
-): { appId: string; path?: string } | null {
+/** Our scheme, parsed — or null for anything that isn't one of our deep links. */
+function deepLinkUrl(argument: string | undefined): URL | null {
   if (!argument) {
     return null;
   }
@@ -478,13 +478,18 @@ function maybeOpenAppUrl(
   if (!normalized.startsWith(`${AUTH_CALLBACK_PROTOCOL}:`)) {
     return null;
   }
-  let parsed: URL;
   try {
-    parsed = new URL(normalized);
+    return new URL(normalized);
   } catch {
     return null;
   }
-  if (parsed.hostname !== "open-app") {
+}
+
+function maybeOpenAppUrl(
+  argument: string | undefined,
+): { appId: string; path?: string } | null {
+  const parsed = deepLinkUrl(argument);
+  if (!parsed || parsed.hostname !== "open-app") {
     return null;
   }
   const appId = parsed.searchParams.get("appId")?.trim();
@@ -518,12 +523,197 @@ function handleOpenAppDeepLink(target: {
   }
 }
 
-// Single entry for every ai.holaboss.app:// deep link: split open-app from the
-// OAuth callback so an app-open link is never misread as an auth token.
+// `open-app` is the wrong verb for most of what the web hands over. Pressing Try
+// this / Remix / Use as reference INSIDE the desktop installs what the post names
+// and opens a composer; pressing Open in desktop on a skill opens a General chat
+// carrying it. Expressed as "open a HolaApp surface", both arrive as a webview of
+// HolaHub with the click undone — which is not what either button does here.
+//
+// These two verbs name the action instead, and land on the same functions the
+// host bridge already calls for the in-desktop press.
+function maybeHubActionUrl(
+  argument: string | undefined,
+): { postId: string; action: string; mediaId?: string } | null {
+  const parsed = deepLinkUrl(argument);
+  if (!parsed || parsed.hostname !== "hub-action") {
+    return null;
+  }
+  const postId = parsed.searchParams.get("postId")?.trim();
+  const action = parsed.searchParams.get("action")?.trim();
+  if (!postId || !action) {
+    return null;
+  }
+  const mediaId = parsed.searchParams.get("mediaId")?.trim();
+  return { postId, action, ...(mediaId ? { mediaId } : {}) };
+}
+
+function maybeOpenItemUrl(
+  argument: string | undefined,
+): { type: string; ref: string; title?: string } | null {
+  const parsed = deepLinkUrl(argument);
+  if (!parsed || parsed.hostname !== "open-item") {
+    return null;
+  }
+  const type = parsed.searchParams.get("type")?.trim();
+  const ref = parsed.searchParams.get("ref")?.trim();
+  if (!type || !ref) {
+    return null;
+  }
+  const title = parsed.searchParams.get("title")?.trim();
+  return { type, ref, ...(title ? { title } : {}) };
+}
+
+interface HubHandoff {
+  action: string;
+  title: string;
+  prompt: string;
+  model?: string;
+  imageModel?: string;
+  videoModel?: string;
+  skillIds?: string[];
+  items?: { type: string; ref: string }[];
+  attachment?: {
+    mediaId: string;
+    kind: "image" | "video" | "file";
+    /** A document's real name — it does not survive the trip to the bytes. */
+    fileName?: string;
+    contentType?: string;
+  };
+}
+
+/** The shared artifact itself, for Use as reference. Best-effort: a reference
+ *  that will not load is worth less than the hand-off it would otherwise block. */
+async function hubReferenceAttachment(
+  attachment: NonNullable<HubHandoff["attachment"]>,
+): Promise<ChatStartAttachment | null> {
+  try {
+    const { mediaId, kind } = attachment;
+    const url =
+      kind === "file"
+        ? `${AUTH_BASE_URL}/gateway/hub/public/file/${mediaId}/download`
+        : `${AUTH_BASE_URL}/gateway/hub/public/media/${kind}/${mediaId}/bytes`;
+    const response = await fetch(url, {
+      headers: { Cookie: authCookieHeader() },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const contentType =
+      attachment.contentType ||
+      response.headers.get("content-type") ||
+      (kind === "video" ? "video/mp4" : "image/png");
+    const buffer = Buffer.from(await response.arrayBuffer());
+    // Name it after what it actually is — handing a composer an mp4 called
+    // reference.png makes every downstream sniff of the extension wrong.
+    const extension = contentType.split("/")[1]?.split(";")[0] || "bin";
+    return {
+      fileName: attachment.fileName || `reference.${extension}`,
+      contentType,
+      dataBase64: buffer.toString("base64"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Try this / Remix / Use as reference, arriving from the web. HolaHub can only
+// fire the link; the work is the same work the in-desktop press does, so it runs
+// here: install what the post names, then open the composer seeded with it.
+async function runHubActionDeepLink(target: {
+  postId: string;
+  action: string;
+  mediaId?: string;
+}): Promise<void> {
+  try {
+    const query = new URLSearchParams({ action: target.action });
+    if (target.mediaId) {
+      query.set("mediaId", target.mediaId);
+    }
+    const response = await fetch(
+      `${AUTH_BASE_URL}/gateway/hub/posts/${encodeURIComponent(target.postId)}/handoff?${query}`,
+      { headers: { Cookie: authCookieHeader() } },
+    );
+    if (!response.ok) {
+      console.warn(`[hub-action] handoff ${target.action}: ${response.status}`);
+      return;
+    }
+    const handoff = (await response.json()) as HubHandoff;
+
+    // Best-effort, exactly as the in-desktop press treats it: an item that needs
+    // connecting opens its own flow, and a failure there must not cost the
+    // reader the session they asked for.
+    await Promise.allSettled(
+      (handoff.items ?? []).map((item) =>
+        hostInstall(
+          { appId: HUB_APP_ID },
+          { type: item.type as InstallInput["type"], ref: item.ref },
+        ),
+      ),
+    );
+
+    const attachment = handoff.attachment
+      ? await hubReferenceAttachment(handoff.attachment)
+      : null;
+    if (handoff.attachment && !attachment) {
+      console.warn("[hub-action] reference bytes unavailable — not seeding");
+      return;
+    }
+
+    await hostChatStart(
+      { appId: HUB_APP_ID },
+      {
+        title: handoff.title,
+        prompt: handoff.prompt,
+        ...(handoff.model ? { model: handoff.model } : {}),
+        ...(handoff.imageModel ? { imageModel: handoff.imageModel } : {}),
+        ...(handoff.videoModel ? { videoModel: handoff.videoModel } : {}),
+        ...(handoff.skillIds?.length ? { skillIds: handoff.skillIds } : {}),
+        ...(attachment ? { attachments: [attachment] } : {}),
+        // HolaHub is a system surface with no app row of its own to live under.
+        general: true,
+        newSession: true,
+      },
+    );
+  } catch (error) {
+    console.warn("[hub-action] failed", error);
+  }
+}
+
+function focusMainWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.focus();
+  }
+}
+
+// Single entry for every ai.holaboss.app:// deep link. Every known verb is split
+// off before the fallthrough, so an action link is never misread as an auth
+// token — which is what an unrecognised hostname becomes.
 function dispatchDeepLink(targetUrl: string): void {
   const openApp = maybeOpenAppUrl(targetUrl);
   if (openApp) {
     handleOpenAppDeepLink(openApp);
+    return;
+  }
+  const hubAction = maybeHubActionUrl(targetUrl);
+  if (hubAction) {
+    focusMainWindow();
+    void runHubActionDeepLink(hubAction);
+    return;
+  }
+  const openItem = maybeOpenItemUrl(targetUrl);
+  if (openItem) {
+    focusMainWindow();
+    void hostItemOpen(
+      { appId: HUB_APP_ID },
+      {
+        type: openItem.type as OpenItemInput["type"],
+        ref: openItem.ref,
+        ...(openItem.title ? { title: openItem.title } : {}),
+      },
+    );
     return;
   }
   void handleAuthCallbackUrl(targetUrl);
@@ -1544,6 +1734,9 @@ const WEB_APP_BASE_URL = configuredRemoteBaseUrl(
 // staging hub.imerchstaging.com, local http://localhost:5174) — NOT a
 // `<WEB_APP_BASE_URL>/apps/<id>` HolaApp route. Derive its origin from
 // WEB_APP_BASE_URL (www.* → hub.*, local :5173 → the hub dev server :5174),
+/** HolaHub's app id — the identity a hand-off from it is attributed to. */
+const HUB_APP_ID = "holahub";
+
 // overridable with HOLABOSS_HUB_APP_BASE_URL. The "Home" nav loads its root.
 const HUB_APP_BASE_URL = ((): string => {
   const explicit = configuredRemoteBaseUrl(["HOLABOSS_HUB_APP_BASE_URL"]);
@@ -19089,7 +19282,7 @@ async function ensureWebHolaAppMcpAttached(workspaceId: string): Promise<void> {
 // first opening the HolaHub surface. Attached the same way as an installed app's MCP
 // (discover → app_servers entry → allowlist); auth rides the user's session bearer,
 // so no surface-open is required.
-const SYSTEM_MCP_APP_IDS = ["holahub"] as const;
+const SYSTEM_MCP_APP_IDS = [HUB_APP_ID] as const;
 
 async function ensureSystemMcpAttached(workspaceId: string): Promise<void> {
   for (const appId of SYSTEM_MCP_APP_IDS) {
