@@ -7,17 +7,14 @@ COPY runtime/deploy/ /tmp/runtime-source/deploy/
 COPY runtime/harnesses/package.json /tmp/runtime-source/harnesses/package.json
 COPY runtime/harnesses/src/ /tmp/runtime-source/harnesses/src/
 COPY runtime/harness-host/package.json /tmp/runtime-source/harness-host/package.json
-COPY runtime/harness-host/package-lock.json /tmp/runtime-source/harness-host/package-lock.json
 COPY runtime/harness-host/tsconfig.json /tmp/runtime-source/harness-host/tsconfig.json
 COPY runtime/harness-host/tsup.config.ts /tmp/runtime-source/harness-host/tsup.config.ts
 COPY runtime/harness-host/src/ /tmp/runtime-source/harness-host/src/
 COPY runtime/state-store/package.json /tmp/runtime-source/state-store/package.json
-COPY runtime/state-store/package-lock.json /tmp/runtime-source/state-store/package-lock.json
 COPY runtime/state-store/tsconfig.json /tmp/runtime-source/state-store/tsconfig.json
 COPY runtime/state-store/tsup.config.ts /tmp/runtime-source/state-store/tsup.config.ts
 COPY runtime/state-store/src/ /tmp/runtime-source/state-store/src/
 COPY runtime/api-server/package.json /tmp/runtime-source/api-server/package.json
-COPY runtime/api-server/package-lock.json /tmp/runtime-source/api-server/package-lock.json
 COPY runtime/api-server/tsconfig.json /tmp/runtime-source/api-server/tsconfig.json
 COPY runtime/api-server/tsup.config.ts /tmp/runtime-source/api-server/tsup.config.ts
 COPY runtime/api-server/src/ /tmp/runtime-source/api-server/src/
