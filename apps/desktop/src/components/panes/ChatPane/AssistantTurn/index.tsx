@@ -4,7 +4,6 @@ import { HarnessAvatar } from "@/components/harness/HarnessAvatar";
 import { ErrorSegment } from "./ErrorSegment";
 import { SimpleMarkdown } from "@/components/marketplace/SimpleMarkdown";
 import { chatMessageTimeLabel } from "../helpers";
-import { discoverEnabledAtom } from "@/components/layout/shell/state/ui";
 import { useOpenDiscover } from "@/components/layout/shell/useOpenDiscover";
 import { useShareToHolahub } from "@/components/layout/shell/useShareToHolahub";
 import { useAtomValue } from "jotai";
@@ -279,8 +278,6 @@ function AssistantTurnComponent({
   const shareToHolahub = useShareToHolahub();
   const shareContext = useAtomValue(shareContextAtom);
   const hasShareMediaOutput = outputs.some(isShareableMediaOutput);
-  // Sharing is part of the HolaHub community — hide every entry point until opt-in.
-  const discoverEnabled = useAtomValue(discoverEnabledAtom);
   const turnStatusAnchor = turnStatus ? (
     <div className="mb-1.5 flex min-w-0 items-center justify-between gap-3">
       <div
@@ -442,7 +439,7 @@ function AssistantTurnComponent({
                 copyText={copyText}
                 hasFileEdits={hasFileEdits}
                 onShareToHolahub={
-                  hasShareMediaOutput && discoverEnabled
+                  hasShareMediaOutput
                     ? async () => {
                         const ready = enrichOutputs(
                           mergeOutputsByPath(outputs),

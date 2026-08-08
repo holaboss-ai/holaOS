@@ -2,7 +2,6 @@ import { PinStarButton } from "@/components/layout/shell/PinStarButton";
 import { fileNameFromPath } from "@/components/layout/shell/state/internalTabs";
 import {
   chatComposerPrefillAtom,
-  discoverEnabledAtom,
 } from "@/components/layout/shell/state/ui";
 import { useOpenWorkspaceOutput } from "@/components/layout/shell/useOpenWorkspaceOutput";
 import {
@@ -101,9 +100,6 @@ export function AssistantTurnOutputs({
   // Multi-share: when a turn produced ≥2 shareable artifacts, let the user
   // pick a subset and post them together to HolaHub (a single turn-level Share
   // still handles the whole turn from the actions menu).
-  // Sharing is part of the HolaHub community — hide every share affordance
-  // (the CTA nudge + per-output multi-select) until the user opts in.
-  const discoverEnabled = useAtomValue(discoverEnabledAtom);
   const shareableOutputIds = new Set(
     cards
       .filter(
@@ -114,7 +110,7 @@ export function AssistantTurnOutputs({
   // Two or more artifacts is a choice, and a choice between artifacts belongs in
   // a gallery rather than a column of filenames with checkboxes. A document has
   // no thumbnail to show there — the gallery names it instead.
-  const pickable = discoverEnabled && shareableOutputIds.size >= 2;
+  const pickable = shareableOutputIds.size >= 2;
 
   // "Share to win credits": the credits a live campaign grants for sharing an
   // output, or null when none is running (nudge falls back to plain encourage).
@@ -300,7 +296,7 @@ export function AssistantTurnOutputs({
         </button>
       ) : null}
 
-      {discoverEnabled && shareableOutputIds.size >= 1 ? (
+      {shareableOutputIds.size >= 1 ? (
         shareCredits == null ? (
           <button
             className="group mt-1 flex h-8 items-center gap-2 self-start rounded-md px-2.5 text-left text-primary text-xs transition-colors hover:bg-primary/10 disabled:opacity-60"

@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { useMemo, useState } from "react";
 import {
-  discoverEnabledAtom,
   selectedSessionIdAtom,
 } from "@/components/layout/shell/state/ui";
 import { useShareToHolahub } from "@/components/layout/shell/useShareToHolahub";
@@ -88,8 +87,6 @@ function useOutputShare(outputs: OutputItem[]) {
   const shareToHolahub = useShareToHolahub();
   const [sharing, setSharing] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
-  // Sharing to the community is hidden until the user opts in.
-  const discoverEnabled = useAtomValue(discoverEnabledAtom);
 
   // The whole session's shareable artifacts, not just the previewed few — the
   // gallery is the picker, so it shouldn't inherit the list's preview cap.
@@ -128,7 +125,7 @@ function useOutputShare(outputs: OutputItem[]) {
   };
 
   return {
-    canShare: discoverEnabled && shareableOutputs.length > 0,
+    canShare: shareableOutputs.length > 0,
     openGallery: () => setGalleryOpen(true),
     galleryProps: {
       onConfirm: shareChosen,

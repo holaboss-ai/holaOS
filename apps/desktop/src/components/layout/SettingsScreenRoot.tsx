@@ -25,7 +25,6 @@ import { useCallback, useEffect, useState } from "react";
 import { AuthPanel } from "@/components/auth/AuthPanel";
 import {
   cloudModeEnabledAtom,
-  discoverEnabledAtom,
 } from "@/components/layout/shell/state/ui";
 import { BillingSettingsPanel } from "@/components/billing/BillingSettingsPanel";
 import { ChannelsPane } from "@/components/panes/ChannelsPane";
@@ -971,15 +970,8 @@ function WorkspaceConfigDiagnosticsCard() {
 
 function ExperimentalPanel() {
   const [cloudModeEnabled, setCloudModeEnabled] = useAtom(cloudModeEnabledAtom);
-  const [discoverEnabled, setDiscoverEnabled] = useAtom(discoverEnabledAtom);
   return (
     <SettingsCard>
-      <SettingsToggle
-        label="HolaHub community"
-        description="Show the HolaHub community — the Discover feed plus posting and sharing. When off, HolaHub opens straight to the Marketplace for installing skills, apps, MCPs, and combos. Off by default."
-        checked={discoverEnabled}
-        onCheckedChange={setDiscoverEnabled}
-      />
       <SettingsToggle
         label="Cloud mode"
         description="Show the Local/Cloud switcher in the sidebar. When off, the switcher is hidden and the sidebar stays in Local mode. Off by default."

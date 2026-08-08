@@ -66,19 +66,6 @@ export const cloudModeEnabledAtom = atomWithStorage(
 );
 
 /**
- * Experimental: the HolaHub community (the Discover feed + posting/sharing).
- * During the soft launch it's OFF by default — an opted-out user sees only the
- * Marketplace (install management) and never the feed/share entry points. Flip
- * it on in Settings → App → Experimental. Default follows the build: on in local
- * dev (`npm run dev`), off in packaged builds (staging testers flip it once; it
- * persists). See ADR-0001.
- */
-export const discoverEnabledAtom = atomWithStorage(
-  "holaboss.experimental.holahub-community",
-  import.meta.env.DEV,
-);
-
-/**
  * The middle tab area is maximized to fill the window (sidebar + chat hidden).
  * Transient — never persisted; Esc / the toggle restores the prior layout.
  */
@@ -300,23 +287,10 @@ export type WorkspaceOverlay =
   // model annotation, write a caption, then hand off to the hub to publish. The
   // conversation to share rides in `shareSessionPayloadAtom`.
   | "holahub-share";
-// The app opens to Home (the HolaHub surface) by default when the community is
-// on — it's the first-class landing. During the soft launch (community off) it
-// opens to a New Chat (null) instead. Reads the persisted opt-in at module init
-// (atomWithStorage stores the boolean as JSON under this key). Either way this
-// only decides the initial screen — it's cleared the moment the user starts a
-// chat/session, so nobody's trapped.
-function discoverEnabledAtLaunch(): boolean {
-  try {
-    const raw = localStorage.getItem("holaboss.experimental.holahub-community");
-    return raw == null ? import.meta.env.DEV : (JSON.parse(raw) as boolean);
-  } catch {
-    return import.meta.env.DEV;
-  }
-}
-export const workspaceOverlayAtom = atom<WorkspaceOverlay | null>(
-  discoverEnabledAtLaunch() ? "holahub" : null,
-);
+// The app opens to Home (the HolaHub surface) — it's the first-class landing.
+// This only decides the initial screen: it's cleared the moment the user starts
+// a chat/session, so nobody's trapped.
+export const workspaceOverlayAtom = atom<WorkspaceOverlay | null>("holahub");
 
 /** The conversation staged for the full-page "Share to HolaHub" composer. Set by
  *  `useOpenSharePreview` right before flipping the overlay to "holahub-share". */

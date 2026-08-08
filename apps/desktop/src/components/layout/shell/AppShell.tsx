@@ -59,7 +59,6 @@ import {
   defaultMainViewModeAtom,
   collapseSidebarForAppSurfaceAtom,
   cloudSectionAtom,
-  discoverEnabledAtom,
   focusModeAtom,
   holahubPendingPathAtom,
   LEGACY_WORKSPACE_MAIN_VIEW_MODE_MAP_STORAGE_KEY,
@@ -559,7 +558,6 @@ function ShellMainArea({
   const projectView = useAtomValue(projectViewAtom);
   const [workspaceOverlay, setWorkspaceOverlay] = useAtom(workspaceOverlayAtom);
   const holahubPendingPath = useAtomValue(holahubPendingPathAtom);
-  const discoverEnabled = useAtomValue(discoverEnabledAtom);
   const cloudSection = useAtomValue(cloudSectionAtom);
   const activeWebAppSurface = useAtomValue(activeWebAppSurfaceAtom);
   const closeHolaApp = useOpenHolaAppClose();
@@ -667,7 +665,7 @@ function ShellMainArea({
             // reloading the BrowserView, so re-shares don't flash "Opening…".
             queryDriven
             suspendNativeView={browserViewSuspended}
-            title={discoverEnabled ? "Discover" : "Marketplace"}
+            title="Discover"
           />
         ) : workspaceOverlay === "holahub-share" ? (
           <SharePreviewPane />

@@ -20,7 +20,6 @@ import {
 import { WorkspaceIcon } from "@/components/ui/workspace-icon";
 import {
   chatShareActionAtom,
-  discoverEnabledAtom,
   type ShareMode,
   type ShareSessionPayload,
 } from "@/components/layout/shell/state/ui";
@@ -133,9 +132,7 @@ const SHARE_BTN =
  *  conversation. Renders nothing when there's nothing to share. */
 function ShareSessionButton() {
   const action = useAtomValue(chatShareActionAtom);
-  // Sharing is part of the HolaHub community — hidden until the user opts in.
-  const discoverEnabled = useAtomValue(discoverEnabledAtom);
-  if (!(action && discoverEnabled)) return null;
+  if (!action) return null;
   if (!action.hasOutputs) {
     return (
       <Tooltip>

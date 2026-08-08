@@ -96,7 +96,6 @@ import {
   chatSessionOpenRequestAtom,
   collapsedSessionGroupsAtom,
   customizeTabAtom,
-  discoverEnabledAtom,
   focusModeAtom,
   orgSwitchingAtom,
   holahubPendingPathAtom,
@@ -1027,37 +1026,30 @@ function SidebarWorkspaceSection() {
   const projectsActive = projectView !== null;
 
   const setHolahubPath = useSetAtom(holahubPendingPathAtom);
-  // Soft launch: an opted-out user gets HolaHub's Marketplace (install
-  // management) with no feed entry; opting in reveals the full Discover surface.
-  const discoverEnabled = useAtomValue(discoverEnabledAtom);
   const enterWorkspaceOverlay = useCallback(
     (kind: WorkspaceOverlay) => {
       // Workspace-scoped overlays are mutually exclusive with Projects and
       // with each other; clear the others when opening one.
       setProjectView(null);
-      // A plain open lands on the community's home feed (opted in) or straight on
-      // the Marketplace (opted out) — never a stale deep-link.
+      // A plain open lands on the community's home feed — never a stale
+      // deep-link.
       if (kind === "holahub") {
-        // `?community=0` tells the hosted web to drop the feed nav (Marketplace
-        // becomes a standalone page) — see lib/community.ts on the web.
-        setHolahubPath(discoverEnabled ? null : "/marketplace?community=0");
+        setHolahubPath(null);
       }
       setWorkspaceOverlay(kind);
     },
-    [setProjectView, setWorkspaceOverlay, setHolahubPath, discoverEnabled],
+    [setProjectView, setWorkspaceOverlay, setHolahubPath],
   );
 
   return (
     <div className="mb-1 flex flex-col gap-0.5 px-2 pt-1">
       <SidebarNewChatRow workspaceId={selectedWorkspaceId || null} />
-      {discoverEnabled ? (
-        <TeamNavRow
-          icon={<CompassFilled />}
-          label="Discover"
-          active={workspaceOverlay === "holahub"}
-          onClick={() => enterWorkspaceOverlay("holahub")}
-        />
-      ) : null}
+      <TeamNavRow
+        icon={<CompassFilled />}
+        label="Discover"
+        active={workspaceOverlay === "holahub"}
+        onClick={() => enterWorkspaceOverlay("holahub")}
+      />
       <TeamNavRow
         icon={<FolderFilled />}
         label="Projects"
@@ -1091,17 +1083,6 @@ function SidebarWorkspaceSection() {
         active={workspaceOverlay === "customize"}
         onClick={() => enterWorkspaceOverlay("customize")}
       />
-      {discoverEnabled ? null : (
-        // Soft launch: the community's feed entry is hidden; the Marketplace lives
-        // under Customize as the install surface. Opens the hosted /marketplace
-        // feed-less (see enterWorkspaceOverlay → ?community=0).
-        <TeamNavRow
-          icon={<GridFilled />}
-          label="Marketplace"
-          active={workspaceOverlay === "holahub"}
-          onClick={() => enterWorkspaceOverlay("holahub")}
-        />
-      )}
     </div>
   );
 }
