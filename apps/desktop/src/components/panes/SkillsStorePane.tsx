@@ -42,6 +42,8 @@ import {
   fetchDirectorySkills,
 } from "@/lib/directoryClient";
 import { Icon as IconifyIcon } from "@iconify/react";
+import { useSetAtom } from "jotai";
+import { publishSkillTitlesAtom } from "@/components/panes/ChatPane/Composer/editor/skillTitles";
 import { getSkillIcon } from "@/lib/skillVisual";
 import { withSkillDisplayTitle } from "@/lib/skillDisplayTitle";
 import { remoteApiQuery } from "@/lib/remoteApiQuery";
@@ -88,6 +90,7 @@ export function SkillsStorePane({
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const publishSkillTitles = useSetAtom(publishSkillTitlesAtom);
   const [pendingRemove, setPendingRemove] = useState<DirectorySkillDto | null>(
     null,
   );
@@ -214,6 +217,7 @@ export function SkillsStorePane({
 
   const addSkill = (entry: DirectorySkillDto) => {
     setPendingId(entry.id);
+    publishSkillTitles({ [entry.id]: entry.name });
     void fetchDirectorySkillBody(entry.id)
       .then((resolved) =>
         installMutation.mutateAsync({
@@ -233,6 +237,7 @@ export function SkillsStorePane({
   // run it (the backend record already carries the SKILL.md content — no extra fetch).
   const addOrgSkill = (skill: OrgSkill) => {
     setPendingId(skill.id);
+    publishSkillTitles({ [skill.id]: skill.name });
     void installMutation
       .mutateAsync({
         skillId: skill.id,

@@ -101,7 +101,7 @@ import { getExplorerAttachmentClipboardEntry } from "@/lib/appClipboard";
 import { billingRpcFetch } from "@/lib/app-sdk-client";
 import { declineIntegrationProposals, remoteApi } from "@/lib/remoteApiClient";
 import { useAtomValue, useSetAtom } from "jotai";
-import { skillTitlesAtom } from "./Composer/editor/skillTitles";
+import { publishSkillTitlesAtom } from "./Composer/editor/skillTitles";
 import { shareContextAtom } from "./AssistantTurn/shareContext";
 import { recentFilesAtom } from "@/components/layout/shell/state/recentFiles";
 import {
@@ -8666,7 +8666,7 @@ export function ChatPane({
   );
   // Publish the titles so a skill chip can resolve its own label later — one
   // inserted the instant a skill was installed has only the raw id to show.
-  const setSkillTitles = useSetAtom(skillTitlesAtom);
+  const publishSkillTitles = useSetAtom(publishSkillTitlesAtom);
   useEffect(() => {
     const titles: Record<string, string> = {};
     for (const [skillId, skill] of availableWorkspaceSkillMap) {
@@ -8674,8 +8674,8 @@ export function ChatPane({
         titles[skillId] = skill.title;
       }
     }
-    setSkillTitles(titles);
-  }, [availableWorkspaceSkillMap, setSkillTitles]);
+    publishSkillTitles(titles);
+  }, [availableWorkspaceSkillMap, publishSkillTitles]);
 
   const quotedSkills = useMemo<ChatComposerQuotedSkillItem[]>(
     () =>

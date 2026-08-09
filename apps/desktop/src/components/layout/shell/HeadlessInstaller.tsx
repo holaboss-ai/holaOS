@@ -11,6 +11,7 @@ import {
   toIdList,
   toRequiredProviders,
 } from "@/components/panes/CapabilitiesMarketPane";
+import { publishSkillTitlesAtom } from "@/components/panes/ChatPane/Composer/editor/skillTitles";
 import {
   fetchDirectoryCapabilities,
   fetchDirectorySkillBody,
@@ -115,6 +116,7 @@ function SkillInstallRunner({
     remoteApiQuery.skills.install.mutationOptions()
   );
   const installedQuery = useWorkspaceSkills(workspaceId);
+  const publishSkillTitles = useSetAtom(publishSkillTitlesAtom);
   const doneRef = useRef(false);
 
   useEffect(() => {
@@ -127,6 +129,9 @@ function SkillInstallRunner({
       onDone({ status: "error", message: `"${ref}" isn't in the skills catalog.` });
       return;
     }
+    // A hand-off quotes the skill in a composer the moment install starts, and
+    // a community id is a uuid — name it here or the chip wears the uuid.
+    publishSkillTitles({ [entry.id]: entry.name });
     const installedIds = new Set(
       (installedQuery.data?.skills ?? []).map((s) => s.skill_id)
     );
@@ -165,6 +170,7 @@ function SkillInstallRunner({
     installMutation,
     installedQuery.data,
     queryClient,
+    publishSkillTitles,
     onDone,
   ]);
 
