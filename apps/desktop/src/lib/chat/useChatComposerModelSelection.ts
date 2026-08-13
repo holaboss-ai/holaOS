@@ -8,7 +8,10 @@ import {
   LEGACY_UNAVAILABLE_CHAT_MODELS,
   RUNTIME_MODEL_CAPABILITY_ALIASES,
 } from "@/components/panes/ChatPane/constants";
-import { displayModelLabel } from "@/components/panes/ChatPane/helpers";
+import {
+  displayModelLabel,
+  supportsImageInput,
+} from "@/components/panes/ChatPane/helpers";
 import type {
   ChatModelOption,
   ChatModelOptionGroup,
@@ -170,6 +173,7 @@ export interface ChatComposerModelSelection {
   requiresModelProviderSetup: boolean;
   hasConfiguredProviderCatalog: boolean;
   selectedModelSupportsReasoning: boolean;
+  selectedModelSupportsImageInput: boolean;
   selectedThinkingValues: string[];
   selectedDefaultThinkingValue: string | null;
   chatThinkingPreferences: Record<string, string>;
@@ -398,6 +402,11 @@ export function useChatComposerModelSelection(): ChatComposerModelSelection {
   const selectedModelSupportsReasoning = selectedConfiguredModel
     ? selectedConfiguredModel.reasoning === true
     : Boolean(selectedFallbackModelMetadata?.reasoning);
+  const selectedModelSupportsImageInput = supportsImageInput(
+    selectedConfiguredModel
+      ? (selectedConfiguredModel.inputModalities ?? [])
+      : (selectedFallbackModelMetadata?.inputModalities ?? []),
+  );
   const selectedThinkingValues = selectedConfiguredModel
     ? runtimeModelThinkingValues(selectedConfiguredModel)
     : (selectedFallbackModelMetadata?.thinkingValues ?? []);
@@ -448,6 +457,7 @@ export function useChatComposerModelSelection(): ChatComposerModelSelection {
     requiresModelProviderSetup,
     hasConfiguredProviderCatalog,
     selectedModelSupportsReasoning,
+    selectedModelSupportsImageInput,
     selectedThinkingValues,
     selectedDefaultThinkingValue,
     chatThinkingPreferences,

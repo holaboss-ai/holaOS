@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import {
+  type ChangeEvent,
   type FormEvent,
   useCallback,
   useEffect,
@@ -11,6 +12,19 @@ import {
 
 import { Composer } from "@/components/panes/ChatPane/Composer";
 import type { ComposerEditorHandle } from "@/components/panes/ChatPane/Composer/editor/ComposerEditor";
+import { ImageAttachmentPreviewModal } from "@/components/panes/ChatPane/ImageAttachmentPreviewModal";
+import {
+  attachmentUploadPayload,
+  createPendingExplorerAttachment,
+  createPendingLocalAttachment,
+  pendingAttachmentsToListItems,
+  stagePendingFileAttachments,
+} from "@/components/panes/ChatPane/pendingAttachments";
+import type {
+  AttachmentListItem,
+  ImageAttachmentPreviewState,
+  PendingAttachment,
+} from "@/components/panes/ChatPane/types";
 import { RuntimeContextBar } from "@/components/harness/RuntimeContextBar";
 import { OutputPreviewModal } from "@/components/panes/OutputPreviewModal";
 import { ProjectOutputsRow } from "@/components/projects/ProjectOutputsRow";
@@ -27,6 +41,15 @@ import {
   Trash2,
 } from "@/components/ui/icons";
 import { useChatComposerModelSelection } from "@/lib/chat/useChatComposerModelSelection";
+import {
+  attachmentLooksLikeImage,
+  imageInputUnsupportedMessage,
+  pendingAttachmentIsImage,
+} from "@/components/panes/ChatPane/helpers";
+import {
+  type ExplorerAttachmentDragPayload,
+  resolveExplorerAttachmentKind,
+} from "@/lib/attachmentDrag";
 import { cn } from "@/lib/utils";
 import { remoteApiQuery } from "@/lib/remoteApiQuery";
 import { toDisplayOutputs } from "@/lib/outputs";
@@ -72,8 +95,17 @@ export function ProjectLanding({
   const [composerText, setComposerText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attachmentGateMessage, setAttachmentGateMessage] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<
+    PendingAttachment[]
+  >([]);
+  const [imageAttachmentPreview, setImageAttachmentPreview] =
+    useState<ImageAttachmentPreviewState | null>(null);
   const composerEditorRef = useRef<ComposerEditorHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageAttachmentPreviewRequestIdRef = useRef(0);
+  const imageAttachmentPreviewObjectUrlRef = useRef<string | null>(null);
+  const pendingSessionIdRef = useRef<string | null>(null);
 
   const {
     effectiveChatModelPreference,
@@ -86,10 +118,12 @@ export function ProjectLanding({
     effectiveThinkingValue,
     selectedThinkingValues,
     selectedModelSupportsReasoning,
+    selectedModelSupportsImageInput,
     modelSelectionUnavailableReason,
     setChatModelPreference,
     setSelectedThinkingValue,
   } = useChatComposerModelSelection();
+
   // Harness picked for the *next* session. The picker is only shown on
   // the empty-state landing screen — once a session exists it carries
   // its own immutable harness, and the ChatPane composer that takes over
@@ -133,6 +167,19 @@ export function ProjectLanding({
   const [harnessThinkingOverride, setHarnessThinkingOverride] = useState<
     string | null
   >(null);
+  const selectedModelDisplayLabel = resolvedModelLabel.trim();
+  const pendingImageInputUnsupportedMessage =
+    harnessUsesHolaModelCatalog &&
+    pendingAttachments.some((attachment) =>
+      pendingAttachmentIsImage(attachment),
+    ) &&
+    !selectedModelSupportsImageInput
+      ? `${imageInputUnsupportedMessage(selectedModelDisplayLabel)} Remove the attached image or switch models.`
+      : "";
+
+  useEffect(() => {
+    setAttachmentGateMessage("");
+  }, [effectiveChatModelPreference, harnessChatModelOverride]);
   // Keep the override legal for the current harness: clear it on the Hola
   // catalogue, snap to the default (or first) supported model otherwise.
   useEffect(() => {
@@ -275,31 +322,278 @@ export function ProjectLanding({
     };
   }, [workspaceId, projectId, project]);
 
+  const appendPendingLocalFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+
+      const maxAttachmentBytes = 100 * 1024 * 1024;
+      const maxAttachmentCount = 50;
+      const acceptedFiles: File[] = [];
+      let rejectedImageCount = 0;
+      let oversizedCount = 0;
+      for (const file of files) {
+        if (
+          harnessUsesHolaModelCatalog &&
+          !selectedModelSupportsImageInput &&
+          attachmentLooksLikeImage(file.name, file.type)
+        ) {
+          rejectedImageCount += 1;
+          continue;
+        }
+        if (file.size > maxAttachmentBytes) {
+          oversizedCount += 1;
+          continue;
+        }
+        acceptedFiles.push(file);
+      }
+
+      const remainingSlots = Math.max(
+        0,
+        maxAttachmentCount - pendingAttachments.length,
+      );
+      const filesToAdd = acceptedFiles.slice(0, remainingSlots);
+      const overflowCount = acceptedFiles.length - filesToAdd.length;
+      const gateParts: string[] = [];
+      if (rejectedImageCount > 0) {
+        gateParts.push(
+          `${imageInputUnsupportedMessage(selectedModelDisplayLabel)} Skipped ${rejectedImageCount} image attachment${rejectedImageCount === 1 ? "" : "s"}.`,
+        );
+      }
+      if (oversizedCount > 0) {
+        gateParts.push(
+          `Skipped ${oversizedCount} file${oversizedCount === 1 ? "" : "s"} over 100MB.`,
+        );
+      }
+      if (overflowCount > 0) {
+        gateParts.push(
+          `Limit ${maxAttachmentCount} attachments — skipped ${overflowCount}.`,
+        );
+      }
+      setAttachmentGateMessage(gateParts.join(" "));
+
+      if (filesToAdd.length === 0) return;
+      setPendingAttachments((current) => [
+        ...current,
+        ...filesToAdd.map(createPendingLocalAttachment),
+      ]);
+    },
+    [
+      harnessUsesHolaModelCatalog,
+      pendingAttachments.length,
+      selectedModelDisplayLabel,
+      selectedModelSupportsImageInput,
+    ],
+  );
+
+  const appendPendingExplorerAttachments = useCallback(
+    (files: ExplorerAttachmentDragPayload[]) => {
+      if (files.length === 0) return;
+
+      const maxAttachmentCount = 50;
+      const acceptedFiles: ExplorerAttachmentDragPayload[] = [];
+      let rejectedImageCount = 0;
+      for (const file of files) {
+        if (
+          harnessUsesHolaModelCatalog &&
+          !selectedModelSupportsImageInput &&
+          resolveExplorerAttachmentKind(file) === "image"
+        ) {
+          rejectedImageCount += 1;
+          continue;
+        }
+        acceptedFiles.push(file);
+      }
+
+      const remainingSlots = Math.max(
+        0,
+        maxAttachmentCount - pendingAttachments.length,
+      );
+      const filesToAdd = acceptedFiles.slice(0, remainingSlots);
+      const overflowCount = acceptedFiles.length - filesToAdd.length;
+      const gateParts: string[] = [];
+      if (rejectedImageCount > 0) {
+        gateParts.push(
+          `${imageInputUnsupportedMessage(selectedModelDisplayLabel)} Skipped ${rejectedImageCount} image attachment${rejectedImageCount === 1 ? "" : "s"}.`,
+        );
+      }
+      if (overflowCount > 0) {
+        gateParts.push(
+          `Limit ${maxAttachmentCount} attachments — skipped ${overflowCount}.`,
+        );
+      }
+      setAttachmentGateMessage(gateParts.join(" "));
+
+      if (filesToAdd.length === 0) return;
+      setPendingAttachments((current) => [
+        ...current,
+        ...filesToAdd.map(createPendingExplorerAttachment),
+      ]);
+    },
+    [
+      harnessUsesHolaModelCatalog,
+      pendingAttachments.length,
+      selectedModelDisplayLabel,
+      selectedModelSupportsImageInput,
+    ],
+  );
+
+  const onAttachmentInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      appendPendingLocalFiles(Array.from(event.target.files ?? []));
+      event.target.value = "";
+    },
+    [appendPendingLocalFiles],
+  );
+
+  const removePendingAttachment = useCallback((attachmentId: string) => {
+    setPendingAttachments((current) =>
+      current.filter((attachment) => attachment.id !== attachmentId),
+    );
+  }, []);
+
+  const pendingAttachmentItems = useMemo(
+    () => pendingAttachmentsToListItems(pendingAttachments),
+    [pendingAttachments],
+  );
+
+  const clearImageAttachmentPreviewObjectUrl = useCallback(() => {
+    if (!imageAttachmentPreviewObjectUrlRef.current) return;
+    URL.revokeObjectURL(imageAttachmentPreviewObjectUrlRef.current);
+    imageAttachmentPreviewObjectUrlRef.current = null;
+  }, []);
+
+  const closeImageAttachmentPreview = useCallback(() => {
+    imageAttachmentPreviewRequestIdRef.current += 1;
+    clearImageAttachmentPreviewObjectUrl();
+    setImageAttachmentPreview(null);
+  }, [clearImageAttachmentPreviewObjectUrl]);
+
+  useEffect(() => {
+    return () => clearImageAttachmentPreviewObjectUrl();
+  }, [clearImageAttachmentPreviewObjectUrl]);
+
+  const openImageAttachmentPreview = useCallback(
+    async (attachment: AttachmentListItem) => {
+      if (attachment.kind !== "image") return;
+      const attachmentPath = attachment.workspace_path?.trim() || "";
+      if (!attachment.file && !attachmentPath) return;
+
+      imageAttachmentPreviewRequestIdRef.current += 1;
+      const requestId = imageAttachmentPreviewRequestIdRef.current;
+      clearImageAttachmentPreviewObjectUrl();
+      let localObjectUrl = "";
+      setImageAttachmentPreview({
+        attachment,
+        dataUrl: "",
+        isLoading: true,
+        errorMessage: "",
+      });
+
+      try {
+        let dataUrl = "";
+        if (attachment.file) {
+          localObjectUrl = URL.createObjectURL(attachment.file);
+          dataUrl = localObjectUrl;
+        } else {
+          const preview = await window.electronAPI.fs.readFilePreview(
+            attachmentPath,
+            workspaceId,
+          );
+          if (preview.kind !== "image" || !preview.dataUrl) {
+            throw new Error(
+              preview.unsupportedReason ||
+                "Image preview is not available for this attachment.",
+            );
+          }
+          dataUrl = preview.dataUrl;
+        }
+        if (imageAttachmentPreviewRequestIdRef.current !== requestId) {
+          if (localObjectUrl) URL.revokeObjectURL(localObjectUrl);
+          return;
+        }
+        if (localObjectUrl) {
+          imageAttachmentPreviewObjectUrlRef.current = localObjectUrl;
+        }
+        setImageAttachmentPreview({
+          attachment,
+          dataUrl,
+          isLoading: false,
+          errorMessage: "",
+        });
+      } catch (previewError) {
+        if (imageAttachmentPreviewRequestIdRef.current !== requestId) return;
+        if (localObjectUrl) URL.revokeObjectURL(localObjectUrl);
+        setImageAttachmentPreview({
+          attachment,
+          dataUrl: "",
+          isLoading: false,
+          errorMessage:
+            previewError instanceof Error && previewError.message.trim()
+              ? previewError.message
+              : "Failed to load image preview.",
+        });
+      }
+    },
+    [clearImageAttachmentPreviewObjectUrl, workspaceId],
+  );
+
   const handleSubmit = useCallback(async () => {
     if (!workspaceId || !project) return;
     const text = composerText.trim();
-    if (!text) return;
+    if (!text && pendingAttachments.length === 0) return;
+    if (pendingImageInputUnsupportedMessage) return;
     setSubmitting(true);
     setError(null);
     try {
-      const createResponse =
-        await window.electronAPI.workspace.createMainSession(workspaceId, {
-          project_id: project.project_id,
-          harness_id: selectedHarnessId,
-        });
-      const session = createResponse.session;
-      if (!session?.session_id) {
-        throw new Error("Session was not returned by the runtime");
+      let sessionId = pendingSessionIdRef.current;
+      if (!sessionId) {
+        const createResponse =
+          await window.electronAPI.workspace.createMainSession(workspaceId, {
+            project_id: project.project_id,
+            harness_id: selectedHarnessId,
+          });
+        sessionId = createResponse.session?.session_id ?? null;
+        if (!sessionId) {
+          throw new Error("Session was not returned by the runtime");
+        }
+        pendingSessionIdRef.current = sessionId;
       }
       await window.electronAPI.workspace.activateMainSession(
         workspaceId,
-        session.session_id,
+        sessionId,
+      );
+      const stagedAttachments = await stagePendingFileAttachments(
+        pendingAttachments,
+        {
+          stageLocalFiles: async (files) =>
+            (
+              await window.electronAPI.workspace.stageSessionAttachments({
+                workspace_id: workspaceId,
+                files: await Promise.all(
+                  files.map((entry) => attachmentUploadPayload(entry.file)),
+                ),
+              })
+            ).attachments,
+          stageExplorerFiles: async (files) =>
+            (
+              await window.electronAPI.workspace.stageSessionAttachmentPaths({
+                workspace_id: workspaceId,
+                files: files.map((entry) => ({
+                  absolute_path: entry.absolutePath,
+                  name: entry.name,
+                  mime_type: entry.mime_type ?? null,
+                  kind: entry.kind,
+                })),
+              })
+            ).attachments,
+        },
       );
       await window.electronAPI.workspace.queueSessionInput({
         workspace_id: workspaceId,
-        session_id: session.session_id,
+        session_id: sessionId,
         text,
         image_urls: null,
+        attachments: stagedAttachments,
         model: harnessUsesHolaModelCatalog
           ? resolvedChatModel || null
           : harnessChatModelOverride,
@@ -307,9 +601,11 @@ export function ProjectLanding({
           ? effectiveThinkingValue
           : harnessThinkingOverride,
       });
-      setSelectedSessionId(session.session_id);
+      setPendingAttachments([]);
+      pendingSessionIdRef.current = null;
+      setSelectedSessionId(sessionId);
       setSessionOpenRequest({
-        sessionId: session.session_id,
+        sessionId,
         requestKey: Date.now(),
         readOnly: false,
       });
@@ -318,7 +614,7 @@ export function ProjectLanding({
       setFocusMode(true);
       setLastViewedMap((prev) => ({
         ...prev,
-        [session.session_id]: new Date().toISOString(),
+        [sessionId]: new Date().toISOString(),
       }));
     } catch (err) {
       setError(
@@ -331,6 +627,8 @@ export function ProjectLanding({
     workspaceId,
     project,
     composerText,
+    pendingAttachments,
+    pendingImageInputUnsupportedMessage,
     selectedHarnessId,
     harnessUsesHolaModelCatalog,
     harnessChatModelOverride,
@@ -403,7 +701,10 @@ export function ProjectLanding({
     ],
   );
 
-  const submitDisabled = !composerText.trim() || submitting;
+  const submitDisabled =
+    (!composerText.trim() && pendingAttachments.length === 0) ||
+    submitting ||
+    Boolean(pendingImageInputUnsupportedMessage);
 
   const onFormSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -415,6 +716,16 @@ export function ProjectLanding({
   );
 
   const noop = useCallback(() => undefined, []);
+  const composerAttachmentNotice =
+    attachmentGateMessage || pendingImageInputUnsupportedMessage ? (
+      <div
+        role="status"
+        aria-live="polite"
+        className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+      >
+        {attachmentGateMessage || pendingImageInputUnsupportedMessage}
+      </div>
+    ) : null;
 
   const hasRecents = projectSessions.length > 0;
   const hasOutputs = displayOutputs.length > 0;
@@ -493,7 +804,7 @@ export function ProjectLanding({
                 quotedSkills={[]}
                 quotedIntegrations={[]}
                 slashCommands={[]}
-                attachments={[]}
+                attachments={pendingAttachmentItems}
                 isResponding={false}
                 pausePending={false}
                 pauseDisabled
@@ -541,15 +852,17 @@ export function ProjectLanding({
                   void window.electronAPI.ui.openSettingsPane("account")
                 }
                 fileInputRef={fileInputRef}
-                onAttachmentInputChange={noop}
+                onAttachmentInputChange={onAttachmentInputChange}
                 onPause={noop}
-                onAddDroppedFiles={noop}
-                onAddExplorerAttachments={noop}
+                onAddDroppedFiles={appendPendingLocalFiles}
+                onAddExplorerAttachments={appendPendingExplorerAttachments}
                 mentionableItems={[]}
                 onRemoveQuotedIntegration={noop}
                 onSelectIntegration={noop}
-                onRemoveAttachment={noop}
-                onPreviewAttachment={noop}
+                onRemoveAttachment={removePendingAttachment}
+                onPreviewAttachment={(attachment) =>
+                  void openImageAttachmentPreview(attachment)
+                }
                 composerEditorRef={composerEditorRef}
                 onValueChange={(value) => setComposerText(value.text)}
                 onSubmit={() => {
@@ -569,6 +882,7 @@ export function ProjectLanding({
               />
             </div>
           </form>
+          {composerAttachmentNotice}
           {error ? (
             <div className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {error}
@@ -624,6 +938,11 @@ export function ProjectLanding({
         }}
         output={previewOutput}
         workspacePath={selectedWorkspace?.workspace_path ?? null}
+      />
+      <ImageAttachmentPreviewModal
+        open={Boolean(imageAttachmentPreview)}
+        preview={imageAttachmentPreview}
+        onClose={closeImageAttachmentPreview}
       />
     </div>
   );
