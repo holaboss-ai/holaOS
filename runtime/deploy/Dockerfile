@@ -1,6 +1,10 @@
 ARG TOOLCHAIN_IMAGE=holaboss/sandbox-base-toolchain:dev
 FROM ${TOOLCHAIN_IMAGE}
 
+# Install bun (toolchain image ships node + npm but not bun; the runtime build
+# scripts use bun install since the monorepo migration to a single root bun.lock)
+RUN npm install -g bun
+
 WORKDIR /tmp/runtime-source
 
 COPY runtime/deploy/ /tmp/runtime-source/deploy/
@@ -18,8 +22,16 @@ COPY runtime/api-server/package.json /tmp/runtime-source/api-server/package.json
 COPY runtime/api-server/tsconfig.json /tmp/runtime-source/api-server/tsconfig.json
 COPY runtime/api-server/tsup.config.ts /tmp/runtime-source/api-server/tsup.config.ts
 COPY runtime/api-server/src/ /tmp/runtime-source/api-server/src/
-RUN chmod +x /tmp/runtime-source/deploy/build_runtime_root.sh \
-    && /tmp/runtime-source/deploy/build_runtime_root.sh /opt/holaboss-runtime
+COPY runtime/channel-gateway/package.json /tmp/runtime-source/channel-gateway/package.json
+COPY runtime/channel-gateway/tsconfig.json /tmp/runtime-source/channel-gateway/tsconfig.json
+COPY runtime/channel-gateway/tsup.config.ts /tmp/runtime-source/channel-gateway/tsup.config.ts
+COPY runtime/channel-gateway/src/ /tmp/runtime-source/channel-gateway/src/
+COPY packages/remote-api/package.json /tmp/runtime-source/packages/remote-api/package.json
+COPY packages/remote-api/tsconfig.json /tmp/runtime-source/packages/remote-api/tsconfig.json
+COPY packages/remote-api/tsup.config.ts /tmp/runtime-source/packages/remote-api/tsup.config.ts
+COPY packages/remote-api/src/ /tmp/runtime-source/packages/remote-api/src/
+COPY shared/ /tmp/runtime-source/shared/
+RUN node /tmp/runtime-source/deploy/build_runtime_root.mjs /opt/holaboss-runtime
 
 WORKDIR /app
 
