@@ -152,6 +152,8 @@ node --version
 npm --version
 ```
 
+The repo pins its Node version in a root [`.nvmrc`](.nvmrc). If you already use [nvm](https://github.com/nvm-sh/nvm), running `nvm use` in the repo root will pick it up automatically — nvm is optional and not required to set up holaOS.
+
 ### One-Line Agent Setup
 
 If you use Codex, Claude Code, Cursor, Windsurf, or another coding agent, you can hand it the setup instructions in one sentence:

@@ -82,6 +82,8 @@ npm --version
 
 If `node --version` reports a major version lower than `24`, stop and upgrade Node.js before continuing.
 
+The repo pins the exact Node version in a root `.nvmrc`. If [nvm](https://github.com/nvm-sh/nvm) is already installed, running `nvm use` from the repo root will select it automatically — nvm is optional, not a required dependency.
+
 ## Clone The Repository
 
 If the repository is not already present locally, clone it:

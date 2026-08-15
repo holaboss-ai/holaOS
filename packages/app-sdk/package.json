@@ -90,7 +90,7 @@
     "url": "https://github.com/holaboss-ai/holaOS/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "dependencies": {
     "zod": "^4.1.11"
