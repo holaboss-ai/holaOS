@@ -9,7 +9,10 @@ import {
 
 export type ExaWebSearchLivecrawlMode = "fallback" | "preferred";
 export type ExaWebSearchType = "auto" | "fast" | "deep";
-export type NativeWebSearchProviderKind = "exa_hosted_mcp" | "holaboss_search";
+export type NativeWebSearchProviderKind =
+  | "exa_hosted_mcp"
+  | "holaboss_search"
+  | "firecrawl";
 
 export interface NativeWebSearchProviderOptions {
   providerId?: string | null;
@@ -74,6 +77,15 @@ interface ExaMcpSseResponse {
   };
 }
 
+interface FirecrawlSearchResponse {
+  success?: boolean;
+  data?: {
+    web?: unknown[];
+    news?: unknown[];
+  };
+  error?: string;
+}
+
 interface ResolvedWebSearchProvider {
   providerId: string;
   kind: NativeWebSearchProviderKind;
@@ -89,11 +101,15 @@ export const EXA_WEB_SEARCH_ENDPOINT = "/mcp";
 export const EXA_WEB_SEARCH_ENDPOINT_URL = `${EXA_WEB_SEARCH_BASE_URL}${EXA_WEB_SEARCH_ENDPOINT}`;
 export const HOLABOSS_WEB_SEARCH_ENDPOINT_URL =
   "https://api.holaboss.ai/api/v1/search/web";
+export const FIRECRAWL_WEB_SEARCH_BASE_URL = "https://api.firecrawl.dev";
+export const FIRECRAWL_WEB_SEARCH_ENDPOINT = "/v2/search";
+export const FIRECRAWL_WEB_SEARCH_ENDPOINT_URL = `${FIRECRAWL_WEB_SEARCH_BASE_URL}${FIRECRAWL_WEB_SEARCH_ENDPOINT}`;
 export const DEFAULT_WEB_SEARCH_NUM_RESULTS = 8;
 export const MAX_WEB_SEARCH_NUM_RESULTS = 10;
 export const DEFAULT_WEB_SEARCH_TIMEOUT_MS = 25_000;
 export const EXA_WEB_SEARCH_PROVIDER_ID = "exa_hosted_mcp";
 export const HOLABOSS_WEB_SEARCH_PROVIDER_ID = "holaboss_search";
+export const FIRECRAWL_WEB_SEARCH_PROVIDER_ID = "firecrawl";
 
 const WEB_SEARCH_CONFIG_KEYS = ["web_search", "webSearch", "search"];
 const RUNTIME_CONFIG_PATH_ENV = "HOLABOSS_RUNTIME_CONFIG_PATH";
@@ -188,13 +204,21 @@ function normalizeProviderKind(
   if (normalized.includes("holaboss")) {
     return "holaboss_search";
   }
+  if (normalized.includes("firecrawl")) {
+    return "firecrawl";
+  }
   return "exa_hosted_mcp";
 }
 
 function providerIdForKind(kind: NativeWebSearchProviderKind): string {
-  return kind === "holaboss_search"
-    ? HOLABOSS_WEB_SEARCH_PROVIDER_ID
-    : EXA_WEB_SEARCH_PROVIDER_ID;
+  switch (kind) {
+    case "holaboss_search":
+      return HOLABOSS_WEB_SEARCH_PROVIDER_ID;
+    case "firecrawl":
+      return FIRECRAWL_WEB_SEARCH_PROVIDER_ID;
+    default:
+      return EXA_WEB_SEARCH_PROVIDER_ID;
+  }
 }
 
 function hasManagedHolabossSearchBinding(document: Record<string, unknown>): boolean {
@@ -444,7 +468,9 @@ function resolveWebSearchProvider(
       ) ||
       (kind === "holaboss_search"
         ? HOLABOSS_WEB_SEARCH_ENDPOINT_URL
-        : EXA_WEB_SEARCH_ENDPOINT_URL),
+        : kind === "firecrawl"
+          ? FIRECRAWL_WEB_SEARCH_ENDPOINT_URL
+          : EXA_WEB_SEARCH_ENDPOINT_URL),
     apiKey: firstNonEmptyString(
       options.apiKey,
       shouldUseRuntimeProvider ? runtimeProvider.apiKey : "",
@@ -519,9 +545,11 @@ export function webSearchDescription(
   const providerLabel =
     provider.kind === "holaboss_search"
       ? "configured Holaboss Search"
-      : provider.apiKey
-        ? "configured Exa web search"
-        : "hosted Exa web search without authentication";
+      : provider.kind === "firecrawl"
+        ? "configured Firecrawl web search"
+        : provider.apiKey
+          ? "configured Exa web search"
+          : "hosted Exa web search without authentication";
   return [
     baseDescription,
     `Uses ${providerLabel}.`,
@@ -795,6 +823,82 @@ async function searchHolaboss(params: {
   };
 }
 
+function firecrawlEndpointUrl(provider: ResolvedWebSearchProvider): string {
+  const url = new URL(
+    provider.baseUrl.trim() || FIRECRAWL_WEB_SEARCH_ENDPOINT_URL,
+  );
+  if (!url.pathname.endsWith(FIRECRAWL_WEB_SEARCH_ENDPOINT)) {
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}${FIRECRAWL_WEB_SEARCH_ENDPOINT}`;
+  }
+  return url.toString();
+}
+
+// Firecrawl groups hits by source (`data.web`, `data.news`, …) rather than the
+// flat array `parseJsonSearchText` looks for, so flatten the text-bearing groups
+// and reuse the shared formatter — each entry carries `description`, which
+// `resultTextFromRecord` already reads.
+function parseFirecrawlSearchText(payload: FirecrawlSearchResponse): string {
+  const data = asRecord(payload.data);
+  const entries = [
+    ...(Array.isArray(data.web) ? data.web : []),
+    ...(Array.isArray(data.news) ? data.news : []),
+  ];
+  const text = entries
+    .map((entry, index) => formatSearchResult(entry, index))
+    .filter(Boolean)
+    .join("\n\n");
+  return text || "No search results found. Please try a different query.";
+}
+
+async function searchFirecrawl(params: {
+  provider: ResolvedWebSearchProvider;
+  query: string;
+  numResults: number;
+  fetchImpl: typeof fetch;
+  signal?: AbortSignal;
+  requestTimeoutMs: number;
+}): Promise<{ text: string; providerId: string }> {
+  // Fail closed: unlike hosted Exa MCP, Firecrawl has no unauthenticated path we
+  // can fall back to (keyless is IP-reputation gated and 403s from datacenter
+  // ranges), so surface a config error instead of a confusing upstream 401.
+  if (!params.provider.apiKey) {
+    throw new Error(
+      "web_search via Firecrawl requires an API key (set web_search.providers.firecrawl.api_key)",
+    );
+  }
+  // `livecrawl`, `type` and `context_max_characters` are Exa-shaped knobs with no
+  // Firecrawl equivalent — omitted rather than mistranslated.
+  const response = await params.fetchImpl(firecrawlEndpointUrl(params.provider), {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${params.provider.apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      query: params.query,
+      limit: params.numResults,
+    }),
+    signal: requestSignal(params.signal, params.requestTimeoutMs),
+  });
+
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new Error(
+      `web_search failed with status ${response.status}${errorText ? `: ${errorText}` : ""}`,
+    );
+  }
+
+  const payload = (await response.json()) as FirecrawlSearchResponse;
+  if (payload.success === false) {
+    throw new Error(payload.error?.trim() || "web_search failed");
+  }
+  return {
+    providerId: FIRECRAWL_WEB_SEARCH_PROVIDER_ID,
+    text: parseFirecrawlSearchText(payload),
+  };
+}
+
 export async function searchPublicWeb(
   params: NativeWebSearchParams,
 ): Promise<{ text: string; providerId: string }> {
@@ -826,6 +930,9 @@ export async function searchPublicWeb(
   };
   if (provider.kind === "holaboss_search") {
     return searchHolaboss(commonParams);
+  }
+  if (provider.kind === "firecrawl") {
+    return searchFirecrawl(commonParams);
   }
   return searchExaHostedMcp(commonParams);
 }
