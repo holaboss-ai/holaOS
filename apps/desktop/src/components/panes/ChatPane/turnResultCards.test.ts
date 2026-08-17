@@ -59,7 +59,7 @@ test("collapses apps/<id>/* source files into one app card", () => {
   assert.deepEqual(cards, [{ kind: "app", appId: "github-tracker" }]);
 });
 
-test("shows multiple deliverables; path-less report counts, agents.md/skills don't", () => {
+test("shows multiple deliverables; path-less report counts, agents.md doesn't", () => {
   const outputs = [
     out({ id: "1", file_path: "outputs/a.docx" }),
     out({ id: "2", file_path: "outputs/b.xlsx" }),
@@ -71,7 +71,11 @@ test("shows multiple deliverables; path-less report counts, agents.md/skills don
   const { cards } = selectTurnResultCards(outputs);
   assert.deepEqual(
     cards.map((c) => (c.kind === "output" ? c.output.id : `app:${c.appId}`)),
-    ["1", "2", "3"],
+    // "5" is skills/foo/SKILL.md. isDeliverableManifest now treats an
+    // agent-built skill manifest as the artifact itself, deliberately mirroring
+    // outputDeliverableKind in lib/outputs so the inline chips and the Outputs
+    // library agree. AGENTS.md ("4") is still scaffolding and stays out.
+    ["1", "2", "3", "5"],
   );
 });
 
@@ -150,7 +154,7 @@ test("a video deliverable suppresses a same-turn markdown draft", () => {
   );
 });
 
-test("turnHasDisplayableOutputs: true for app/deliverable, false for managed-only", () => {
+test("turnHasDisplayableOutputs: true for app/deliverable/skill, false for scaffolding-only", () => {
   assert.equal(
     turnHasDisplayableOutputs([out({ id: "1", file_path: "apps/x/server.ts" })]),
     true,
@@ -159,11 +163,16 @@ test("turnHasDisplayableOutputs: true for app/deliverable, false for managed-onl
     turnHasDisplayableOutputs([out({ id: "1", file_path: "outputs/a.docx" })]),
     true,
   );
+  // A skill manifest is a deliverable in its own right, so it is asserted
+  // separately from the scaffolding set rather than lumped in with it.
+  assert.equal(
+    turnHasDisplayableOutputs([out({ id: "1", file_path: "skills/foo/SKILL.md" })]),
+    true,
+  );
   assert.equal(
     turnHasDisplayableOutputs([
       out({ id: "1", file_path: "AGENTS.md" }),
-      out({ id: "2", file_path: "skills/foo/SKILL.md" }),
-      out({ id: "3", file_path: "outputs/browser-screenshots/x.png" }),
+      out({ id: "2", file_path: "outputs/browser-screenshots/x.png" }),
     ]),
     false,
   );

@@ -41,7 +41,7 @@
     "build:renderer": "vite build",
     "build:electron": "tsup --config tsup.config.ts --minify",
     "e2e": "npm run rebuild:native && npm run build && node --test e2e/*.test.mjs",
-    "test:unit": "node --import tsx --test electron/**/*.test.ts src/**/*.test.ts",
+    "test:unit": "node --import tsx --test \"electron/**/*.test.ts\" \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "test:electron": "node --test electron/*.test.mjs scripts/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",

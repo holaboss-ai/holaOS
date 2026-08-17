@@ -89,8 +89,11 @@ function resolveLoginShellPath(): string | null {
 export function mergePathEntries(
   shellPath: string,
   currentPath: string,
+  // Injectable so the Windows branch stays testable off Windows. `;` vs `:`
+  // is the whole difference, and joining `C:\\Windows` with a `:` separator
+  // makes the drive letter indistinguishable from a separator.
+  sep: string = path.delimiter,
 ): string {
-  const sep = path.delimiter;
   const seen = new Set<string>();
   const merged: string[] = [];
   for (const dir of [...shellPath.split(sep), ...currentPath.split(sep)]) {
@@ -128,12 +131,15 @@ export function computeWindowsSupplementalPath(
   currentPath: string,
   candidateDirs: string[],
   existsFn: (dir: string) => boolean,
+  // Defaults to the host delimiter so production callers are unchanged; tests
+  // pass ";" so this Windows-only path can be exercised on any host.
+  sep: string = path.delimiter,
 ): string {
   const present = candidateDirs.filter((dir) => dir && existsFn(dir));
   if (present.length === 0) {
     return currentPath;
   }
-  return mergePathEntries(currentPath, present.join(path.delimiter));
+  return mergePathEntries(currentPath, present.join(sep), sep);
 }
 
 /**

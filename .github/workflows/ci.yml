@@ -90,6 +90,21 @@ jobs:
         working-directory: apps/desktop
         run: bun run test:electron
 
+      # The TypeScript test tiers — electron/**/*.test.ts and src/**/*.test.{ts,tsx}
+      # — were likewise never run by anything. 30 files / 301 tests, covering
+      # real behaviour rather than source snapshots: PATH merging, the JSON
+      # state-file read/write guarantees, chat turn-card selection. They run
+      # under tsx and need no build.
+      #
+      # NOT included: src/**/*.test.mjs (64 files). That tier is the
+      # source-snapshot species and is currently 117/266 failing — it needs the
+      # same triage the electron/*.test.mjs files already got, which is a
+      # separate change. Gating the healthy tiers now stops the rot spreading
+      # while that happens.
+      - name: Desktop unit tests
+        working-directory: apps/desktop
+        run: bun run test:unit
+
   runtime-tests:
     if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-latest
