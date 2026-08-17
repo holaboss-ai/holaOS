@@ -219,6 +219,7 @@ import {
   settleCommittedAssistantTurns,
 } from "./preserveCommittedAssistantTurns";
 import { preserveMessageIdentity } from "./preserveMessageIdentity";
+import { admitPendingAttachmentFiles } from "./pendingAttachments";
 import { HistoryRestoreSkeleton } from "./skeletons";
 import { ApiKeyInstallGate } from "./ApiKeyInstallGate";
 import { AttachmentList, formatAttachmentSize } from "./AttachmentList";
@@ -8107,50 +8108,15 @@ export function ChatPane({
       return;
     }
 
-    const maxAttachmentBytes = 100 * 1024 * 1024;
-    const maxAttachmentCount = 50;
-    const acceptedFiles: File[] = [];
-    let rejectedImageCount = 0;
-    let oversizedCount = 0;
-    for (const file of files) {
-      if (
-        !selectedModelSupportsImageInput &&
-        attachmentLooksLikeImage(file.name, file.type)
-      ) {
-        rejectedImageCount += 1;
-        continue;
-      }
-      if (file.size > maxAttachmentBytes) {
-        oversizedCount += 1;
-        continue;
-      }
-      acceptedFiles.push(file);
-    }
-
-    const remainingSlots = Math.max(
-      0,
-      maxAttachmentCount - pendingAttachments.length,
-    );
-    const filesToAdd = acceptedFiles.slice(0, remainingSlots);
-    const overflowCount = acceptedFiles.length - filesToAdd.length;
-
-    const gateParts: string[] = [];
-    if (rejectedImageCount > 0) {
-      gateParts.push(
-        `${imageInputUnsupportedMessage(selectedModelDisplayLabel)} Skipped ${rejectedImageCount} image attachment${rejectedImageCount === 1 ? "" : "s"}.`,
-      );
-    }
-    if (oversizedCount > 0) {
-      gateParts.push(
-        `Skipped ${oversizedCount} file${oversizedCount === 1 ? "" : "s"} over 100MB.`,
-      );
-    }
-    if (overflowCount > 0) {
-      gateParts.push(
-        `Limit ${maxAttachmentCount} attachments — skipped ${overflowCount}.`,
-      );
-    }
-    setAttachmentGateMessage(gateParts.join(" "));
+    const { acceptedFiles: filesToAdd, gateMessage } =
+      admitPendingAttachmentFiles(files, {
+        currentAttachmentCount: pendingAttachments.length,
+        imageInputSupported: selectedModelSupportsImageInput,
+        modelLabel: selectedModelDisplayLabel,
+        getSizeBytes: (file) => file.size,
+        isImage: (file) => attachmentLooksLikeImage(file.name, file.type),
+      });
+    setAttachmentGateMessage(gateMessage);
 
     if (filesToAdd.length === 0) {
       return;
@@ -8175,30 +8141,22 @@ export function ChatPane({
       return;
     }
 
-    const acceptedFiles: ExplorerAttachmentDragPayload[] = [];
-    let rejectedImageCount = 0;
-    for (const file of files) {
-      if (
-        !selectedModelSupportsImageInput &&
-        resolveExplorerAttachmentKind(file) === "image"
-      ) {
-        rejectedImageCount += 1;
-        continue;
-      }
-      acceptedFiles.push(file);
-    }
-    setAttachmentGateMessage(
-      rejectedImageCount > 0
-        ? `${imageInputUnsupportedMessage(selectedModelDisplayLabel)} Skipped ${rejectedImageCount} image attachment${rejectedImageCount === 1 ? "" : "s"}.`
-        : "",
-    );
-    if (acceptedFiles.length === 0) {
+    const { acceptedFiles: filesToAdd, gateMessage } =
+      admitPendingAttachmentFiles(files, {
+        currentAttachmentCount: pendingAttachments.length,
+        imageInputSupported: selectedModelSupportsImageInput,
+        modelLabel: selectedModelDisplayLabel,
+        getSizeBytes: (file) => file.size,
+        isImage: (file) => resolveExplorerAttachmentKind(file) === "image",
+      });
+    setAttachmentGateMessage(gateMessage);
+    if (filesToAdd.length === 0) {
       return;
     }
 
     setPendingAttachments((prev) => [
       ...prev,
-      ...acceptedFiles.map((file) => ({
+      ...filesToAdd.map((file) => ({
         id: pendingAttachmentId(`${file.absolutePath}-${file.size}`),
         source: "explorer-path" as const,
         absolutePath: file.absolutePath,

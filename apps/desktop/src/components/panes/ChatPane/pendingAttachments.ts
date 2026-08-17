@@ -4,11 +4,91 @@ import type {
   PendingExplorerAttachmentFile,
   PendingLocalAttachmentFile,
 } from "./types";
-import { attachmentLooksLikeImage } from "./helpers";
+import {
+  attachmentLooksLikeImage,
+  imageInputUnsupportedMessage,
+} from "./helpers";
 import {
   type ExplorerAttachmentDragPayload,
   resolveExplorerAttachmentKind,
 } from "../../../lib/attachmentDrag";
+
+export const MAX_COMPOSER_ATTACHMENT_COUNT = 50;
+export const MAX_COMPOSER_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+
+export interface PendingAttachmentAdmissionOptions<T> {
+  currentAttachmentCount: number;
+  imageInputSupported: boolean;
+  modelLabel: string;
+  getSizeBytes: (file: T) => number;
+  isImage: (file: T) => boolean;
+}
+
+export interface PendingAttachmentAdmissionResult<T> {
+  acceptedFiles: T[];
+  gateMessage: string;
+  rejectedImageCount: number;
+  oversizedCount: number;
+  overflowCount: number;
+}
+
+/**
+ * Applies the composer attachment policy before local or Explorer files enter
+ * pending state. Callers provide only the source-specific size/image readers.
+ */
+export function admitPendingAttachmentFiles<T>(
+  files: readonly T[],
+  options: PendingAttachmentAdmissionOptions<T>,
+): PendingAttachmentAdmissionResult<T> {
+  const eligibleFiles: T[] = [];
+  let rejectedImageCount = 0;
+  let oversizedCount = 0;
+
+  for (const file of files) {
+    if (!options.imageInputSupported && options.isImage(file)) {
+      rejectedImageCount += 1;
+      continue;
+    }
+    if (options.getSizeBytes(file) > MAX_COMPOSER_ATTACHMENT_BYTES) {
+      oversizedCount += 1;
+      continue;
+    }
+    eligibleFiles.push(file);
+  }
+
+  const remainingSlots = Math.max(
+    0,
+    MAX_COMPOSER_ATTACHMENT_COUNT - options.currentAttachmentCount,
+  );
+  const acceptedFiles = eligibleFiles.slice(0, remainingSlots);
+  const overflowCount = eligibleFiles.length - acceptedFiles.length;
+  const gateParts: string[] = [];
+
+  if (rejectedImageCount > 0) {
+    gateParts.push(
+      `${imageInputUnsupportedMessage(options.modelLabel)} Skipped ${rejectedImageCount} image attachment${rejectedImageCount === 1 ? "" : "s"}.`,
+    );
+  }
+  if (oversizedCount > 0) {
+    const maxMegabytes = MAX_COMPOSER_ATTACHMENT_BYTES / (1024 * 1024);
+    gateParts.push(
+      `Skipped ${oversizedCount} file${oversizedCount === 1 ? "" : "s"} over ${maxMegabytes}MB.`,
+    );
+  }
+  if (overflowCount > 0) {
+    gateParts.push(
+      `Limit ${MAX_COMPOSER_ATTACHMENT_COUNT} attachments — skipped ${overflowCount}.`,
+    );
+  }
+
+  return {
+    acceptedFiles,
+    gateMessage: gateParts.join(" "),
+    rejectedImageCount,
+    oversizedCount,
+    overflowCount,
+  };
+}
 
 export interface PendingAttachmentStagingApi {
   stageLocalFiles: (
