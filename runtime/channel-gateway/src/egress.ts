@@ -54,6 +54,28 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * This is the proven buffer-final path; live edit-in-place
  * streaming is a future enhancement gated on `capabilities.editMessages`.
  */
+/**
+ * How long to wait for a reply before giving up.
+ *
+ * This has to outlast the runner's own ceiling. It used to be a flat 10
+ * minutes while runner-worker.ts allows 30 (DEFAULT_RUN_TIMEOUT_SECONDS,
+ * overridable via SANDBOX_AGENT_RUN_TIMEOUT_S), so any turn taking 10-30
+ * minutes was abandoned here *while it was still running* -- the run completed
+ * normally and the reply was simply never delivered.
+ *
+ * Tracks the same env var, plus a margin for the terminal event to be polled
+ * after the run itself ends.
+ */
+const RUNNER_RUN_TIMEOUT_FALLBACK_SECONDS = 1800;
+const EGRESS_TIMEOUT_MARGIN_MS = 2 * 60 * 1000;
+
+export function defaultEgressTimeoutMs(): number {
+  const raw = Number(process.env.SANDBOX_AGENT_RUN_TIMEOUT_S);
+  const seconds =
+    Number.isFinite(raw) && raw > 0 ? raw : RUNNER_RUN_TIMEOUT_FALLBACK_SECONDS;
+  return seconds * 1000 + EGRESS_TIMEOUT_MARGIN_MS;
+}
+
 export class ChannelEgress {
   readonly #port: ChannelRuntimePort;
   readonly #logger?: LoggerLike;
@@ -64,7 +86,12 @@ export class ChannelEgress {
     this.#port = options.port;
     this.#logger = options.logger;
     this.#pollIntervalMs = options.pollIntervalMs ?? 1000;
-    this.#timeoutMs = options.timeoutMs ?? 10 * 60 * 1000;
+    this.#timeoutMs = options.timeoutMs ?? defaultEgressTimeoutMs();
+  }
+
+  /** Effective give-up deadline for a single reply, in ms. */
+  get timeoutMs(): number {
+    return this.#timeoutMs;
   }
 
   async watch(params: {
@@ -224,6 +251,15 @@ export class ChannelEgress {
         this.#logger?.warn?.(
           `channel egress: timed out waiting for reply session=${sessionId} input=${inputId}`,
         );
+        // Say so. Falling out of the loop silently left the user on the
+        // "received" ack forever, with no way to tell a slow run from a lost
+        // one -- and the run may well still be going.
+        await this.#deliver(
+          connector,
+          target,
+          "⚠️ Still working on this — I stopped waiting for the reply here, so it may arrive late or not at all. Send another message to retry.",
+        );
+        await this.#ack(connector, message, "failed");
       }
     } finally {
       typing?.stop();
