@@ -103,6 +103,17 @@ jobs:
       # while that happens.
       - name: Desktop unit tests
         working-directory: apps/desktop
+        # This job sets ELECTRON_SKIP_BINARY_DOWNLOAD, so `require("electron")`
+        # throws "Electron failed to install correctly" for the handful of
+        # modules that import it at load time. In a plain node process the
+        # electron module resolves to a *path string* anyway (never the real
+        # API), so these tests already run with it undefined locally — the
+        # binary's absence is the only difference. Pointing the override at a
+        # path that need not exist makes resolution return that string instead
+        # of throwing, which matches local behaviour exactly and keeps the job
+        # from having to download Electron.
+        env:
+          ELECTRON_OVERRIDE_DIST_PATH: /nonexistent/electron-not-needed-for-unit-tests
         run: bun run test:unit
 
   runtime-tests:
