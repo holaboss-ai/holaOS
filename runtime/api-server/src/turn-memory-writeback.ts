@@ -588,7 +588,21 @@ export async function writeTurnMemory(params: {
       turnResult: params.turnResult,
       modelContext: params.modelContext ?? null,
     });
-  } catch {
+  } catch (error) {
+    // Never rethrow: the caller fires this without awaiting so it cannot block
+    // turn finalization, and a rejection there would surface as an unhandled
+    // rejection rather than anything useful.
+    //
+    // But it must not be silent either. This indexes the recall substrate --
+    // attachments, referenced images, output artifacts. A failure means the
+    // agent quietly cannot recall that turn's material later, with no error
+    // anywhere and nothing distinguishing it from a turn that had nothing to
+    // index. Log it so a "the agent forgot" report has something to look at.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[memory] durable writeback failed workspace=${params.turnResult.workspaceId} session=${params.turnResult.sessionId} input=${params.turnResult.inputId}`,
+      error,
+    );
     return (
       params.store.getTurnResult({
         workspaceId: params.turnResult.workspaceId,

@@ -19,6 +19,7 @@ import {
   refreshMemoryIndexes,
   waitForPendingWorkspaceMemoryTreeRebuilds,
   writeTurnDurableMemory,
+  writeTurnMemory,
   type TurnMemoryWritebackModelContext,
 } from "./turn-memory-writeback.js";
 import {
@@ -726,4 +727,45 @@ test("refreshMemoryIndexes can target specific interaction entities", async () =
   assert.equal(fs.existsSync(workflowSummaryPath), false);
 
   store.close();
+});
+
+test("writeTurnMemory logs a writeback failure instead of swallowing it", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-memory-writeback-log-"));
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+  try {
+    const turnResult = {
+      workspaceId: "workspace-1",
+      sessionId: "session-1",
+      inputId: "input-1",
+    } as unknown as TurnResultRecord;
+
+    // No workspace seeded and a store that will reject the writeback, so the
+    // durable pass throws. The caller fires this without awaiting, so it must
+    // still resolve — but silently is what made a lost turn undiagnosable.
+    const returned = await writeTurnMemory({
+      store: {
+        ...store,
+        getTurnResult: () => null,
+      } as unknown as RuntimeStateStore,
+      turnResult,
+      modelContext: null,
+    });
+
+    assert.equal(returned, turnResult, "must resolve to the caller's turn result");
+    assert.equal(warnings.length, 1, "the failure must be logged exactly once");
+    assert.match(String(warnings[0]?.[0]), /\[memory\] durable writeback failed/);
+    assert.match(String(warnings[0]?.[0]), /input=input-1/);
+  } finally {
+    console.warn = originalWarn;
+    store.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
