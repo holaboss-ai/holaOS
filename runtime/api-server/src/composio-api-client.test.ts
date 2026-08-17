@@ -260,3 +260,59 @@ test("createComposioApiClientFromEnv returns a configured client when both env v
   assert.ok(client);
   assert.equal(client?.honoBaseUrl, "https://hono.example");
 });
+
+test("a metadata read gives up instead of hanging on a silent upstream", async () => {
+  // An upstream that accepts the connection and then never answers. Node's
+  // fetch has no default timeout, so without a signal this await never
+  // settles — and it is the FIRST await of every claimed turn, via the
+  // integration proposal gate.
+  const neverResolves: typeof fetch = (_input, init) =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () =>
+        reject(init.signal?.reason ?? new Error("aborted")),
+      );
+    });
+
+  const client = new ComposioApiClient({
+    honoBaseUrl: "https://example.test",
+    bearerToken: "token",
+    fetchImpl: neverResolves,
+    readTimeoutMs: 30,
+  });
+
+  const startedAt = Date.now();
+  await assert.rejects(() => client.listConnections({}));
+  assert.ok(
+    Date.now() - startedAt < 2_000,
+    "listConnections must abort on its own deadline, not hang",
+  );
+});
+
+test("tool execution gets a longer ceiling than a metadata read", async () => {
+  // A real remote action is legitimately slower than a listing, so the two
+  // must not share one deadline — but neither may be unbounded.
+  const signals: Array<AbortSignal | null | undefined> = [];
+  const capture: typeof fetch = async (_input, init) => {
+    signals.push(init?.signal);
+    return new Response(JSON.stringify({ ok: true, data: {} }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const client = new ComposioApiClient({
+    honoBaseUrl: "https://example.test",
+    bearerToken: "token",
+    fetchImpl: capture,
+  });
+
+  await client.listConnections({}).catch(() => undefined);
+  await client
+    .executeAction({ toolSlug: "GMAIL_SEND", connectedAccountId: "a", arguments: {} })
+    .catch(() => undefined);
+
+  assert.equal(signals.length, 2);
+  for (const signal of signals) {
+    assert.ok(signal, "every request must carry an abort signal");
+  }
+});

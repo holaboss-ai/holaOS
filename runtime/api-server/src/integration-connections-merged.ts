@@ -45,7 +45,18 @@ async function remoteComposioRecords(): Promise<IntegrationConnectionRecord[]> {
     return conns
       .filter((c) => c.id.trim() && c.toolkitSlug.trim())
       .map(toRecord);
-  } catch {
+  } catch (error) {
+    // Degrading to "no remote connections" is deliberate — callers must still
+    // get the local set — but it is indistinguishable from the user genuinely
+    // having none. That matters most in the integration proposal gate, where
+    // it reads as "not connected" and requeues the user's message for 10
+    // minutes with the session flipped to WAITING_ON_USER. Log it so that
+    // outcome is at least traceable to an unreachable upstream.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[composio] listing remote connections failed; treating as none for this call",
+      error,
+    );
     return [];
   }
 }

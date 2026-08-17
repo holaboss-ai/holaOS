@@ -34,7 +34,30 @@ export interface ComposioApiClientConfig {
   bearerToken: string;
   /** Override for tests. */
   fetchImpl?: typeof fetch;
+  /** Ceiling for metadata reads. Default {@link DEFAULT_READ_TIMEOUT_MS}. */
+  readTimeoutMs?: number;
+  /** Ceiling for tool execution / REST proxying. Default
+   *  {@link DEFAULT_EXECUTE_TIMEOUT_MS}. */
+  executeTimeoutMs?: number;
 }
+
+/**
+ * Metadata reads (connections, toolkit catalogue) sit on the turn's critical
+ * path: the integration proposal gate awaits listConnections as the FIRST
+ * await of every claimed turn, before the runner is spawned. Node's fetch has
+ * no default timeout, so an upstream that accepted the connection and then
+ * went quiet stalled the turn indefinitely -- no run_started, no error, and
+ * the queue worker's keepalive kept renewing the lease, so stale-claim
+ * recovery never fired either. Only a runtime restart cleared it.
+ */
+const DEFAULT_READ_TIMEOUT_MS = 15_000;
+
+/**
+ * Tool execution and REST proxying perform a real remote action, so they are
+ * legitimately slower than a metadata read -- but still bounded, because the
+ * alternative is the same indefinite stall one level down.
+ */
+const DEFAULT_EXECUTE_TIMEOUT_MS = 120_000;
 
 export interface ComposioApiClientErrorInfo {
   code: string;
@@ -127,6 +150,8 @@ export class ComposioApiClient {
   readonly honoBaseUrl: string;
   private readonly bearerToken: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly readTimeoutMs: number;
+  private readonly executeTimeoutMs: number;
 
   constructor(config: ComposioApiClientConfig) {
     if (!config.honoBaseUrl) {
@@ -138,6 +163,8 @@ export class ComposioApiClient {
     this.honoBaseUrl = config.honoBaseUrl.replace(/\/+$/, "");
     this.bearerToken = config.bearerToken;
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.readTimeoutMs = config.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS;
+    this.executeTimeoutMs = config.executeTimeoutMs ?? DEFAULT_EXECUTE_TIMEOUT_MS;
   }
 
   /** Execute a Composio cataloged tool by slug on behalf of the session
@@ -276,6 +303,7 @@ export class ComposioApiClient {
         Accept: "application/json",
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.executeTimeoutMs),
     });
   }
 
@@ -286,6 +314,7 @@ export class ComposioApiClient {
         Authorization: `Bearer ${this.bearerToken}`,
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(this.readTimeoutMs),
     });
   }
 }
