@@ -1,9 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { PostRunJobRecord, RuntimeStateStore } from "@holaboss/runtime-state-store";
 
@@ -117,7 +116,6 @@ export interface ForceSessionCompactionResult {
   strippedTrailingCompactions: number;
 }
 
-const require = createRequire(import.meta.url);
 const PI_PACKAGE_ENTRY_PATH = fileURLToPath(
   import.meta.resolve("@earendil-works/pi-coding-agent"),
 );
@@ -126,14 +124,21 @@ const PI_SESSION_MANAGER_MODULE_PATH = path.join(
   "core",
   "session-manager.js",
 );
+// Loaded as ESM, not via createRequire: see the note in
+// claimed-input-executor.ts. pi-agent-core exposes only an `import` condition,
+// and tsx's CJS resolver throws ERR_PACKAGE_PATH_NOT_EXPORTED walking to it.
+const PI_SESSION_MANAGER_MODULE = (await import(
+  pathToFileURL(PI_SESSION_MANAGER_MODULE_PATH).href
+)) as {
+  SessionManager: PiSessionManagerStatic;
+  getLatestCompactionEntry: GetLatestCompactionEntryFn;
+};
+
 function loadPiSessionManagerModule(): {
   SessionManager: PiSessionManagerStatic;
   getLatestCompactionEntry: GetLatestCompactionEntryFn;
 } {
-  return require(PI_SESSION_MANAGER_MODULE_PATH) as {
-    SessionManager: PiSessionManagerStatic;
-    getLatestCompactionEntry: GetLatestCompactionEntryFn;
-  };
+  return PI_SESSION_MANAGER_MODULE;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

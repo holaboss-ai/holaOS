@@ -2,8 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type {
   AgentSessionRecord,
@@ -315,16 +314,29 @@ function nonEmptyString(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
-const require = createRequire(import.meta.url);
+/**
+ * pi's session-manager is ESM, and it pulls in @earendil-works/pi-agent-core,
+ * whose "." export declares only an `import` condition. Loading it through
+ * createRequire happens to work under plain node, but tsx's CJS resolver walks
+ * that graph with require conditions and fails with
+ * ERR_PACKAGE_PATH_NOT_EXPORTED -- which took out every code path below
+ * (session snapshots, leaf state, provider-termination recovery) whenever the
+ * runtime ran under tsx, i.e. the test suite and the `hola` CLI.
+ *
+ * Loaded once here as ESM so every caller can stay synchronous.
+ */
+const PI_SESSION_MANAGER_MODULE = (await import(
+  pathToFileURL(PI_SESSION_MANAGER_MODULE_PATH).href
+)) as {
+  SessionManager: PiSessionManagerStatic;
+  getLatestCompactionEntry: GetLatestPiCompactionEntryFn;
+};
 
 function loadPiSessionManagerModule(): {
   SessionManager: PiSessionManagerStatic;
   getLatestCompactionEntry: GetLatestPiCompactionEntryFn;
 } {
-  return require(PI_SESSION_MANAGER_MODULE_PATH) as {
-    SessionManager: PiSessionManagerStatic;
-    getLatestCompactionEntry: GetLatestPiCompactionEntryFn;
-  };
+  return PI_SESSION_MANAGER_MODULE;
 }
 
 function resolvePiLiveSessionDir(workspaceDir: string): string {

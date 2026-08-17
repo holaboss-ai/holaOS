@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test as nodeTest } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   RuntimeStateStore,
@@ -62,7 +61,6 @@ const ORIGINAL_ENV = {
   HOLABOSS_RUNTIME_CONFIG_PATH: process.env.HOLABOSS_RUNTIME_CONFIG_PATH,
   HOLABOSS_HARNESS_RUN_TIMEOUT_S: process.env.HOLABOSS_HARNESS_RUN_TIMEOUT_S,
 };
-const require = createRequire(import.meta.url);
 const PI_PACKAGE_ENTRY_PATH = fileURLToPath(
   import.meta.resolve("@earendil-works/pi-coding-agent"),
 );
@@ -70,6 +68,14 @@ const PI_SESSION_MANAGER_MODULE_PATH = path.join(
   path.dirname(PI_PACKAGE_ENTRY_PATH),
   "core",
   "session-manager.js",
+);
+// Imported, not require()d: session-manager.js pulls in
+// @earendil-works/pi-agent-core, whose "." export declares only an `import`
+// condition. Reaching it through createRequire therefore fails with
+// ERR_PACKAGE_PATH_NOT_EXPORTED. Loaded once here so the helpers below can
+// stay synchronous.
+const PI_SESSION_MANAGER_MODULE = await import(
+  pathToFileURL(PI_SESSION_MANAGER_MODULE_PATH).href
 );
 
 function test(
@@ -269,7 +275,7 @@ function writeWorkspaceSkill(
 }
 
 function openPiSessionManager(sessionFile: string) {
-  const { SessionManager } = require(PI_SESSION_MANAGER_MODULE_PATH) as {
+  const { SessionManager } = PI_SESSION_MANAGER_MODULE as {
     SessionManager: {
       create: (cwd: string, sessionDir?: string) => {
         appendMessage: (message: Record<string, unknown>) => string;
@@ -312,7 +318,7 @@ function createPiSessionFile(params: {
   sessionDir: string;
 }) {
   fs.mkdirSync(params.sessionDir, { recursive: true });
-  const { SessionManager } = require(PI_SESSION_MANAGER_MODULE_PATH) as {
+  const { SessionManager } = PI_SESSION_MANAGER_MODULE as {
     SessionManager: {
       create: (cwd: string, sessionDir?: string) => {
         appendMessage: (message: Record<string, unknown>) => string;
@@ -1280,7 +1286,9 @@ test("claimed input creates a completion notification for completed main-session
   // Single-tenant: the claimed input resolves to the canonical root workspace,
   // whose registry row is folded away by consolidation, so the notification
   // sourceLabel falls back to the synthetic root's default name "Workspace".
-  assert.equal(notifications[0]?.title, "Workspace — Reply ready");
+  // The seed above names this workspace "Workspace 1"; bare "Workspace" is only
+  // the fallback for an empty name.
+  assert.equal(notifications[0]?.title, "Workspace 1 — Reply ready");
   assert.equal(notifications[0]?.message, "Hello from the main session.");
   assert.equal(notifications[0]?.level, "info");
   assert.equal(notifications[0]?.sourceType, "main_session");
