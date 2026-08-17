@@ -1,4 +1,4 @@
 {
   "title": "Memory and Continuity",
-  "pages": ["index", "runtime-continuity", "durable-memory", "recall-and-evolve"]
+  "pages": ["index", "runtime-continuity", "durable-memory", "recall-and-evolve", "inspecting-and-resetting-memory"]
 }

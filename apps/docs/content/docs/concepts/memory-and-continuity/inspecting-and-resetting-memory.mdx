@@ -1,0 +1,63 @@
+---
+title: Inspecting and Resetting Memory
+description: How to check what's remembered, confirm memory scope in practice, and clear it from the desktop UI or the command line.
+---
+
+The rest of this section covers the memory model conceptually. This page is the practical answer to "what is actually remembered about me, and how do I look at it or get rid of it?"
+
+## Where to look first: it's just files
+
+Memory is stored locally as plain markdown, not in an opaque database. You can always inspect it directly with a file browser or editor, without going through the desktop app at all:
+
+- workspace-scoped memory lives under `<workspace-id>/.holaboss/memory/`
+- profile-global memory (accepted preferences, identity, and the integration forest) lives under the configured `memory/` root
+
+See [Durable Memory](/docs/concepts/memory-and-continuity/durable-memory) for the exact subfolders and what each one holds.
+
+## Scope in practice
+
+The short version, for the common question "will context from one workspace leak into another":
+
+- **Per-workspace** — interaction memory (facts, procedures, blockers derived from that workspace's own runs) is scoped to a single workspace at `<workspace-id>/.holaboss/memory/`. Two separate workspaces — say a personal project and a client repo — do not read each other's interaction memory. Claude Code, Codex, and the built-in holaOS agent share this same per-workspace memory when they operate inside that one workspace; that is what "one shared memory" in the project description refers to. It is shared *across agents*, not *across workspaces*.
+- **Profile-global** — a smaller set of surfaces is deliberately shared across every workspace under your holaOS profile: the integration forest (recalled Gmail/Notion/GitHub/Slack/etc. context) and accepted user-memory docs (`memory/preference/`, `memory/identity/`). These live under the shared `memory/` root, not inside any one workspace folder.
+- **Per-agent** — there is no separate memory store per agent identity. Whichever agent runs inside a workspace reads and writes that workspace's memory; the split that matters is per-workspace vs. profile-global, not per-agent.
+
+## Inspecting memory from the desktop
+
+Each workspace has a **Memory** pane (reachable from the memory drawer described in [Workspaces](/docs/getting-started/workspaces)) with two views:
+
+- **Graph** — a browsable, graphable projection of the workspace's semantic memory forest. Click a node to see its evidence, its outgoing/incoming relations, and jump to related nodes.
+- **File** — the underlying markdown file for a selected node or tree leaf, rendered as plain text, with its path and size shown in the header.
+
+Because the canonical content is markdown, viewing a file in this pane is equivalent to opening it directly from `.holaboss/memory/` on disk. There's no separate "export" step needed for a single file — copy it like any other text file.
+
+## Clearing memory from the desktop
+
+The Memory pane's overflow menu (**⋯** in the top-right of the content panel) has a **Clear memory…** action. It is confirm-gated because it is destructive and unrecoverable:
+
+- deletes every remembered fact, entity, and indexed document for the *current workspace*
+- deletes the on-disk mirror under that workspace's `.holaboss/memory/`
+- does **not** touch chats, outputs, or workspace files — only durable memory
+
+This clears one workspace at a time. It does not touch other workspaces' memory or the profile-global integration/preference surfaces.
+
+## Resetting memory from the command line
+
+For scripted or bulk resets — for example, resetting a workspace between test runs — use `scripts/memory-cleanup.mjs` from a holaOS checkout:
+
+```bash
+node scripts/memory-cleanup.mjs --workspace-id <workspace-id> [options]
+```
+
+Options:
+
+- `--workspace-dir <path>` — override workspace directory instead of resolving it from `--workspace-id`
+- `--agents-baseline-file <path>` — reset `AGENTS.md` from a baseline file after cleanup
+- `--dry-run` — report what would be cleaned without changing anything
+- `--json` — print the result as JSON instead of a human-readable summary
+
+This script clears the same interaction and semantic memory tables and on-disk directories as the desktop's **Clear memory** action, and reports before/after counts so you can confirm what was removed. It operates on one workspace at a time, matching the scope described above.
+
+<Callout type="warn">
+Both the desktop action and the script are unrecoverable. Neither has an undo. If you want to keep a copy of what's being cleared, copy the workspace's `.holaboss/memory/` folder before clearing.
+</Callout>
