@@ -285,7 +285,12 @@ test("image generation model client routes managed Holaboss Gemini image models 
   assert.deepEqual(client, {
     baseUrl: "https://runtime.example/api/v1/model-proxy/google/v1",
     apiKey: "hb-token",
-    defaultHeaders: { "X-Holaboss-User-Id": "user-xyz" },
+    defaultHeaders: {
+      "X-Holaboss-User-Id": "user-xyz",
+      // Added so desktop image spend is attributed in the usage log's Entity
+      // column; without it that column is blank.
+      "X-Holaboss-Requester-Id": "desktop:user-xyz",
+    },
     modelId: "gemini-3.1-flash-image",
     apiStyle: "openai_compatible",
   });

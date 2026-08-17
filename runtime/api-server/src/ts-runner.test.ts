@@ -366,6 +366,8 @@ test("decodeTsRunnerRequest decodes a valid runner request", () => {
     agent_cwd: null,
     session_id: "session-1",
     session_kind: null,
+    // Defaulted by the decoder; absent from the encoded input above.
+    harness_timeout_seconds: 0,
     input_id: "input-1",
     instruction: "hello",
     attachments: [],
@@ -1328,8 +1330,12 @@ test("runTsRunnerCli only advertises structured output when the selected harness
       {},
   ).sort();
   assert.deepEqual(bootstrapStageTimingKeys, [
+    // The two composio stages arrived with the cross-process inline-tools
+    // cache; this list predates it.
+    "await_composio_inline_tools",
     "build_harness_host_request",
     "compile_runtime_plan",
+    "composio_inline_tools_fetch",
     "load_current_user_context",
     "load_operator_surface_context",
     "load_pending_user_memory_context",
@@ -2315,7 +2321,7 @@ test("runTsRunnerCli projects prior attachment turns into session attachment con
   });
 });
 
-test("runTsRunnerCli does not inject report-routing recovery context for main-session requests (full-capability surface)", async () => {
+test("runTsRunnerCli never advertises a staged runtime tool that is in the hidden set", async () => {
   const sandboxRoot = fs.mkdtempSync(
     path.join(os.tmpdir(), "hb-ts-runner-report-routing-"),
   );
@@ -2395,9 +2401,12 @@ test("runTsRunnerCli does not inject report-routing recovery context for main-se
     throw new Error("expected project runtime config request");
   }
   const runtimeConfigRequest = capturedProjectRequest as AgentRuntimeConfigCliRequest;
-  assert.deepEqual(runtimeConfigRequest.runtime_tool_ids, [
-    "delegate_task",
-  ]);
+  // A staged tool in HIDDEN_RUNTIME_TOOL_IDS must never reach the model. The
+  // hidden set exists so a tool can stay wired end-to-end while being
+  // unadvertised, and `delegate_task` is in it "while delegation is paused" —
+  // so staging it above and getting nothing back is the invariant, not a
+  // regression. Empty the hidden set to re-enable and this flips.
+  assert.deepEqual(runtimeConfigRequest.runtime_tool_ids, []);
 });
 
 test("runTsRunnerCli does not inject available-tool fallback context for main-session concrete checks (full-capability surface)", async () => {
