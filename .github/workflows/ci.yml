@@ -117,7 +117,34 @@ jobs:
       - name: Install workspace dependencies
         run: bun install --frozen-lockfile
 
+      # pi-search-tool / pi-find-tool call ensureTool("rg" | "fd", true), which
+      # falls back to querying the GitHub releases API and downloading the
+      # binary when the tool is not already present. In CI that turned an
+      # ordinary unit test into a network call against a rate-limited shared
+      # endpoint, and it failed intermittently with "The search backend (rg) is
+      # not available and could not be downloaded".
+      #
+      # getToolPath checks the system PATH before downloading, so installing
+      # these makes the tests deterministic without touching the runtime's
+      # download-on-demand behaviour, and without skipping the tests — which
+      # would just trade a flake for silent loss of coverage.
+      # pi already accepts Debian's `fdfind` as a system name for fd, so no
+      # symlink is needed here.
+      - name: Install search tools (rg, fd)
+        run: |
+          if ! command -v rg >/dev/null || ! (command -v fd >/dev/null || command -v fdfind >/dev/null); then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ripgrep fd-find
+          fi
+          rg --version | head -1
+
       - name: Runtime state store + harness host
+        # PI_OFFLINE makes the download path unreachable rather than merely
+        # unused: if a tool is ever missing, the job fails immediately and
+        # identically instead of flaking on whether a network call happened to
+        # succeed. Combined with the install above, this step is hermetic.
+        env:
+          PI_OFFLINE: "1"
         run: bunx turbo run build test --filter=@holaboss/runtime-state-store --filter=@holaboss/runtime-harness-host
 
   sdk-app-sdk:
