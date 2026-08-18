@@ -36,4 +36,24 @@ test("prewarming restores background throttling once the load finishes", async (
     restoreAt > disableAt,
     "throttling must be restored after the load, not before it",
   );
+
+  // …and it has to be unconditional. Everything between the opt-out and the
+  // restore can throw — seedAppSurfaceAuthCookies rejects, the view is
+  // destroyed mid-prewarm — and the enclosing catch only logs, so a restore
+  // sitting on the success path leaves the opt-out permanent on exactly the
+  // failures this guards against.
+  const finallyAt = fn.indexOf("} finally {");
+  assert.notEqual(
+    finallyAt,
+    -1,
+    "the restore is not in a finally — a throw during the prewarm leaks the opt-out for the rest of the session",
+  );
+  assert.ok(
+    restoreAt > finallyAt,
+    "background throttling must be restored inside the finally, not on the success path",
+  );
+  assert.ok(
+    disableAt < finallyAt,
+    "the opt-out must happen before the guarded block it is undone by",
+  );
 });

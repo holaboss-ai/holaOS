@@ -18953,24 +18953,32 @@ async function prewarmWebHolaAppSurface(holaAppId: string): Promise<void> {
     appSurfaceIdentity.set(view.webContents.id, { appId: holaAppId });
     // Keep it responsive while detached so the prewarm load isn't background-throttled.
     view.webContents.setBackgroundThrottling(false);
-    await seedAppSurfaceAuthCookies(view.webContents.session);
-    console.log(`[web-holaapp] prewarming ${holaAppId} → ${targetUrl}`);
-    await view.webContents.loadURL(targetUrl).then(
-      () => console.log(`[web-holaapp] ${holaAppId} prewarmed`),
-      (err: unknown) => {
-        const code = (err as { code?: unknown } | null)?.code;
-        if (code !== "ERR_ABORTED") {
-          console.warn(`[web-holaapp] prewarm ${holaAppId} load error:`, err);
-        }
-      },
-    );
-    // The opt-out above is for the LOAD, per its comment — but nothing ever put
-    // it back, so a detached, invisible page kept running its timers,
-    // animations and polling at full cadence for the rest of the app session.
-    // Restoring the default only affects the view while it is hidden or
-    // occluded; an attached, visible surface is not throttled by Chromium.
-    if (!view.webContents.isDestroyed()) {
-      view.webContents.setBackgroundThrottling(true);
+    try {
+      await seedAppSurfaceAuthCookies(view.webContents.session);
+      console.log(`[web-holaapp] prewarming ${holaAppId} → ${targetUrl}`);
+      await view.webContents.loadURL(targetUrl).then(
+        () => console.log(`[web-holaapp] ${holaAppId} prewarmed`),
+        (err: unknown) => {
+          const code = (err as { code?: unknown } | null)?.code;
+          if (code !== "ERR_ABORTED") {
+            console.warn(`[web-holaapp] prewarm ${holaAppId} load error:`, err);
+          }
+        },
+      );
+    } finally {
+      // The opt-out above is for the LOAD, per its comment — but nothing ever
+      // put it back, so a detached, invisible page kept running its timers,
+      // animations and polling at full cadence for the rest of the app
+      // session. Restoring the default only affects the view while it is
+      // hidden or occluded; an attached, visible surface is not throttled by
+      // Chromium.
+      //
+      // In a `finally`, not at the end of the try: the cookie seed above can
+      // reject, and the outer catch only logs — so on that path the opt-out
+      // would otherwise be permanent, which is the leak this exists to close.
+      if (!view.webContents.isDestroyed()) {
+        view.webContents.setBackgroundThrottling(true);
+      }
     }
   } catch (err) {
     console.warn(`[web-holaapp] prewarm ${holaAppId} failed:`, err);
