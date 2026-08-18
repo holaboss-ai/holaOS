@@ -71,6 +71,9 @@ export interface ClaudeStreamHarnessOptions {
   modelEnv: string;
   /** Env var for shell-split default args, e.g. "HOLABOSS_CLAUDE_ARGS". */
   argsEnv: string;
+  /** Watchdog overrides (tests). Defaults below. */
+  firstFrameTimeoutMs?: number;
+  inactivityTimeoutMs?: number;
 }
 
 const CLAUDE_STREAM_OPTIONS: ClaudeStreamHarnessOptions = {
@@ -223,6 +226,83 @@ export async function runClaudeStreamHarness(
   let sessionId: string | null = null;
   let finalStatus: "completed" | "failed" = "completed";
   let finalError: string | null = null;
+
+  // Watchdogs. Ported from the codex harness, which has had both since it was
+  // written; this harness had neither, so a wedged `claude` CLI (an auth
+  // prompt, a stalled network read, an unanswered control frame) produced a
+  // spinner until the api-server's 900s idle cap, then a generic "runner
+  // command became idle" with nothing to diagnose from.
+  //
+  // ts-runner's fast 60s first-event watchdog does not cover this: we emit
+  // run_started as soon as the process spawns, which clears it before the CLI
+  // has produced anything. Emitting it late would delay the UI's "working"
+  // state for every healthy run, so the timers live here instead.
+  const FIRST_FRAME_TIMEOUT_MS = opts.firstFrameTimeoutMs ?? 30_000;
+  const INACTIVITY_TIMEOUT_MS = opts.inactivityTimeoutMs ?? 10 * 60 * 1000;
+  let watchdogFired = false;
+  let firstFrameSeen = false;
+  let firstFrameTimer: NodeJS.Timeout | null = null;
+  let inactivityTimer: NodeJS.Timeout | null = null;
+
+  const fireWatchdog = (reason: string): void => {
+    if (watchdogFired) return;
+    watchdogFired = true;
+    finalStatus = "failed";
+    finalError = reason;
+    if (firstFrameTimer) {
+      clearTimeout(firstFrameTimer);
+      firstFrameTimer = null;
+    }
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+    }
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // already dead
+    }
+    // A CLI that ignores SIGTERM must not hold the host process open.
+    setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already dead
+      }
+    }, 5_000).unref();
+  };
+
+  const resetInactivityTimer = (): void => {
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+    }
+    inactivityTimer = setTimeout(() => {
+      fireWatchdog(
+        `${opts.label} produced no output for ${Math.round(INACTIVITY_TIMEOUT_MS / 60_000)} minutes`,
+      );
+    }, INACTIVITY_TIMEOUT_MS);
+    inactivityTimer.unref();
+  };
+
+  /** A parsed CLI frame is real progress — heartbeats alone would not be. */
+  const markActivity = (): void => {
+    if (!firstFrameSeen) {
+      firstFrameSeen = true;
+      if (firstFrameTimer) {
+        clearTimeout(firstFrameTimer);
+        firstFrameTimer = null;
+      }
+    }
+    resetInactivityTimer();
+  };
+
+  firstFrameTimer = setTimeout(() => {
+    if (firstFrameSeen) return;
+    fireWatchdog(
+      `${opts.label} emitted nothing in the first ${FIRST_FRAME_TIMEOUT_MS / 1000}s — likely stuck before its first turn`,
+    );
+  }, FIRST_FRAME_TIMEOUT_MS);
+  firstFrameTimer.unref();
   let outputText = "";
   // True once any partial stream_event delta (text/thinking) has been emitted.
   // With --include-partial-messages Claude streams token-level deltas AND then
@@ -255,6 +335,7 @@ export async function runClaudeStreamHarness(
     } catch {
       return;
     }
+    markActivity();
     handleClaudeMessage(msg);
   });
 
@@ -446,6 +527,14 @@ export async function runClaudeStreamHarness(
   const exitCode = await new Promise<number>((resolve) => {
     child.on("close", (code) => resolve(code ?? 0));
   });
+  if (firstFrameTimer) {
+    clearTimeout(firstFrameTimer);
+    firstFrameTimer = null;
+  }
+  if (inactivityTimer) {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = null;
+  }
 
   // Wipe the temp --mcp-config file as soon as claude has exited.
   // The file contains decrypted MCP env (Notion OAuth tokens, etc.),
