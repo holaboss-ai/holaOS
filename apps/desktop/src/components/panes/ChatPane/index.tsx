@@ -218,6 +218,7 @@ import {
   preserveCommittedAssistantTurns,
   settleCommittedAssistantTurns,
 } from "./preserveCommittedAssistantTurns";
+import { preserveMessageIdentity } from "./preserveMessageIdentity";
 import { HistoryRestoreSkeleton } from "./skeletons";
 import { ApiKeyInstallGate } from "./ApiKeyInstallGate";
 import { AttachmentList, formatAttachmentSize } from "./AttachmentList";
@@ -4750,13 +4751,18 @@ export function ChatPane({
         renderedForDisplay,
       );
       setMessages((prev) =>
-        preserveDisplayedTurnOutputs(
-          preserveCommittedAssistantTurns(
-            mergePendingOptimisticUserMessages(renderedForDisplay, reconciled, {
-              workspaceId,
-              sessionId: nextSessionId,
-            }),
-            pendingCommittedAssistantTurnsRef.current,
+        // Outermost: everything below rebuilds objects, so identity is restored
+        // last, once the final content is settled.
+        preserveMessageIdentity(
+          preserveDisplayedTurnOutputs(
+            preserveCommittedAssistantTurns(
+              mergePendingOptimisticUserMessages(renderedForDisplay, reconciled, {
+                workspaceId,
+                sessionId: nextSessionId,
+              }),
+              pendingCommittedAssistantTurnsRef.current,
+            ),
+            prev,
           ),
           prev,
         ),
