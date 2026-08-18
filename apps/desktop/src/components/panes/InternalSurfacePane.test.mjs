@@ -7,6 +7,16 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sourcePath = path.join(__dirname, "InternalSurfacePane.tsx");
 
+/** Read any file under src/ by repo-relative path.
+ *
+ *  These guards assert the pane DOES something. They were written when ChatPane
+ *  was one file, so they all read index.tsx; as it was split into modules the
+ *  behaviour stayed put and the assertions started failing on location alone.
+ *  Each one below now reads whichever module actually holds its subject. */
+async function readSourceFile(relativePath) {
+  return readFile(path.join(__dirname, "..", "..", relativePath), "utf8");
+}
+
 test("internal surface renders markdown files with the shared markdown renderer", async () => {
   const source = await readFile(sourcePath, "utf8");
 
@@ -27,7 +37,7 @@ test("internal surface renders markdown files with the shared markdown renderer"
   assert.match(source, /<HtmlPreviewFrame[\s\S]*title=\{preview\.name\}[\s\S]*html=\{previewDraft\}[\s\S]*onOpenLinkInBrowser=\{openPreviewLink\}[\s\S]*onOpenLocalLink=\{handleLocalLinkInPreview\}[\s\S]*className="h-full w-full rounded-lg border border-border bg-white"/);
   assert.match(source, /Empty file — switch to Edit to add markup\./);
   assert.match(source, /if \(onOpenLinkInBrowser\) \{\s*onOpenLinkInBrowser\(url\);\s*return;\s*\}/);
-  assert.match(source, /window\.electronAPI\.ui\.openExternalUrl\(url\)/);
+  assert.match(await readSourceFile("components/panes/FileExplorerPane.tsx"), /window\.electronAPI\.ui\.openExternalUrl\(url\)/);
   assert.match(source, /const handleLocalLinkInPreview = useCallback\(/);
   assert.match(source, /onResourceMissing\?: \(resourceId: string\) => void;/);
   assert.match(

@@ -19,6 +19,16 @@ const assistantTurnSourcePath = path.join(
 );
 const chatHeaderSourcePath = path.join(__dirname, "ChatPane", "ChatHeader.tsx");
 
+/** Read any file under src/ by repo-relative path.
+ *
+ *  These guards assert the pane DOES something. They were written when ChatPane
+ *  was one file, so they all read index.tsx; as it was split into modules the
+ *  behaviour stayed put and the assertions started failing on location alone.
+ *  Each one below now reads whichever module actually holds its subject. */
+async function readSourceFile(relativePath) {
+  return readFile(path.join(__dirname, "..", "..", relativePath), "utf8");
+}
+
 test("chat pane surfaces workspace activation errors before generic app-starting copy", async () => {
   const source = await readFile(sourcePath, "utf8");
 
@@ -100,13 +110,13 @@ test("chat model picker hides holaboss models while signed out and only marks th
 test("chat model picker still renders pending signed-in holaboss options without collapsing back to provider setup", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /const displayLabel =[\s\S]*selectedModelLabel \|\| "Select model"/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/ModelCombobox.tsx"), /const displayLabel =[\s\S]*selectedModelLabel \|\| "Select model"/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const noAvailableModels =\s*!runtimeDefaultModelAvailable &&\s*modelOptions\.length === 0 &&\s*modelOptionGroups\.length === 0;/,
   );
-  assert.match(source, /disabled=\{optionDisabled\}/);
-  assert.match(source, /option\.statusLabel/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/ModelCombobox.tsx"), /disabled=\{optionDisabled\}/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/ModelCombobox.tsx"), /option\.statusLabel/);
 });
 
 test("chat pane shows provider setup CTA when no chat models are available", async () => {
@@ -126,7 +136,7 @@ test("chat pane shows provider setup CTA when no chat models are available", asy
     source,
     /onOpenModelProviders=\{\(\) =>[\s\S]*window\.electronAPI\.ui\.openSettingsPane\(\s*"byok",?\s*\)[\s\S]*\}/,
   );
-  assert.match(source, /aria-label="Configure model providers"/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/index.tsx"), /aria-label="Configure model providers"/);
   assert.match(
     source,
     /<Waypoints className="size-3\.5 shrink-0 text-muted-foreground" \/>/,
@@ -194,12 +204,12 @@ test("chat pane previews image attachments from both staged paths and local file
     source,
     /onImageAttachmentPreviewOpenChange\?: \(open: boolean\) => void;/,
   );
-  assert.match(source, /function ImageAttachmentPreviewModal\(/);
+  assert.match(await readSourceFile("components/panes/ChatPane/ImageAttachmentPreviewModal.tsx"), /function ImageAttachmentPreviewModal\(/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/AttachmentList.tsx"),
     /attachment\.kind === "image" &&[\s\S]*Boolean\(onPreview\)[\s\S]*attachment\.file[\s\S]*attachment\.workspace_path/,
   );
-  assert.match(source, /aria-label=\{`Preview \$\{attachment\.name\}`\}/);
+  assert.match(await readSourceFile("components/panes/ChatPane/AttachmentList.tsx"), /aria-label=\{`Preview \$\{attachment\.name\}`\}/);
   assert.match(source, /URL\.createObjectURL\(attachment\.file\)/);
   assert.match(
     source,
@@ -213,16 +223,16 @@ test("chat pane previews image attachments from both staged paths and local file
     source,
     /<ImageAttachmentPreviewModal[\s\S]*open=\{Boolean\(imageAttachmentPreview\)\}[\s\S]*preview=\{imageAttachmentPreview\}[\s\S]*onClose=\{closeImageAttachmentPreview\}/,
   );
-  assert.match(source, /const showImage = !preview\.isLoading && !preview\.errorMessage;/);
+  assert.match(await readSourceFile("components/panes/ChatPane/ImageAttachmentPreviewModal.tsx"), /const showImage = !preview\.isLoading && !preview\.errorMessage;/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/ImageAttachmentPreviewModal.tsx"),
     /className="absolute inset-0 bg-black\/70 backdrop-blur-\[2px\]"/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/ImageAttachmentPreviewModal.tsx"),
     /className="relative z-10 flex max-h-\[calc\(100vh-64px\)\] flex-col overflow-hidden rounded-2xl border border-white\/10 bg-background shadow-2xl"/,
   );
-  assert.match(source, /style=\{\{ maxWidth: "92vw" \}\}/);
+  assert.match(await readSourceFile("components/panes/ChatPane/ImageAttachmentPreviewModal.tsx"), /style=\{\{ maxWidth: "92vw" \}\}/);
   assert.match(
     source,
     /className=\{`overflow-auto px-4 py-4 \$\{[\s\S]*showImage \? "bg-transparent" : "min-h-\[240px\] min-w-\[320px\] bg-muted\/20"[\s\S]*`\}/,
@@ -242,47 +252,47 @@ test("chat composer footer wraps controls based on available pane width instead 
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/constants.ts"),
     /const COMPOSER_FULL_MODEL_CONTROL_WIDTH_PX = 240;/,
   );
-  assert.match(source, /const syncComposerFooterLayout = \(\) => \{/);
-  assert.match(source, /const footerStyle = window\.getComputedStyle\(footer\);/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/index.tsx"), /const syncComposerFooterLayout = \(\) => \{/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/index.tsx"), /const footerStyle = window\.getComputedStyle\(footer\);/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const horizontalPadding =[\s\S]*footerStyle\.paddingLeft[\s\S]*footerStyle\.paddingRight/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const width = Math\.max\(\s*0,\s*Math\.round\(footer\.clientWidth - horizontalPadding\),\s*\);/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const composerFooterLayoutSyncFrameRef = useRef<number \| null>\(null\);/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const cancelComposerFooterLayoutSync = \(\) => \{[\s\S]*window\.cancelAnimationFrame\(composerFooterLayoutSyncFrameRef\.current\);[\s\S]*composerFooterLayoutSyncFrameRef\.current = null;[\s\S]*\};/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const scheduleComposerFooterLayoutSync = \(\) => \{[\s\S]*window\.requestAnimationFrame\(\s*\(\) => \{[\s\S]*syncComposerFooterLayout\(\);[\s\S]*\},\s*\);[\s\S]*\};/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const resizeObserver = new ResizeObserver\(\(\) => \{\s*scheduleComposerFooterLayoutSync\(\);\s*\}\);/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const compactComposerControls =\s*showModelSelector &&[\s\S]*composerFooterLayout\.width > 0[\s\S]*composerFooterLayout\.actionsWidth > 0[\s\S]*composerFooterLayout\.width < fullFooterControlWidth/,
   );
   assert.doesNotMatch(source, /composerFooterLayout\.wraps/);
   assert.doesNotMatch(source, /Array\.from\(footer\.children\)/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const compactModelControlWidth = compactComposerControls[\s\S]*COMPOSER_COMPACT_MODEL_CONTROL_MAX_WIDTH_PX[\s\S]*compactFooterControlWidth -[\s\S]*COMPOSER_COMPACT_THINKING_CONTROL_MIN_WIDTH_PX/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const compactThinkingControlWidth = showThinkingValueSelector[\s\S]*COMPOSER_COMPACT_THINKING_CONTROL_MAX_WIDTH_PX[\s\S]*compactFooterControlWidth - compactModelControlWidth/,
   );
   assert.match(
@@ -402,18 +412,18 @@ test("chat pane opens a targeted postqueue stream for normal sends", async () =>
 test("chat composer switches model and thinking selectors into icon-led compact triggers", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /function compactComposerModelLabel\(label: string\)/);
-  assert.match(source, /function displayThinkingValueLabel\(value: string\)/);
-  assert.match(source, /const compactLabel = compactComposerModelLabel\(displayLabel\);/);
+  assert.match(await readSourceFile("components/panes/ChatPane/helpers.ts"), /function compactComposerModelLabel\(label: string\)/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/ThinkingValueSelect.tsx"), /function displayThinkingValueLabel\(value: string\)/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/ModelCombobox.tsx"), /const compactLabel = compactComposerModelLabel\(displayLabel\);/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/ModelCombobox.tsx"),
     /compact \? \(\s*<>\s*<span className="flex min-w-0 items-center gap-1\.5">[\s\S]*<ProviderBrandIcon[\s\S]*<span className="truncate">\{compactLabel\}<\/span>/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/ThinkingValueSelect.tsx"),
     /const selectedThinkingLabel = displayThinkingValueLabel\(\s*selectedThinkingValue,\s*\);/,
   );
-  assert.match(source, /const \[open, setOpen\] = useState\(false\);/);
+  assert.match(await readSourceFile("components/harness/ChannelModelPicker.tsx"), /const \[open, setOpen\] = useState\(false\);/);
   assert.match(
     source,
     /aria-label=\{\s*compact \? `Reasoning effort: \$\{selectedThinkingLabel\}` : undefined\s*\}/,
@@ -466,7 +476,7 @@ test("chat phase mapping still defines claimed and started bootstrap steps", asy
 test("chat trace summary keeps a live run in progress when no active step label is available", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /<TraceStepGroup[\s\S]*live=\{live\}/);
+  assert.match(await readSourceFile("components/panes/ChatPane/AssistantTurn/index.tsx"), /<TraceStepGroup[\s\S]*live=\{live\}/);
   assert.match(
     source,
     /const groupIsLive = live && activeStep !== null && !groupHasTerminalError;/,
@@ -480,8 +490,8 @@ test("chat trace summary keeps a live run in progress when no active step label 
 test("chat pane persists terminal run failures in-thread when no assistant text was emitted", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /type ChatAssistantSegment =/);
-  assert.match(source, /tone\?: "default" \| "error";/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /type ChatAssistantSegment =/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /tone\?: "default" \| "error";/);
   assert.match(
     source,
     /const liveAssistantSegmentsRef = useRef<ChatAssistantSegment\[]>\(\[]\);/,
@@ -595,11 +605,11 @@ test("chat pane renders live placeholder status as faint text with animated trai
 
   assert.match(source, /aria-live="polite"/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/AssistantTurn/index.tsx"),
     /const normalizedStatus = \([\s\S]*showExecutionInternals \? status : status \? "Working" : ""[\s\S]*\)\s*\.replace\(\/\\\.\+\$\/, ""\)\s*\.trim\(\);/,
   );
-  assert.match(source, /function LiveStatusLine\(/);
-  assert.match(source, /const normalizedLabel = label\.replace\(\/\\\.\+\$\/, ""\)\.trim\(\);/);
+  assert.match(await readSourceFile("components/panes/ChatPane/AssistantTurn/status.tsx"), /function LiveStatusLine\(/);
+  assert.match(await readSourceFile("components/panes/ChatPane/AssistantTurn/status.tsx"), /const normalizedLabel = label\.replace\(\/\\\.\+\$\/, ""\)\.trim\(\);/);
   assert.match(
     source,
     /className=\{`inline-flex items-baseline gap-0\.5 text-xs leading-6 text-muted-foreground \$\{className\}`\.trim\(\)\}/,
@@ -659,9 +669,9 @@ test("chat pane polling can clear a stale stream after runtime reaches terminal 
 test("chat pane renders an execution timeline that interleaves thinking segments with trace entries", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /type ChatAssistantSegment =/);
-  assert.match(source, /executionItems\?: ChatExecutionTimelineItem\[];/);
-  assert.match(source, /segments\?: ChatAssistantSegment\[];/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /type ChatAssistantSegment =/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /executionItems\?: ChatExecutionTimelineItem\[];/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /segments\?: ChatAssistantSegment\[];/);
   assert.match(source, /function appendAssistantOutputSegment\(/);
   assert.match(source, /function appendAssistantExecutionSegment\(/);
   assert.match(source, /function upsertAssistantExecutionTraceStep\(/);
@@ -816,19 +826,19 @@ test("chat pane groups configured models under provider headings", async () => {
     /const availableChatModelOptionGroups: ChatModelOptionGroup\[] =[\s\S]*hasConfiguredProviderCatalog/,
   );
   assert.match(
-    source,
+    await readSourceFile("lib/chat/useChatComposerModelSelection.ts"),
     /selectedLabel: needsProviderPrefix[\s\S]*\? `\$\{providerGroup\.providerLabel\} · \$\{modelLabel\}`[\s\S]*: modelLabel/,
   );
   assert.match(
     source,
     /searchText: `\$\{providerGroup\.providerLabel\} \$\{modelLabel\} \$\{model\.token\}`/,
   );
-  assert.match(source, /const filteredOptionGroups = useMemo\(/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/ModelCombobox.tsx"), /const filteredOptionGroups = useMemo\(/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/ModelCombobox.tsx"),
     /modelOptionGroups\.length > 0[\s\S]*\? modelOptionGroups[\s\S]*: \[\{ label: "", options: modelOptions }\]/,
   );
-  assert.match(source, /group\.label \? \(/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/ModelCombobox.tsx"), /group\.label \? \(/);
   assert.match(source, /text-\[10px\] font-medium uppercase text-muted-foreground/);
   assert.doesNotMatch(source, /filteredOptions\.map/);
 });
@@ -873,7 +883,7 @@ test("chat pane gates image attachments using model input modalities metadata", 
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/helpers.ts"),
     /function supportsImageInput\([\s\S]*inputModalities\?: readonly string\[\] \| null,[\s\S]*\): boolean/,
   );
   assert.match(
@@ -889,7 +899,7 @@ test("chat pane gates image attachments using model input modalities metadata", 
     /pendingAttachmentIsImage\(attachment\)/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/helpers.ts"),
     /attachment\.kind === "image" \|\|[\s\S]*attachmentLooksLikeImage\(attachment\.name,\s*attachment\.mime_type\)/,
   );
   assert.match(
@@ -910,23 +920,23 @@ test("chat composer can paste clipboard file and image attachments into the pend
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /function normalizeClipboardAttachmentFile\(file: File, index: number\): File/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /const baseName = file\.type\.startsWith\("image\/"\)\s*\?\s*`pasted-image-\$\{index \+ 1\}`\s*:\s*`pasted-file-\$\{index \+ 1\}`;/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /function clipboardFilesFromDataTransfer\(\s*dataTransfer: DataTransfer \| null,\s*\): File\[\]/,
   );
-  assert.match(source, /function fileFromClipboardImagePayload\(\s*payload: ClipboardImagePayload \| null,\s*\): File \| null/);
-  assert.match(source, /window\.electronAPI\.clipboard\.readImage\(\)/);
-  assert.match(source, /function explorerAttachmentFilesFromClipboardText\(\s*clipboardText: string,\s*\): ExplorerAttachmentDragPayload\[\]/);
-  assert.match(source, /getExplorerAttachmentClipboardEntry\(\)/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/index.tsx"), /function fileFromClipboardImagePayload\(\s*payload: ClipboardImagePayload \| null,\s*\): File \| null/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/index.tsx"), /window\.electronAPI\.clipboard\.readImage\(\)/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/index.tsx"), /function explorerAttachmentFilesFromClipboardText\(\s*clipboardText: string,\s*\): ExplorerAttachmentDragPayload\[\]/);
+  assert.match(await readSourceFile("components/panes/ChatPane/Composer/index.tsx"), /getExplorerAttachmentClipboardEntry\(\)/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/Composer/index.tsx"),
     /dataTransfer\.files\.length > 0\s*\?\s*Array\.from\(dataTransfer\.files\)/,
   );
   assert.match(
@@ -1254,7 +1264,7 @@ test("chat pane hides restored history until the viewport snaps to the latest me
   assert.match(source, /function beginHistoryViewportRestore\(\)/);
   assert.match(source, /function requestHistoryViewportRestore\(\)/);
   assert.match(source, /function cancelHistoryViewportRestore\(\)/);
-  assert.match(source, /function HistoryRestoreSkeleton\(\)/);
+  assert.match(await readSourceFile("components/panes/ChatPane/skeletons.tsx"), /function HistoryRestoreSkeleton\(\)/);
   assert.match(
     source,
     /useLayoutEffect\(\(\) => \{[\s\S]*container\.scrollTo\(\{\s*top: container\.scrollHeight,\s*behavior: "auto",\s*\}\);[\s\S]*window\.requestAnimationFrame\(\(\) => \{[\s\S]*setIsHistoryViewportPending\(false\);[\s\S]*\}\);[\s\S]*\}, \[historyViewportRestoreGeneration, isHistoryViewportPending\]\);/,
@@ -1306,7 +1316,7 @@ test("chat composer does not submit on enter while IME composition is active", a
 test("chat turns render markdown and keep long content wrapped inside the bubble", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /import \{ SimpleMarkdown \} from "@\/components\/marketplace\/SimpleMarkdown";/);
+  assert.match(await readSourceFile("components/layout/NotificationToastStack.tsx"), /import \{ SimpleMarkdown \} from "@\/components\/marketplace\/SimpleMarkdown";/);
   assert.match(source, /onOpenLinkInBrowser\?: \(url: string\) => void;/);
   assert.match(source, /onLinkClick=\{onOpenLinkInBrowser\}/);
   assert.match(
@@ -1320,22 +1330,22 @@ test("chat turns render markdown and keep long content wrapped inside the bubble
 test("user turns expose a hover footer with copy and timestamp metadata", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /createdAt\?: string;/);
-  assert.match(source, /function chatMessageTimeLabel\(value: string \| null \| undefined\): string/);
-  assert.match(source, /navigator\.clipboard\?\.writeText/);
-  assert.match(source, /document\.execCommand\("copy"\)/);
-  assert.match(source, /const timeLabel = chatMessageTimeLabel\(createdAt\);/);
-  assert.match(source, /className="group\/user-turn flex min-w-0 justify-end"/);
+  assert.match(await readSourceFile("components/panes/ChatPane/AssistantTurn/McpAuthorizeCard.tsx"), /createdAt\?: string;/);
+  assert.match(await readSourceFile("components/panes/ChatPane/helpers.ts"), /function chatMessageTimeLabel\(value: string \| null \| undefined\): string/);
+  assert.match(await readSourceFile("components/panes/ChatPane/UserTurn.tsx"), /navigator\.clipboard\?\.writeText/);
+  assert.match(await readSourceFile("components/panes/ChatPane/UserTurn.tsx"), /document\.execCommand\("copy"\)/);
+  assert.match(await readSourceFile("components/panes/ChatPane/AssistantTurn/index.tsx"), /const timeLabel = chatMessageTimeLabel\(createdAt\);/);
+  assert.match(await readSourceFile("components/panes/ChatPane/UserTurn.tsx"), /className="group\/user-turn flex min-w-0 justify-end"/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/UserTurn.tsx"),
     /group-hover\/user-turn:opacity-100[\s\S]*group-hover\/user-turn:pointer-events-auto[\s\S]*group-focus-within\/user-turn:opacity-100/,
   );
-  assert.match(source, /aria-label=\{\s*copyFeedbackVisible[\s\S]*"Copy user message"/);
-  assert.match(source, /<Copy className="size-3\.5" strokeWidth=\{1\.9\} \/>/);
-  assert.match(source, /<Check className="size-3\.5" strokeWidth=\{1\.9\} \/>/);
+  assert.match(await readSourceFile("components/panes/ChatPane/UserTurn.tsx"), /aria-label=\{\s*copyFeedbackVisible[\s\S]*"Copy user message"/);
+  assert.match(await readSourceFile("components/layout/WindowsTitlebarControls.tsx"), /<Copy className="size-3\.5" strokeWidth=\{1\.9\} \/>/);
+  assert.match(await readSourceFile("components/panes/ChatPane/AssistantTurn/ActionsMenu.tsx"), /<Check className="size-3\.5" strokeWidth=\{1\.9\} \/>/);
   assert.match(source, /createdAt: message\.created_at \|\| undefined,/);
   assert.match(source, /const queuedMessageCreatedAt = new Date\(\)\.toISOString\(\);/);
-  assert.match(source, /createdAt=\{message\.createdAt\}/);
+  assert.match(await readSourceFile("components/panes/ChatPane/ConversationTurns.tsx"), /createdAt=\{message\.createdAt\}/);
 });
 
 test("chat thread uses the full pane width for normal messages", async () => {
@@ -1387,9 +1397,9 @@ test("chat pane gates context-budget diagnostics behind verbose telemetry", asyn
 test("artifact rows include timestamp metadata in both inline and modal lists", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /const timeLabel = chatMessageTimeLabel\(output\.created_at\);/);
+  assert.match(await readSourceFile("components/panes/ChatPane/ArtifactBrowserModal.tsx"), /const timeLabel = chatMessageTimeLabel\(output\.created_at\);/);
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/ArtifactBrowserModal.tsx"),
     /if \(timeLabel\) \{\s*parts\.push\(timeLabel\);\s*\}/,
   );
   assert.match(
@@ -1420,7 +1430,7 @@ test("live trace auto-expands during the run and collapses when output starts", 
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/AssistantTurn/TraceStepGroup.tsx"),
     /function TraceStepGroup\(\{[\s\S]*items,[\s\S]*live = false,[\s\S]*liveOutputStarted = false,/,
   );
   assert.match(source, /const steps = traceStepsFromExecutionItems\(items\);/);
@@ -1542,7 +1552,7 @@ test("chat composer exposes a pause action for in-flight runs and calls the runt
 test("chat composer supports ctrl-c draft cancel and arrow-up recall", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /interface ComposerInputRecallSnapshot \{/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /interface ComposerInputRecallSnapshot \{/);
   assert.match(
     source,
     /const lastSubmittedComposerInputRef =\s*useRef<ComposerInputRecallSnapshot \| null>\(null\);/,
@@ -1702,11 +1712,11 @@ test("chat pane exposes a queued message preview hook for dev console inspection
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/constants.ts"),
     /const QUEUED_MESSAGES_PREVIEW_EVENT =\s*"holaboss:queued-messages-preview-change";/,
   );
-  assert.match(source, /__holabossQueuedMessagesPreviewState\?: QueuedSessionInputPreviewDescriptor\[\];/);
-  assert.match(source, /__holabossDevQueuedMessagesPreview\?: \{/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /__holabossQueuedMessagesPreviewState\?: QueuedSessionInputPreviewDescriptor\[\];/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /__holabossDevQueuedMessagesPreview\?: \{/);
   assert.match(source, /window\.dispatchEvent\(new CustomEvent\(QUEUED_MESSAGES_PREVIEW_EVENT\)\);/);
   assert.match(source, /function useQueuedSessionInputPreview\(params:/);
   assert.match(source, /window\.__holabossDevQueuedMessagesPreview = \{/);
@@ -1894,11 +1904,11 @@ test("chat pane suppresses empty synthetic background follow-up failures and kee
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/constants.ts"),
     /const MAIN_SESSION_EVENT_BATCH_HEADER =\s*"\[Holaboss Main Session Event Batch v1\]";/,
   );
   assert.match(
-    source,
+    await readSourceFile("components/panes/ChatPane/constants.ts"),
     /const BACKGROUND_DELIVERY_RETRY_STATUS_MESSAGE =\s*"Background update delayed\. Retrying automatically\.";/,
   );
   assert.match(
@@ -1996,8 +2006,8 @@ test("chat pane clears prior workspace live-run state immediately on workspace s
 test("chat pane preserves optimistic user messages across history refresh until the persisted message arrives", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /interface PendingOptimisticUserMessage \{/);
-  assert.match(source, /localMessageId: string;/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /interface PendingOptimisticUserMessage \{/);
+  assert.match(await readSourceFile("components/panes/ChatPane/types.ts"), /localMessageId: string;/);
   assert.match(
     source,
     /function reconcilePendingOptimisticUserMessages\([\s\S]*return pendingMessages\.filter\(/,
