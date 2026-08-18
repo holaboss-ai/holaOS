@@ -3008,37 +3008,49 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
   const sessionManager = persistedSessionFile
     ? SessionManager.open(persistedSessionFile, undefined, agentCwd)
     : SessionManager.create(agentCwd, sessionDir);
-  const mcpToolset = await timedSetup("mcp_connect", () =>
-    createPiMcpToolset(request),
-  );
+  // These four are independent — none consumes another's result — but they ran
+  // strictly one after another, so session_setup cost their SUM rather than
+  // their max. Each is network-ish (MCP discovery, the runtime tool catalogue,
+  // composio's inline listing, web-search definitions), and that time is paid
+  // before the model is contacted on every turn.
+  //
+  // Their timedSetup entries now overlap, so the per-stage numbers in
+  // `setup=[…]` will add up to more than the elapsed wall clock. That is the
+  // point; the individual durations are still what you want when deciding
+  // which one to attack next.
+  const [mcpToolset, resolvedRuntimeTools, composioInline, webSearchTools] =
+    await Promise.all([
+      timedSetup("mcp_connect", () => createPiMcpToolset(request)),
+      timedSetup("runtime_tools", () =>
+        resolveHarnessRuntimeToolDefinitions({
+          runtimeApiBaseUrl: request.runtime_api_base_url,
+          workspaceId: request.workspace_id,
+          sessionId: request.session_id,
+          inputId: request.input_id,
+          selectedModel: runtimeToolSelectedModelForPiRequest(request),
+        }),
+      ),
+      timedSetup("composio_inline", () =>
+        resolveComposioInlineTools({
+          workspaceDir: request.workspace_dir,
+          runtimeApiBaseUrl: request.runtime_api_base_url ?? null,
+          workspaceId: request.workspace_id,
+          sessionId: request.session_id,
+          inputId: request.input_id,
+          selectedModel: runtimeToolSelectedModelForPiRequest(request) ?? null,
+        }),
+      ),
+      toolEnabledForPiRequest(request, "web_search")
+        ? timedSetup("web_search", () => resolvePiWebSearchToolDefinitions())
+        : Promise.resolve([]),
+    ]);
   const runtimeTools = filterPiToolDefinitionsForRequest(
     request,
-    await timedSetup("runtime_tools", () =>
-      resolveHarnessRuntimeToolDefinitions({
-        runtimeApiBaseUrl: request.runtime_api_base_url,
-        workspaceId: request.workspace_id,
-        sessionId: request.session_id,
-        inputId: request.input_id,
-        selectedModel: runtimeToolSelectedModelForPiRequest(request),
-      })
-    )
+    resolvedRuntimeTools,
   );
   const runtimeToolsForHost = consolidateRuntimeToolFamilies(
     filterPiRuntimeToolDefinitionsForHost(runtimeTools),
   );
-  const composioInline = await timedSetup("composio_inline", () =>
-    resolveComposioInlineTools({
-      workspaceDir: request.workspace_dir,
-      runtimeApiBaseUrl: request.runtime_api_base_url ?? null,
-      workspaceId: request.workspace_id,
-      sessionId: request.session_id,
-      inputId: request.input_id,
-      selectedModel: runtimeToolSelectedModelForPiRequest(request) ?? null,
-    }),
-  );
-  const webSearchTools = toolEnabledForPiRequest(request, "web_search")
-    ? await timedSetup("web_search", () => resolvePiWebSearchToolDefinitions())
-    : [];
   // agentCwd resolved at the top of this function. All agent-facing tools
   // (Bash via createCodingTools, Ls, find, search, document-read) get
   // wired to agentCwd as their root. workspace_dir keeps feeding the
