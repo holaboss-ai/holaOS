@@ -11,6 +11,12 @@ import { type BundledLanguage, bundledLanguages, codeToHtml } from "shiki";
 
 const LONG_BLOCK_LINE_THRESHOLD = 30;
 const HIGHLIGHT_CACHE_MAX = 200;
+/**
+ * How long the code body must stop changing before it is worth tokenizing.
+ * Streaming output changes far faster than this, so a block being written is
+ * highlighted once at the end rather than on every frame.
+ */
+const HIGHLIGHT_SETTLE_MS = 120;
 const highlightCache = new Map<string, string>();
 
 const LANGUAGE_ALIASES: Record<string, BundledLanguage> = {
@@ -82,6 +88,39 @@ function pickShikiTheme(): "vitesse-dark" | "vitesse-light" {
   return themeAttr.toLowerCase().includes("dark") ? "vitesse-dark" : "vitesse-light";
 }
 
+/**
+ * One MutationObserver on <html> for the whole app, not one per code block.
+ * A long conversation renders many CodeBlocks, and each used to observe the
+ * root element itself — the theme changes at most a handful of times per
+ * session, so N observers for one shared signal is pure overhead.
+ */
+type ShikiTheme = ReturnType<typeof pickShikiTheme>;
+const themeSubscribers = new Set<(theme: ShikiTheme) => void>();
+let rootThemeObserver: MutationObserver | null = null;
+
+function subscribeShikiTheme(onChange: (theme: ShikiTheme) => void): () => void {
+  themeSubscribers.add(onChange);
+  if (!rootThemeObserver && typeof MutationObserver !== "undefined") {
+    rootThemeObserver = new MutationObserver(() => {
+      const next = pickShikiTheme();
+      for (const subscriber of themeSubscribers) {
+        subscriber(next);
+      }
+    });
+    rootThemeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "class"],
+    });
+  }
+  return () => {
+    themeSubscribers.delete(onChange);
+    if (themeSubscribers.size === 0) {
+      rootThemeObserver?.disconnect();
+      rootThemeObserver = null;
+    }
+  };
+}
+
 function extractText(node: ReactNode): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
   if (typeof node === "string") return node;
@@ -131,17 +170,30 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
   const resolvedLanguage =
     explicitLanguage === "text" ? detectLanguage(trimmed) : explicitLanguage;
 
-  const cacheKey = `${theme}:${resolvedLanguage}:${trimmed}`;
+  // Highlight the text once it SETTLES, not on every streamed frame.
+  //
+  // The cache key contains the whole body, so while an agent streams a code
+  // block every appended character was a miss that also STORED an entry —
+  // re-tokenizing the growing block each frame and filling a 200-entry FIFO
+  // with throwaway partials, evicting genuinely reusable ones. A block that is
+  // already complete on mount settles immediately, so static content is
+  // unaffected.
+  const [settledCode, setSettledCode] = useState(trimmed);
+  useEffect(() => {
+    if (settledCode === trimmed) {
+      return;
+    }
+    const timer = setTimeout(
+      () => setSettledCode(trimmed),
+      HIGHLIGHT_SETTLE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [settledCode, trimmed]);
+
+  const cacheKey = `${theme}:${resolvedLanguage}:${settledCode}`;
   const [inView, setInView] = useState(() => highlightCache.has(cacheKey));
 
-  useEffect(() => {
-    const observer = new MutationObserver(() => setTheme(pickShikiTheme()));
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme", "class"],
-    });
-    return () => observer.disconnect();
-  }, []);
+  useEffect(() => subscribeShikiTheme(setTheme), []);
 
   useEffect(() => {
     if (inView) return;
@@ -182,7 +234,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
     let cancelled = false;
     void (async () => {
       try {
-        const html = await codeToHtml(trimmed, {
+        const html = await codeToHtml(settledCode, {
           lang: resolvedLanguage,
           theme,
         });
@@ -201,7 +253,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, inView, resolvedLanguage, theme, trimmed]);
+  }, [cacheKey, inView, resolvedLanguage, settledCode, theme]);
 
   async function handleCopy() {
     try {
@@ -233,7 +285,11 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      {highlighted ? (
+      {/* Only show highlighted HTML when it corresponds to the text on screen.
+          While the body is still growing, settledCode lags `trimmed`, and
+          rendering the stale highlight would freeze a streaming block at an
+          earlier frame. The plain <pre> below stays live throughout. */}
+      {highlighted && settledCode === trimmed ? (
         <div
           className={`md-code-block-shiki ${expanded ? "" : "md-code-block-collapsed"}`.trim()}
           dangerouslySetInnerHTML={{ __html: highlighted }}
