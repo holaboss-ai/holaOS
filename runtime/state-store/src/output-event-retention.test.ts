@@ -46,10 +46,15 @@ function eventCount(store: RuntimeStateStore, sessionId: string): number {
   return store.listOutputEvents({ workspaceId: WS, sessionId }).length;
 }
 
-test("default retention policy is 30 days / 25k events", () => {
+test("default retention policy is 30 days / 25k per session / 250k overall", () => {
   assert.deepEqual(DEFAULT_OUTPUT_EVENT_RETENTION, {
     maxAgeDays: 30,
     maxEventsPerSession: 25_000,
+    // The global ceiling is the backstop the other two cannot provide: neither
+    // bounds the number of SESSIONS. 162 scheduled sessions each sitting at
+    // exactly the 25k cap made 2.29M rows / 1.9GB, entirely within policy and
+    // nothing prunable — and boot cost scales with the file.
+    maxTotalEvents: 250_000,
   });
 });
 

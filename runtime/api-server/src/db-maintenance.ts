@@ -22,6 +22,8 @@ export interface DbMaintenanceStore {
   listRootSessionsExceedingOutputEventCap(
     cap: number,
   ): Array<{ sessionId: string; count: number }>;
+  countRootOutputEvents(): number;
+  trimRootOutputEventsToTotal(params: { keep: number; limit: number }): number;
   trimSessionOutputEvents(params: {
     workspaceId: string;
     sessionId: string;
@@ -118,6 +120,8 @@ export interface DbMaintenanceResult {
   aborted: boolean;
   deletedByAge: number;
   deletedByCap: number;
+  /** Rows removed by the global ceiling, after the age + per-session phases. */
+  deletedByTotalCap: number;
   compactionRequested: boolean;
 }
 
@@ -157,6 +161,7 @@ export async function runRuntimeDbMaintenance(
     aborted: false,
     deletedByAge: 0,
     deletedByCap: 0,
+    deletedByTotalCap: 0,
     compactionRequested: false,
   };
 
@@ -194,6 +199,19 @@ export async function runRuntimeDbMaintenance(
       )) {
         estimatedRows += Math.max(0, session.count - policy.maxEventsPerSession);
       }
+    }
+    if (policy.maxTotalEvents > 0) {
+      // Counted against the post-cap total, not the raw one: the two phases
+      // above delete some of the same rows, and double-counting them would
+      // inflate the progress bar and could flip a light sweep to "heavy".
+      const remainingAfterOtherPhases = Math.max(
+        0,
+        store.countRootOutputEvents() - estimatedRows,
+      );
+      estimatedRows += Math.max(
+        0,
+        remainingAfterOtherPhases - policy.maxTotalEvents,
+      );
     }
   } catch (error) {
     logger?.error?.("db maintenance: backlog estimate failed", {
@@ -309,13 +327,56 @@ export async function runRuntimeDbMaintenance(
     }
   }
 
+  // Phase 3 — global ceiling. The backstop the other two cannot provide: neither
+  // bounds the number of SESSIONS, so N sessions each sitting exactly at the
+  // per-session cap is "within policy" and still unbounded. That is precisely
+  // what happened — 162 scheduled sessions at 25k each, 1.9GB, nothing prunable
+  // — and boot cost scales with the file, so it bricked the app.
+  //
+  // Runs last so it only ever trims what the cheaper, more targeted phases left
+  // behind.
+  if (policy.maxTotalEvents > 0 && !signal?.aborted) {
+    let consecutiveErrors = 0;
+    while (!signal?.aborted) {
+      let deleted = 0;
+      try {
+        deleted = store.trimRootOutputEventsToTotal({
+          keep: policy.maxTotalEvents,
+          limit: batchSize,
+        });
+        consecutiveErrors = 0;
+      } catch (error) {
+        if (!isTransientLock(error) || ++consecutiveErrors > MAX_CONSECUTIVE_ERRORS) {
+          logger?.error?.("db maintenance: global cap trim aborted", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          break;
+        }
+        if (!(await wait(pauseMs * consecutiveErrors))) {
+          break;
+        }
+        continue;
+      }
+      if (deleted === 0) {
+        break;
+      }
+      result.deletedByTotalCap += deleted;
+      emitProgress("pruning", false);
+      if (!(await wait(pauseMs))) {
+        break;
+      }
+    }
+  }
+
   result.aborted = Boolean(signal?.aborted);
 
-  const totalDeleted = result.deletedByAge + result.deletedByCap;
+  const totalDeleted =
+    result.deletedByAge + result.deletedByCap + result.deletedByTotalCap;
   if (totalDeleted > 0) {
     logger?.info?.("db maintenance: output-event retention sweep complete", {
       deletedByAge: result.deletedByAge,
       deletedByCap: result.deletedByCap,
+      deletedByTotalCap: result.deletedByTotalCap,
       aborted: result.aborted,
     });
   }

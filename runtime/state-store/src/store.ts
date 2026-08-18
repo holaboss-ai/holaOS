@@ -1120,6 +1120,15 @@ export interface OutputEventRetentionPolicy {
   maxAgeDays: number;
   /** Keep at most this many (newest) events per session. 0 disables the cap. */
   maxEventsPerSession: number;
+  /**
+   * Keep at most this many (newest) events across ALL sessions. 0 disables it.
+   *
+   * The backstop the other two knobs cannot provide: neither bounds the number
+   * of SESSIONS. In the field 162 scheduled sessions each sat at exactly the
+   * 25k per-session cap — 2.29M rows, 1.9GB, entirely within policy and nothing
+   * prunable — and boot cost scales with the file.
+   */
+  maxTotalEvents: number;
 }
 
 /**
@@ -1131,6 +1140,11 @@ export interface OutputEventRetentionPolicy {
 export const DEFAULT_OUTPUT_EVENT_RETENTION: OutputEventRetentionPolicy = {
   maxAgeDays: 30,
   maxEventsPerSession: 25_000,
+  // ~250k events measured out at roughly 200MB on real data (~830 bytes/row),
+  // against the 1.9GB that 2.29M rows produced. Comfortably above real
+  // interactive use — the same install had 19.5k events across every chat it
+  // had ever held — so this only ever bites the runaway case it exists for.
+  maxTotalEvents: 250_000,
 };
 
 /**
@@ -5907,6 +5921,50 @@ export class RuntimeStateStore {
       `)
       .all(cap) as Array<{ sessionId: string; count: number }>;
     return rows;
+  }
+
+  /**
+   * Background-sweep primitive: total output events in the root db.
+   *
+   * The per-session cap cannot bound the FILE. Observed in the field: 162
+   * scheduled sessions each sitting at exactly the 25k cap — 2.29M rows and
+   * 1.9GB, every one of them within policy, and nothing to prune. Boot cost
+   * scales with the file, so "within policy" was still enough to brick the app.
+   */
+  countRootOutputEvents(): number {
+    const row = this.rootRuntimeDb()
+      .prepare(`SELECT COUNT(*) AS n FROM session_output_events`)
+      .get() as { n?: number } | undefined;
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Background-sweep primitive: delete the OLDEST output events in the root db,
+   * up to `limit`, keeping the table at or under `keep` rows total.
+   *
+   * Oldest-first, matching the age-based phase — a global cap means "keep the
+   * newest N overall", and trimming the largest sessions instead would let a
+   * chatty session evict a quiet one's recent history. Returns rows deleted.
+   */
+  trimRootOutputEventsToTotal(params: { keep: number; limit: number }): number {
+    if (params.keep <= 0 || params.limit <= 0) {
+      return 0;
+    }
+    const total = this.countRootOutputEvents();
+    const excess = total - params.keep;
+    if (excess <= 0) {
+      return 0;
+    }
+    const batch = Math.min(excess, params.limit);
+    const result = this.rootRuntimeDb()
+      .prepare(`
+        DELETE FROM session_output_events
+        WHERE id IN (
+          SELECT id FROM session_output_events ORDER BY id ASC LIMIT ?
+        )
+      `)
+      .run(batch);
+    return result.changes ?? 0;
   }
 
   latestOutputEventId(params: { workspaceId: string; sessionId: string; inputId?: string; excludedEventTypes?: string[] }): number {
