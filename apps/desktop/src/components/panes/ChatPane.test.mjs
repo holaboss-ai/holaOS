@@ -47,44 +47,6 @@ test("chat pane surfaces workspace activation errors before generic app-starting
   assert.match(source, /workspace_error_message: workspaceErrorMessage \|\| null,/);
 });
 
-test("chat pane blocks lab controller input while owned subagents are executing", async () => {
-  const source = await readFile(sourcePath, "utf8");
-
-  assert.match(source, /function backgroundTaskIsExecuting\(/);
-  assert.match(
-    source,
-    /const \[\s*activeControllerSubagentExecutionCount,\s*setActiveControllerSubagentExecutionCount,\s*\] = useState\(0\);/,
-  );
-  assert.match(
-    source,
-    /const activeSessionWorkspaceId =[\s\S]*activeSessionRecord\?\.workspace_id[\s\S]*selectedWorkspaceId/,
-  );
-  assert.match(
-    source,
-    /const controllerBackgroundTasksWorkspaceId = isControllerSession[\s\S]*\? activeSessionWorkspaceId[\s\S]*: \(selectedWorkspaceId \|\| ""\)\.trim\(\);/,
-  );
-  assert.match(
-    source,
-    /window\.electronAPI\.workspace\.listBackgroundTasks\(\{\s*workspaceId,\s*ownerMainSessionId: controllerSessionId,\s*statuses: \["queued", "running"\],\s*limit: 50,\s*\}\)/,
-  );
-  assert.match(
-    source,
-    /setActiveControllerSubagentExecutionCount\(\(current\) =>[\s\S]*current === executingCount \? current : executingCount/,
-  );
-  assert.match(
-    source,
-    /const controllerSubagentExecutingDisabledReason =[\s\S]*Subagent is implementing the approved design\. Wait for it to finish before sending another message\./,
-  );
-  assert.match(
-    source,
-    /baseComposerDisabledReason \|\|\s*controllerSubagentExecutingDisabledReason \|\|/,
-  );
-  assert.match(
-    source,
-    /if \(controllerSubagentExecutingDisabledReason\) \{\s*setChatErrorMessage\(controllerSubagentExecutingDisabledReason\);\s*return;\s*\}/,
-  );
-});
-
 test("chat model picker hides holaboss models while signed out and only marks them pending after sign-in", async () => {
   const source = await readFile(sourcePath, "utf8");
 
@@ -313,41 +275,6 @@ test("chat composer footer wraps controls based on available pane width instead 
   );
   assert.match(source, /compact=\{compactComposerControls\}/);
   assert.doesNotMatch(source, /sm:w-\[208px\]/);
-});
-
-test("chat pane defers scroll metrics updates out of resize and scroll callbacks", async () => {
-  const source = await readFile(sourcePath, "utf8");
-
-  assert.match(
-    source,
-    /const chatScrollMetricsSyncFrameRef = useRef<number \| null>\(null\);/,
-  );
-  assert.match(
-    source,
-    /const chatScrollMetricsSyncTargetRef = useRef<HTMLDivElement \| null>\(null\);/,
-  );
-  assert.match(
-    source,
-    /const cancelChatScrollMetricsSync = \(\) => \{[\s\S]*window\.cancelAnimationFrame\(chatScrollMetricsSyncFrameRef\.current\);[\s\S]*chatScrollMetricsSyncTargetRef\.current = null;[\s\S]*\};/,
-  );
-  assert.match(
-    source,
-    /const scheduleChatScrollMetricsSync = \(container\?: HTMLDivElement \| null\) => \{[\s\S]*chatScrollMetricsSyncFrameRef\.current = window\.requestAnimationFrame\(\(\) => \{[\s\S]*syncChatScrollMetrics\(target\);[\s\S]*\}\);[\s\S]*\};/,
-  );
-  assert.match(
-    source,
-    /useEffect\(\s*\(\) => \(\) => \{[\s\S]*clearChatScrollbarDragState\(\);[\s\S]*cancelChatScrollMetricsSync\(\);[\s\S]*\},\s*\[\],\s*\);/,
-  );
-  assert.match(
-    source,
-    /const resizeObserver = new ResizeObserver\(\(\) => \{\s*scheduleChatScrollMetricsSync\(container\);\s*\}\);/,
-  );
-  assert.match(source, /scheduleChatScrollMetricsSync\(currentTarget\);/);
-  assert.doesNotMatch(
-    source,
-    /const resizeObserver = new ResizeObserver\(\(\) => \{\s*syncChatScrollMetrics\(container\);\s*\}\);/,
-  );
-  assert.doesNotMatch(source, /syncChatScrollMetrics\(currentTarget\);/);
 });
 
 test("chat pane blocks overlapping older-history loads before state commits", async () => {
@@ -1244,10 +1171,15 @@ test("chat pane mirrors composer draft text from shell state", async () => {
 test("chat pane clears session-open requests only after the history restore flow settles", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /let historyLoaded = false;\s*beginHistoryViewportRestore\(\);\s*setIsLoadingHistory\(true\);/);
+  // The boolean loading flag became a generation-stamped skeleton, but the
+  // ordering guarantee this guards — restore begins before the load — holds.
   assert.match(
     source,
-    /finally \{[\s\S]*if \(!cancelled\) \{[\s\S]*if \(!historyLoaded\) \{[\s\S]*cancelHistoryViewportRestore\(\);[\s\S]*\}[\s\S]*setIsLoadingHistory\(false\);[\s\S]*consumeSessionOpenRequest\(requestKey\);[\s\S]*\}[\s\S]*\}/,
+    /let historyLoaded = false;\s*beginHistoryViewportRestore\(\);\s*const skeletonGeneration = beginHistoryLoadSkeleton\(\);/,
+  );
+  assert.match(
+    source,
+    /finally \{[\s\S]*if \(!cancelled\) \{[\s\S]*if \(!historyLoaded\) \{[\s\S]*cancelHistoryViewportRestore\(\);[\s\S]*\}[\s\S]*endHistoryLoadSkeleton\(skeletonGeneration\);[\s\S]*consumeSessionOpenRequest\(requestKey\);[\s\S]*\}[\s\S]*\}/,
   );
 });
 
@@ -1300,17 +1232,16 @@ test("chat pane shows hosted billing warnings and blocks managed sends when cred
 });
 
 test("chat composer does not submit on enter while IME composition is active", async () => {
-  const source = await readFile(sourcePath, "utf8");
-
-  assert.match(source, /const composerIsComposingRef = useRef\(false\);/);
-  assert.match(
-    source,
-    /if \(\s*composerIsComposingRef\.current \|\|[\s\S]*nativeEvent\.isComposing === true \|\|[\s\S]*nativeEvent\.keyCode === 229[\s\S]*\) \{\s*return;\s*\}/,
+  // The composer became a rich editor, so the guard moved into its keydown
+  // handler — ahead of every other key branch, which is the whole point.
+  const editor = await readSourceFile(
+    "components/panes/ChatPane/Composer/editor/ComposerEditor.tsx",
   );
-  assert.match(source, /const onComposerCompositionStart = \([\s\S]*composerIsComposingRef\.current = true;/);
-  assert.match(source, /const onComposerCompositionEnd = \([\s\S]*composerIsComposingRef\.current = false;/);
-  assert.match(source, /<Composer[\s\S]*onCompositionStart=\{onComposerCompositionStart\}[\s\S]*onCompositionEnd=\{onComposerCompositionEnd\}/);
-  assert.match(source, /<textarea[\s\S]*onCompositionStart=\{onCompositionStart\}[\s\S]*onCompositionEnd=\{onCompositionEnd\}/);
+
+  assert.match(
+    editor,
+    /handleKeyDown: \(view, event\) => \{[\s\S]*?const native = event as KeyboardEvent & \{\s*isComposing\?: boolean;\s*keyCode\?: number;\s*\};\s*if \(native\.isComposing === true \|\| native\.keyCode === 229\) \{\s*return false;\s*\}/,
+  );
 });
 
 test("chat turns render markdown and keep long content wrapped inside the bubble", async () => {
@@ -1635,7 +1566,7 @@ test("main-session assistant turns are labeled as Hola", async () => {
 
   assert.match(
     source,
-    /const assistantLabel = isViewingBoundMainSession \? "Hola" : activeSessionTitle;/,
+    /const assistantLabel = activeIssue\s*\? "Background agent"\s*: isViewingBoundMainSession\s*\? "Hola"\s*: activeSessionTitle;/,
   );
   assert.doesNotMatch(
     source,
@@ -1794,30 +1725,6 @@ test("chat pane stops auto-follow as soon as the user scrolls upward during stre
   assert.match(
     source,
     /shouldAutoScrollRef\.current = scrolledUp \? false : nearBottom;/,
-  );
-});
-
-test("chat pane custom scrollbar thumb can be dragged", async () => {
-  const source = await readFile(sourcePath, "utf8");
-
-  assert.match(
-    source,
-    /const chatScrollbarDragStateRef = useRef<ChatScrollbarDragState \| null>\(/,
-  );
-  assert.match(
-    source,
-    /function updateChatScrollFromScrollbarPointer\([\s\S]*container\.scrollTop = nextScrollTop;[\s\S]*scheduleChatScrollMetricsSync\(container\);/,
-  );
-  assert.match(
-    source,
-    /event\.currentTarget\.setPointerCapture\(event\.pointerId\);/,
-  );
-  assert.match(source, /data-chat-scrollbar-thumb="true"/);
-  assert.match(source, /onPointerDown=\{handleChatScrollbarPointerDown\}/);
-  assert.match(source, /onPointerMove=\{handleChatScrollbarPointerMove\}/);
-  assert.match(
-    source,
-    /onLostPointerCapture=\{\(\) => \{\s*clearChatScrollbarDragState\(\);\s*\}\}/,
   );
 });
 

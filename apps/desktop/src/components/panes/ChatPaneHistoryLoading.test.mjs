@@ -10,26 +10,26 @@ const sourcePath = path.join(__dirname, "ChatPane", "index.tsx");
 test("chat pane preserves message history when auxiliary session history fetches fail", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /const auxiliaryHistoryWarnings: string\[\] = \[\];/);
+  assert.match(source, /const warnings: string\[\] = \[\];/);
   assert.match(source, /await Promise\.allSettled\(\[/);
   assert.match(
     source,
-    /if \(outputEventsResult\.status !== "fulfilled"\) \{\s*auxiliaryHistoryWarnings\.push\(/,
+    /if \(outputEventsResult\.status !== "fulfilled"\) \{\s*warnings\.push\(/,
   );
   assert.match(
     source,
-    /outputEvents:\s*outputEventsResult\.status === "fulfilled"[\s\S]*\?\s*outputEventsResult\.value\.items[\s\S]*:\s*\[\],/,
+    /const outputEvents =\s*outputEventsResult\.status === "fulfilled"\s*\? outputEventsResult\.value\.items\.filter\([\s\S]*?\)\s*: \[\];/,
   );
   assert.match(
     source,
-    /auxiliaryHistoryWarnings\.push\(\s*optionalHistoryLoadErrorMessage\(\s*"Execution history"/,
+    /warnings\.push\(\s*optionalHistoryLoadErrorMessage\(\s*"Execution history",\s*outputEventsResult\.reason,\s*\),\s*\);/,
   );
   assert.match(
     source,
-    /warnings:\s*auxiliaryHistoryWarnings,/,
+    /\s+warnings,\n/,
   );
   assert.match(
     source,
-    /setChatErrorMessage\(page\.warnings\.join\(" "\)\);/,
+    /if \(artifacts\.warnings\.length > 0\) \{\s*setChatErrorMessage\(\[\.\.\.new Set\(artifacts\.warnings\)\]\.join\(" "\)\);\s*\}/,
   );
 });

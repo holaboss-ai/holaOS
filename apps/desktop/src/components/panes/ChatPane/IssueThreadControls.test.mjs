@@ -17,7 +17,7 @@ test("chat pane treats issue sessions as interactive and renders issue thread co
   assert.match(chatPaneSource, /import \{ IssueThreadControls \} from "\.\/IssueThreadControls";/);
   assert.match(
     chatPaneSource,
-    /const isReadOnlyInspectionSession =\s*!isViewingBoundMainSession && !isOnboardingVariant && !activeIssue;/,
+    /const isReadOnlyInspectionSession =\s*!isViewingBoundMainSession &&\s*!isOnboardingVariant &&\s*activeSessionReadOnly &&\s*!activeIssue;/,
   );
   assert.match(
     chatPaneSource,

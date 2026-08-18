@@ -17,7 +17,7 @@ test("chat pane disables the composer for issue-thread states that should not ac
   );
   assert.match(
     source,
-    /const isReadOnlyInspectionSession =\s*!isViewingBoundMainSession && !isOnboardingVariant && !activeIssue;/,
+    /const isReadOnlyInspectionSession =\s*!isViewingBoundMainSession &&\s*!isOnboardingVariant &&\s*activeSessionReadOnly &&\s*!activeIssue;/,
   );
   assert.match(
     source,

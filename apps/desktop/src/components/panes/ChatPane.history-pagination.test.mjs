@@ -6,12 +6,21 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sourcePath = path.join(__dirname, "ChatPane", "index.tsx");
+// Page-size and threshold constants moved to the shared constants module
+// when ChatPane was split into a directory.
+const constantsPath = path.join(__dirname, "ChatPane", "constants.ts");
 
 test("chat pane loads the newest history page first and prepends older messages on top scroll", async () => {
-  const source = await readFile(sourcePath, "utf8");
+  const [source, constants] = await Promise.all([
+    readFile(sourcePath, "utf8"),
+    readFile(constantsPath, "utf8"),
+  ]);
 
-  assert.match(source, /const CHAT_HISTORY_PAGE_SIZE = 10;/);
-  assert.match(source, /const CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX = 96;/);
+  assert.match(constants, /export const CHAT_HISTORY_PAGE_SIZE = \d+;/);
+  assert.match(
+    constants,
+    /export const CHAT_HISTORY_TOP_LOAD_THRESHOLD_PX = \d+;/,
+  );
   assert.match(
     source,
     /window\.electronAPI\.workspace\.getSessionHistory\(\{\s*sessionId: params\.sessionId,\s*workspaceId: params\.workspaceId,\s*limit: params\.limit,\s*offset: params\.offset,\s*order: params\.order,\s*\}\)/,

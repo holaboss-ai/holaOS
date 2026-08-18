@@ -6,11 +6,13 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sourcePath = path.join(__dirname, "ChatPane", "index.tsx");
+// The prefill text helper moved into the pane's shared helpers module.
+const helpersPath = path.join(__dirname, "ChatPane", "helpers.ts");
 
 test("chat pane can consume a one-shot composer prefill request", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /interface ChatPaneComposerPrefillRequest \{\s*text: string;\s*requestKey: number;\s*mode\?: "replace" \| "append";\s*\}/);
+  assert.match(source, /interface ChatPaneComposerPrefillRequest \{\s*text: string;\s*requestKey: number;\s*mode\?: "replace" \| "append";\s*autoSubmit\?: boolean;\s*\}/);
   assert.match(source, /composerPrefillRequest\?: ChatPaneComposerPrefillRequest \| null;/);
   assert.match(source, /onComposerPrefillConsumed\?: \(requestKey: number\) => void;/);
   assert.match(source, /const lastHandledComposerPrefillRequestKeyRef = useRef\(0\);/);
@@ -20,7 +22,7 @@ test("chat pane can consume a one-shot composer prefill request", async () => {
   assert.match(source, /if \(prefillMode === "append"\) \{/);
   assert.match(
     source,
-    /setInput\(\(current\) =>\s*appendComposerPrefillText\(current, composerPrefillRequest\?\.text \?\? ""\),\s*\);/,
+    /const nextText = appendComposerPrefillText\(\s*current\.text,\s*composerPrefillRequest\?\.text \?\? "",\s*\);\s*setInput\(nextText\);/,
   );
   assert.match(source, /const parsedPrefill = parseSerializedQuotedSkillPrompt\(/);
   assert.match(source, /setInput\(parsedPrefill\.body\);/);
@@ -30,16 +32,19 @@ test("chat pane can consume a one-shot composer prefill request", async () => {
 });
 
 test("chat pane appends reference prefills without clearing draft state", async () => {
-  const source = await readFile(sourcePath, "utf8");
+  const [source, helpers] = await Promise.all([
+    readFile(sourcePath, "utf8"),
+    readFile(helpersPath, "utf8"),
+  ]);
 
-  assert.match(source, /function appendComposerPrefillText\(currentInput: string, text: string\) \{/);
-  assert.match(source, /const normalizedText = text\.trim\(\);/);
-  assert.match(source, /if \(!normalizedText\) \{\s*return currentInput;\s*\}/);
-  assert.match(source, /if \(!currentInput\.trim\(\)\) \{\s*return normalizedText;\s*\}/);
-  assert.match(source, /return \/\[\\s\(\]\$\/\.test\(currentInput\)/);
+  assert.match(helpers, /export function appendComposerPrefillText\(currentInput: string, text: string\) \{/);
+  assert.match(helpers, /const normalizedText = text\.trim\(\);/);
+  assert.match(helpers, /if \(!normalizedText\) \{\s*return currentInput;\s*\}/);
+  assert.match(helpers, /if \(!currentInput\.trim\(\)\) \{\s*return normalizedText;\s*\}/);
+  assert.match(helpers, /return \/\[\\s\(\]\$\/\.test\(currentInput\)/);
   assert.match(
     source,
-    /if \(prefillMode === "append"\) \{\s*setInput\(\(current\) =>\s*appendComposerPrefillText\(current, composerPrefillRequest\?\.text \?\? ""\),\s*\);\s*\} else \{\s*const parsedPrefill = parseSerializedQuotedSkillPrompt\(/,
+    /if \(prefillMode === "append"\) \{[\s\S]*?appendComposerPrefillText\([\s\S]*?\} else \{\s*const parsedPrefill = parseSerializedQuotedSkillPrompt\(/,
   );
 });
 

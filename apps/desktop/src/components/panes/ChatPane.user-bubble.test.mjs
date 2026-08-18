@@ -5,7 +5,9 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sourcePath = path.join(__dirname, "ChatPane", "index.tsx");
+// The user bubble moved out of ChatPane/index.tsx into its own turn
+// component when the pane was split into a directory.
+const sourcePath = path.join(__dirname, "ChatPane", "UserTurn.tsx");
 
 test("user turns keep a visible bubble when the parsed prompt body is empty", async () => {
   const source = await readFile(sourcePath, "utf8");
@@ -21,6 +23,6 @@ test("user turns keep a visible bubble when the parsed prompt body is empty", as
   assert.match(source, /\{userBubbleText \? \(/);
   assert.match(
     source,
-    /<SimpleMarkdown[\s\S]*className="chat-markdown chat-user-markdown max-w-full"[\s\S]*\{userBubbleText\}[\s\S]*<\/SimpleMarkdown>/,
+    /<SimpleMarkdown[\s\S]*className="chat-markdown chat-user-markdown max-w-full"[\s\S]*\{injectMentionLinks\(userBubbleText\)\}[\s\S]*<\/SimpleMarkdown>/,
   );
 });
