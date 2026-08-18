@@ -5,7 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sourcePath = path.join(__dirname, "ChatPane.tsx");
+const sourcePath = path.join(__dirname, "ChatPane", "index.tsx");
 
 test("chat pane preserves message history when auxiliary session history fetches fail", async () => {
   const source = await readFile(sourcePath, "utf8");

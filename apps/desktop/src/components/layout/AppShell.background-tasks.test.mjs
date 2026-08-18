@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const APP_SHELL_PATH = new URL("./AppShell.tsx", import.meta.url);
+const APP_SHELL_PATH = new URL("./shell/AppShell.tsx", import.meta.url);
 
 test("app shell no longer exposes a dedicated background tasks pane", async () => {
   const source = await readFile(APP_SHELL_PATH, "utf8");

@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sourcePath = path.join(__dirname, "ChatPane.tsx");
+const sourcePath = path.join(__dirname, "ChatPane", "index.tsx");
 
 test("chat pane can consume a one-shot composer prefill request", async () => {
   const source = await readFile(sourcePath, "utf8");

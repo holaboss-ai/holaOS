@@ -5,7 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const sourcePath = path.join(__dirname, "ChatPane.tsx");
+const sourcePath = path.join(__dirname, "ChatPane", "index.tsx");
 
 test("user turns keep a visible bubble when the parsed prompt body is empty", async () => {
   const source = await readFile(sourcePath, "utf8");
