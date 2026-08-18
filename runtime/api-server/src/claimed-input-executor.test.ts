@@ -6463,3 +6463,94 @@ test("a slow backend does not sit on the turn's critical path", async () => {
 
   store.close();
 });
+
+test("a saturated relay queue still delivers the terminal run event", async () => {
+  const store = makeStore("hb-claimed-input-relay-terminal-");
+  const workspace = seedWorkspaceRecord(store, {
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: { text: "hello" },
+  });
+  const claimed = store.claimInputs({
+    limit: 1,
+    claimedBy: "sandbox-agent-ts-worker",
+    leaseSeconds: 300,
+  });
+
+  // The backend accepts nothing until released, so the serialized chain cannot
+  // drain and the queue saturates — the exact shape of a slow/unreachable
+  // backend during a long, chatty run.
+  let releaseBackend = () => {};
+  const backendGate = new Promise<void>((resolve) => {
+    releaseBackend = resolve;
+  });
+  const relayedEventTypes: string[] = [];
+  const TOOL_CALL_COUNT = 200;
+
+  await processClaimedInput({
+    store,
+    record: claimed[0],
+    claimedBy: "sandbox-agent-ts-worker",
+    registerRunStartedFn: async () => {
+      await backendGate;
+    },
+    relayRunEventFn: async (params) => {
+      await backendGate;
+      relayedEventTypes.push(params.eventType);
+    },
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      for (let i = 0; i < TOOL_CALL_COUNT; i += 1) {
+        await options.onEvent?.({
+          session_id: payload.session_id,
+          input_id: payload.input_id,
+          sequence: i + 1,
+          event_type: "tool_call",
+          payload: {
+            phase: "started",
+            tool_name: "read",
+            call_id: `call-${i}`,
+            tool_args: {},
+          },
+        });
+      }
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: TOOL_CALL_COUNT + 1,
+        event_type: "run_completed",
+        payload: { status: "completed" },
+      });
+      return { events: [], skippedLines: [], stderr: "", returnCode: 0, sawTerminal: true };
+    },
+  });
+
+  releaseBackend();
+  const deadline = Date.now() + 10_000;
+  while (
+    !relayedEventTypes.includes("run_completed") &&
+    Date.now() < deadline
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  // Shedding mid-stream telemetry is the point of the cap, so this run must
+  // genuinely have overflowed it — otherwise the assertion below proves nothing.
+  assert.ok(
+    relayedEventTypes.length < TOOL_CALL_COUNT,
+    `expected the queue to overflow, but all ${relayedEventTypes.length} events were kept`,
+  );
+  // The terminal is what the backend's agent_runs row depends on. Dropping it
+  // leaves that row reading "running" forever with nothing to correct it.
+  assert.ok(
+    relayedEventTypes.includes("run_completed"),
+    `terminal run event was dropped; relayed ${relayedEventTypes.length} events: ${[...new Set(relayedEventTypes)].join(", ")}`,
+  );
+
+  store.close();
+});

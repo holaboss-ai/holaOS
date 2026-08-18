@@ -109,6 +109,14 @@ const PI_SESSION_DIR_RELATIVE = path.join(".holaboss", "pi-sessions");
  * event log in the store is the source of truth.
  */
 const BACKEND_RELAY_MAX_PENDING = 64;
+/**
+ * Relay frames that are never dropped, however saturated the queue is. These
+ * carry the run's state; everything else is per-step telemetry that a reader
+ * can do without. Losing a terminal frame leaves the backend's `agent_runs` row
+ * reading "running" with no later correction.
+ */
+const BACKEND_RELAY_REQUIRED_EVENT_TYPES: ReadonlySet<BackendAgentRunEventType> =
+  new Set(["run_state", "run_completed", "run_failed"]);
 
 const PROVIDER_TERMINATION_RECOVERY_MIN_INPUT_TOKENS = 250_000;
 const PROVIDER_TERMINATION_RECOVERY_MIN_MODEL_TURNS = 24;
@@ -4168,9 +4176,21 @@ export async function processClaimedInput(params: {
       runtimeBinding,
     }).catch(() => undefined);
 
-    /** Queue a relay POST behind the ones already in flight, without waiting. */
-    const enqueueBackendRelay = (send: () => Promise<void>): void => {
-      if (backendRelayPending >= BACKEND_RELAY_MAX_PENDING) {
+    /**
+     * Queue a relay POST behind the ones already in flight, without waiting.
+     *
+     * `required` marks the frames that carry the run's state rather than its
+     * telemetry -- run_state and the run_completed / run_failed terminal. Those
+     * bypass the cap: dropping mid-stream output costs the backend some detail,
+     * but dropping the terminal leaves its agent_runs row reading "running"
+     * forever, and nothing later corrects it. Shedding load is only safe on the
+     * frames a reader can do without.
+     */
+    const enqueueBackendRelay = (
+      send: () => Promise<void>,
+      options: { required?: boolean } = {},
+    ): void => {
+      if (!options.required && backendRelayPending >= BACKEND_RELAY_MAX_PENDING) {
         // A dead backend must not grow an unbounded queue in a long run.
         backendRelayDropped += 1;
         return;
@@ -4310,18 +4330,20 @@ export async function processClaimedInput(params: {
       // stdout drain loop, which meant nothing else was read from the harness
       // -- and so nothing reached the store the desktop tails -- for up to 2s
       // per tool call and per 1200 characters of output. That is the stutter.
-      enqueueBackendRelay(() =>
-        relayRunEvent({
-          workspaceId: record.workspaceId,
-          sessionId: record.sessionId,
-          inputId: record.inputId,
-          runId,
-          sequence: relaySequence,
-          eventType: relayParams.eventType,
-          payload: relayParams.payload,
-          timestamp: relayParams.timestamp,
-          runtimeBinding,
-        }),
+      enqueueBackendRelay(
+        () =>
+          relayRunEvent({
+            workspaceId: record.workspaceId,
+            sessionId: record.sessionId,
+            inputId: record.inputId,
+            runId,
+            sequence: relaySequence,
+            eventType: relayParams.eventType,
+            payload: relayParams.payload,
+            timestamp: relayParams.timestamp,
+            runtimeBinding,
+          }),
+        { required: BACKEND_RELAY_REQUIRED_EVENT_TYPES.has(relayParams.eventType) },
       );
     };
 
