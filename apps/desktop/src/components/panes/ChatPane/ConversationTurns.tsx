@@ -32,6 +32,7 @@ const NO_OUTPUTS: NonNullable<ChatMessage["outputs"]> = [];
 const NO_PROPOSED_INTEGRATIONS: NonNullable<ChatMessage["proposedIntegrations"]> = [];
 const NO_MCP_AUTHORIZATIONS: NonNullable<ChatMessage["mcpAuthorizations"]> = [];
 const NO_PUBLISHED_POSTS: NonNullable<ChatMessage["publishedPosts"]> = [];
+const NO_BACKGROUND_TASK_REFERENCES: ChatBackgroundTaskReference[] = [];
 
 export function ConversationTurns<Message extends ChatMessage>({
   messages,
@@ -210,7 +211,9 @@ export function ConversationTurns<Message extends ChatMessage>({
               ? assistantFooterAccessory
               : null
           }
-          backgroundTaskReferences={message.backgroundTaskReferences ?? []}
+          backgroundTaskReferences={
+            message.backgroundTaskReferences ?? NO_BACKGROUND_TASK_REFERENCES
+          }
           onOpenBackgroundTaskReference={onOpenBackgroundTaskReference}
         />
       );
