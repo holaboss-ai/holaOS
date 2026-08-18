@@ -138,14 +138,27 @@ jobs:
           fi
           rg --version | head -1
 
-      - name: Runtime state store + harness host
+      # Covers every runtime package that isn't the api-server (which has its
+      # own job). runtime-harnesses and runtime-channel-gateway both have test
+      # scripts but appeared in no filter at all, so ~130 tests never ran —
+      # which is how a pi.test.ts assertion survived asserting the exact
+      # opposite of the live browser-tools policy.
+      #
+      # `typecheck` is included deliberately: this job ran `build test` only,
+      # so harness-host's tsc errors went unnoticed on main.
+      - name: Runtime packages (typecheck, build, test)
         # PI_OFFLINE makes the download path unreachable rather than merely
         # unused: if a tool is ever missing, the job fails immediately and
         # identically instead of flaking on whether a network call happened to
         # succeed. Combined with the install above, this step is hermetic.
         env:
           PI_OFFLINE: "1"
-        run: bunx turbo run build test --filter=@holaboss/runtime-state-store --filter=@holaboss/runtime-harness-host
+        run: >-
+          bunx turbo run typecheck build test
+          --filter=@holaboss/runtime-state-store
+          --filter=@holaboss/runtime-harness-host
+          --filter=@holaboss/runtime-harnesses
+          --filter=@holaboss/runtime-channel-gateway
 
   sdk-app-sdk:
     if: ${{ github.event_name != 'workflow_dispatch' }}

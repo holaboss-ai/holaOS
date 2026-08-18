@@ -10,7 +10,14 @@ function mk(
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  execute: (id: string, p: unknown) => Promise<{ called: string; params: unknown }>;
+  // pi's real signature is (toolCallId, toolParams, signal) — which is what
+  // consolidateOne forwards. Declaring only two here made the dispatcher's own
+  // call shape a type error in this file.
+  execute: (
+    id: string,
+    p: unknown,
+    signal?: AbortSignal,
+  ) => Promise<{ called: string; params: unknown }>;
 } {
   return {
     name,

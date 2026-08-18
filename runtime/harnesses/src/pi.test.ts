@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { piHarnessDefinition } from "./pi.js";
 
-test("pi harness enables browser tools only for executor sessions", () => {
+test("pi harness enables browser tools for every session kind except onboarding", () => {
   const buildHarnessHostRequest = piHarnessDefinition.runtimeAdapter.buildHarnessHostRequest;
   const baseParams = {
     request: {
@@ -74,7 +74,10 @@ test("pi harness enables browser tools only for executor sessions", () => {
 
   assert.equal(subagentRequest.browser_tools_enabled, true);
   assert.equal(subagentRequest.browser_space, "agent");
-  assert.equal(workspaceRequest.browser_tools_enabled, false);
+  // The main workspace loop gets browser tools too — its system prompt already
+  // advertises "direct access to … browser". browserToolsEnabledForSessionKind
+  // excludes only onboarding, so this asserted the reverse of the live policy.
+  assert.equal(workspaceRequest.browser_tools_enabled, true);
   assert.equal(workspaceRequest.browser_space, "agent");
   assert.equal(onboardingRequest.browser_tools_enabled, false);
   assert.equal(onboardingRequest.browser_space, null);
@@ -87,7 +90,18 @@ test("pi harness enables browser tools only for executor sessions", () => {
   assert.deepEqual(subagentRequest.context_messages, []);
   assert.deepEqual(workspaceRequest.context_messages, []);
   assert.deepEqual(onboardingRequest.context_messages, []);
-  assert.deepEqual(subagentRequest.tools, { read: true });
-  assert.deepEqual(workspaceRequest.tools, { read: true });
+  // Both agent-operating kinds get the browser tool family folded into `tools`;
+  // pinning the full list here would just re-break whenever a browser tool is
+  // added, so assert the property that matters.
+  for (const request of [subagentRequest, workspaceRequest]) {
+    const tools = request.tools as Record<string, boolean>;
+    assert.equal(tools.read, true);
+    assert.ok(
+      Object.keys(tools).some((name) => name.startsWith("browser_")),
+      "an agent-operating session should carry browser tools",
+    );
+  }
+  // Onboarding is the one exclusion — a constrained first-run flow with no
+  // place for browser control.
   assert.deepEqual(onboardingRequest.tools, { read: true });
 });
