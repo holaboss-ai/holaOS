@@ -1225,23 +1225,36 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   }, [clientConfig, recentAuthCompletedAt, runtimeConfig, runtimeStatus, session]);
 
   // Auto-poll installed apps when any app is not yet ready.
+  //
+  // The tick is held in a ref so the effect does not depend on it. It closes
+  // over refreshInstalledApps and applyWorkspaceLifecycle, both plain function
+  // declarations in this component body and therefore new on every render —
+  // listing them as deps tore the interval down and recreated it on EVERY
+  // render. A setInterval only fires after a full period of NOT being cleared,
+  // so a provider re-rendering more often than every 3s never polled at all,
+  // and apps stuck "initializing" stayed that way.
+  //
+  // Reading through the ref also keeps the tick current, so it can't capture a
+  // stale closure the way a longer-lived effect otherwise would.
+  const pollInitializingAppsRef = useRef<() => void>(() => {});
+  pollInitializingAppsRef.current = () => {
+    void window.electronAPI.workspace
+      .activateWorkspace(selectedWorkspaceId)
+      .then((response) => {
+        applyWorkspaceLifecycle(response);
+      })
+      .catch(() => {
+        void refreshInstalledApps();
+      });
+  };
   useEffect(() => {
     const hasInitializing = installedApps.some((app) => !app.ready);
     if (!hasInitializing || !selectedWorkspaceId) {
       return;
     }
-    const timer = setInterval(() => {
-      void window.electronAPI.workspace
-        .activateWorkspace(selectedWorkspaceId)
-        .then((response) => {
-          applyWorkspaceLifecycle(response);
-        })
-        .catch(() => {
-          void refreshInstalledApps();
-        });
-    }, 3000);
+    const timer = setInterval(() => pollInitializingAppsRef.current(), 3000);
     return () => clearInterval(timer);
-  }, [installedApps, refreshInstalledApps, selectedWorkspaceId]);
+  }, [installedApps, selectedWorkspaceId]);
 
   const value = useMemo(
     () => ({
