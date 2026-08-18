@@ -172,18 +172,19 @@ declare global {
 		height: number;
 	}
 
+	// Sections the settings screen can actually render (SettingsScreenRoot's
+	// SETTINGS_NAV + its submissions branch). Kept identical in main.ts,
+	// preload.ts, authPopupPreload.ts and here.
 	type UiSettingsPaneSection =
 		| "account"
+		| "agents"
 		| "billing"
 		| "byok"
-		| "providers"
-		| "agents"
-		| "integrations"
 		| "channels"
+		| "experimental"
 		| "memory"
-		| "submissions"
 		| "settings"
-		| "experimental";
+		| "submissions";
 
 	interface MemoryBrowserTreeNodePayload {
 		name: string;

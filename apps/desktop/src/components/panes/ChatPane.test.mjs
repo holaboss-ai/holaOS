@@ -124,7 +124,7 @@ test("chat pane shows provider setup CTA when no chat models are available", asy
   );
   assert.match(
     source,
-    /onOpenModelProviders=\{\(\) =>[\s\S]*window\.electronAPI\.ui\.openSettingsPane\("providers"\)[\s\S]*\}/,
+    /onOpenModelProviders=\{\(\) =>[\s\S]*window\.electronAPI\.ui\.openSettingsPane\(\s*"byok",?\s*\)[\s\S]*\}/,
   );
   assert.match(source, /aria-label="Configure model providers"/);
   assert.match(

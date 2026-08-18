@@ -86,7 +86,24 @@ interface WorkspaceListResponsePayload {
   offset: number;
 }
 
-type UiSettingsPaneSection = "account" | "billing" | "providers" | "integrations" | "submissions" | "settings" | "about";
+// Sections the settings screen can actually render (SettingsScreenRoot's
+// SETTINGS_NAV + its submissions branch). Kept identical in main.ts,
+// preload.ts, authPopupPreload.ts and electron.d.ts.
+//
+// These four had drifted to four different lists, and three of the values they
+// carried between them — "providers", "integrations", "about" — matched no
+// render branch at all, so passing one opened Settings with a blank pane and
+// no nav item selected.
+type UiSettingsPaneSection =
+  | "account"
+  | "agents"
+  | "billing"
+  | "byok"
+  | "channels"
+  | "experimental"
+  | "memory"
+  | "settings"
+  | "submissions";
 
 const INTERNAL_DEV_BACKEND_OVERRIDES_ENABLED =
   Boolean(process.env.VITE_DEV_SERVER_URL) || process.env.HOLABOSS_INTERNAL_DEV?.trim() === "1";

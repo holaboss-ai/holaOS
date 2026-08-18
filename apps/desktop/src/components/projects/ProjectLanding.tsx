@@ -849,7 +849,7 @@ export function ProjectLanding({
                     : setHarnessThinkingOverride
                 }
                 onOpenModelProviders={() =>
-                  void window.electronAPI.ui.openSettingsPane("account")
+                  void window.electronAPI.ui.openSettingsPane("byok")
                 }
                 fileInputRef={fileInputRef}
                 onAttachmentInputChange={onAttachmentInputChange}

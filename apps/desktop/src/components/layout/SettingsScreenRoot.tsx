@@ -125,8 +125,12 @@ function pageTitle(section: UiSettingsPaneSection): string {
       return "Billing";
     case "agents":
       return "Agents";
-    case "integrations":
-      return "Connections";
+    // "byok" had no case, so the Model Providers pane rendered under the
+    // fallback heading "General". "integrations" had one and no render branch —
+    // a title over an empty pane — and is gone with the rest of the dead
+    // sections.
+    case "byok":
+      return "Model Providers";
     case "channels":
       return "Channels";
     case "memory":

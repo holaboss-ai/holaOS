@@ -10399,7 +10399,7 @@ export function ChatPane({
                                 onThinkingValueChange={composerOnThinkingValueChange}
                                 onOpenModelProviders={() =>
                                   void window.electronAPI.ui.openSettingsPane(
-                                    "account",
+                                    "byok",
                                   )
                                 }
                                 fileInputRef={fileInputRef}
@@ -10677,7 +10677,7 @@ export function ChatPane({
                           onThinkingValueChange={composerOnThinkingValueChange}
                           onOpenModelProviders={() =>
                             void window.electronAPI.ui.openSettingsPane(
-                              "account",
+                              "byok",
                             )
                           }
                           fileInputRef={fileInputRef}

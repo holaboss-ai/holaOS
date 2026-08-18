@@ -1132,14 +1132,45 @@ interface BrowserAnchorBoundsPayload {
   height: number;
 }
 
+// Sections the settings screen can actually render (SettingsScreenRoot's
+// SETTINGS_NAV + its submissions branch). Kept identical in main.ts,
+// preload.ts, authPopupPreload.ts and electron.d.ts.
+//
+// These four had drifted to four different lists, and three of the values they
+// carried between them — "providers", "integrations", "about" — matched no
+// render branch at all, so passing one opened Settings with a blank pane and
+// no nav item selected.
 type UiSettingsPaneSection =
   | "account"
+  | "agents"
   | "billing"
-  | "providers"
-  | "integrations"
-  | "submissions"
+  | "byok"
+  | "channels"
+  | "experimental"
+  | "memory"
   | "settings"
-  | "about";
+  | "submissions";
+
+const UI_SETTINGS_PANE_SECTIONS: readonly UiSettingsPaneSection[] = [
+  "account",
+  "agents",
+  "billing",
+  "byok",
+  "channels",
+  "experimental",
+  "memory",
+  "settings",
+  "submissions",
+];
+
+/** Unknown sections fall back to General rather than opening a blank pane. */
+function normalizeUiSettingsPaneSection(
+  section: unknown,
+): UiSettingsPaneSection {
+  return UI_SETTINGS_PANE_SECTIONS.includes(section as UiSettingsPaneSection)
+    ? (section as UiSettingsPaneSection)
+    : "settings";
+}
 
 interface AddressSuggestionPayload {
   id: string;
@@ -27581,7 +27612,7 @@ app.whenReady().then(async () => {
     "ui:openSettingsPane",
     ["main", "auth-popup"],
     async (_event, section?: UiSettingsPaneSection) => {
-      emitOpenSettingsPane(section ?? "settings");
+      emitOpenSettingsPane(normalizeUiSettingsPaneSection(section));
       if (mainWindow && !mainWindow.isDestroyed()) {
         if (mainWindow.isMinimized()) {
           mainWindow.restore();

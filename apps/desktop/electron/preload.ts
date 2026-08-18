@@ -166,15 +166,24 @@ interface BrowserAnchorBoundsPayload {
 	height: number;
 }
 
+// Sections the settings screen can actually render (SettingsScreenRoot's
+// SETTINGS_NAV + its submissions branch). Kept identical in main.ts,
+// preload.ts, authPopupPreload.ts and electron.d.ts.
+//
+// These four had drifted to four different lists, and three of the values they
+// carried between them — "providers", "integrations", "about" — matched no
+// render branch at all, so passing one opened Settings with a blank pane and
+// no nav item selected.
 type UiSettingsPaneSection =
 	| "account"
+	| "agents"
 	| "billing"
-	| "providers"
-	| "integrations"
+	| "byok"
+	| "channels"
+	| "experimental"
 	| "memory"
-	| "submissions"
 	| "settings"
-	| "experimental";
+	| "submissions";
 
 interface DesktopWindowStatePayload {
 	isFullScreen: boolean;
