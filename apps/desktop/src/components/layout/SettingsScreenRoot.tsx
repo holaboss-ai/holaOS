@@ -7,7 +7,6 @@ import {
   Copy,
   CreditCard,
   ExternalLink,
-  FlaskConical,
   FolderOpen,
   Globe,
   Info,
@@ -24,7 +23,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AuthPanel } from "@/components/auth/AuthPanel";
 import {
-  cloudModeEnabledAtom,
 } from "@/components/layout/shell/state/ui";
 import { BillingSettingsPanel } from "@/components/billing/BillingSettingsPanel";
 import { ChannelsPane } from "@/components/panes/ChannelsPane";
@@ -93,7 +91,6 @@ const SETTINGS_NAV: ReadonlyArray<SettingsScreenNavEntry<UiSettingsPaneSection>>
   { id: "byok", label: "Model Providers", icon: KeyRound },
   { id: "channels", label: "Channels", icon: Send },
   { id: "memory", label: "Memory", icon: BrainCircuit },
-  { id: "experimental", label: "Experimental", icon: FlaskConical },
 ];
 
 const ABOUT_LINKS = [
@@ -137,8 +134,6 @@ function pageTitle(section: UiSettingsPaneSection): string {
       return "Memory";
     case "submissions":
       return "Submissions";
-    case "experimental":
-      return "Experimental";
     default:
       return "General";
   }
@@ -496,8 +491,6 @@ export function SettingsScreenRoot({
         {activeSection === "submissions" ? (
           <SubmissionsPanel initialFocusedId={submissionsFocusId} />
         ) : null}
-
-        {activeSection === "experimental" ? <ExperimentalPanel /> : null}
 
         {activeSection === "settings" ? (
           <>
@@ -972,16 +965,3 @@ function WorkspaceConfigDiagnosticsCard() {
   );
 }
 
-function ExperimentalPanel() {
-  const [cloudModeEnabled, setCloudModeEnabled] = useAtom(cloudModeEnabledAtom);
-  return (
-    <SettingsCard>
-      <SettingsToggle
-        label="Cloud mode"
-        description="Show the Local/Cloud switcher in the sidebar. When off, the switcher is hidden and the sidebar stays in Local mode. Off by default."
-        checked={cloudModeEnabled}
-        onCheckedChange={setCloudModeEnabled}
-      />
-    </SettingsCard>
-  );
-}

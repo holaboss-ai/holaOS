@@ -69,7 +69,7 @@ import {
   selectedSessionIdAtom,
   shortcutsHelpOpenAtom,
   sidebarCollapsedAtom,
-  sidebarModeAtom,
+  effectiveSidebarModeAtom,
   workspaceOverlayAtom,
   type WorkspaceMainViewMode,
 } from "./state/ui";
@@ -148,7 +148,11 @@ function AppShellContent() {
   const layout = useChatLayout();
   const projectView = useAtomValue(projectViewAtom);
   const workspaceOverlay = useAtomValue(workspaceOverlayAtom);
-  const sidebarMode = useAtomValue(sidebarModeAtom);
+  // Reads the EFFECTIVE mode, not the persisted one. Cloud mode is gone from the
+  // UI, but sidebarModeAtom is persisted — a user who tried it still has
+  // "employee" on disk, and acting on that here would point Home at the employee
+  // surface while the sidebar shows Local, with no switcher to escape.
+  const sidebarMode = useAtomValue(effectiveSidebarModeAtom);
   const setWorkspaceOverlay = useSetAtom(workspaceOverlayAtom);
   // The sidebar mode persists across launches but the workspace overlay always
   // defaults to Home = "holahub" (Local's Home). If we relaunched into Employee

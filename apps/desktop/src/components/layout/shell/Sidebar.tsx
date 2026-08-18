@@ -109,11 +109,10 @@ import {
   type CloudSection,
   cloudSectionAtom,
   SIDEBAR_MAX_WIDTH,
-  cloudModeEnabledAtom,
   SIDEBAR_MIN_WIDTH,
   sidebarCollapsedAtom,
   type SidebarMode,
-  sidebarModeAtom,
+  effectiveSidebarModeAtom,
   sidebarWidthAtom,
   workspaceOverlayAtom,
   type WorkspaceOverlay,
@@ -210,48 +209,6 @@ function SidebarResizeHandle() {
     </div>
   );
 }
-// The Local ⇄ Employee segmented switch at the very top of the sidebar. Switching
-// leaves a clean slate and lands each mode on its own Home surface; the choice
-// persists across launches (sidebarModeAtom).
-function SidebarModeToggle() {
-  const [mode, setMode] = useAtom(sidebarModeAtom);
-  const setWorkspaceOverlay = useSetAtom(workspaceOverlayAtom);
-  const setProjectView = useSetAtom(projectViewAtom);
-  const setSelectedSessionId = useSetAtom(selectedSessionIdAtom);
-  const setSelectedEmployee = useSetAtom(selectedEmployeeAtom);
-
-  const switchMode = (next: SidebarMode) => {
-    if (next === mode) {
-      return;
-    }
-    setSelectedEmployee(null);
-    setSelectedSessionId(null);
-    setProjectView(null);
-    setWorkspaceOverlay(next === "employee" ? "holaemployee" : "holahub");
-    setMode(next);
-  };
-
-  return (
-    <div className="mx-2 my-2 grid grid-cols-2 gap-0.5 rounded-lg bg-foreground/5 p-0.5">
-      {(["local", "employee"] as const).map((m) => (
-        <button
-          className={cn(
-            "h-7 rounded-md font-medium text-xs transition-colors",
-            mode === m
-              ? "bg-sidebar text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-          key={m}
-          onClick={() => switchMode(m)}
-          type="button"
-        >
-          {m === "local" ? "Local" : "Employee"}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 // Employee-mode content: a "Home" nav that opens the HolaEmployee page (the old
 // standalone HolaEmployee row, relocated here), then the employee roster + threads.
 // No workspace "New chat" here — starting an employee chat lives on each employee row.
@@ -313,12 +270,9 @@ function SidebarExpanded() {
   // Personal app-store installs are a personal-context concern — shown only in a
   // personal space, not when the desktop is scoped to a real org.
   const { isPersonal } = useOrganizations();
-  const cloudModeEnabled = useAtomValue(cloudModeEnabledAtom);
-  const storedMode = useAtomValue(sidebarModeAtom);
-  // Cloud mode is experimental + off by default. When off, hide the Local/Cloud
-  // switcher and pin the sidebar to Local (a persisted "employee" choice must not
-  // strand the user in a mode with no way back).
-  const mode = cloudModeEnabled ? storedMode : "local";
+  // Cloud mode was removed from the UI; effectiveSidebarModeAtom pins this to
+  // Local for everyone, including users with a persisted "employee" choice.
+  const mode = useAtomValue(effectiveSidebarModeAtom);
   return (
     <aside
       data-pane-card="true"
@@ -338,11 +292,6 @@ function SidebarExpanded() {
         {/* Pinned inside the scroll container so it shares the list's scrollbar
             inset — keeping the switcher edge-aligned with the New chat / nav
             pills regardless of the scrollbar width. */}
-        {cloudModeEnabled ? (
-          <div className="sticky top-0 z-10 flex flex-col bg-sidebar">
-            <SidebarModeToggle />
-          </div>
-        ) : null}
         {mode === "local" ? (
           <>
             <SidebarWorkspaceSection />

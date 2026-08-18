@@ -56,14 +56,19 @@ export const collapseSidebarForAppSurfaceAtom = atom(null, (_get, set) => {
 });
 
 /**
- * Experimental: Cloud mode — the Local/Cloud sidebar switcher and the cloud
- * surface it reveals. Off by default; when off, the switcher is hidden and the
- * sidebar stays in Local mode. Flip it on in Settings → App → Experimental.
+ * The sidebar's EFFECTIVE mode.
+ *
+ * Cloud mode (the experimental Local/Cloud switcher and the employee surface it
+ * revealed) was removed from the UI. `sidebarModeAtom` is persisted, so anyone
+ * who tried it still has "employee" on disk — and reading that raw would leave
+ * them with a Local sidebar and an Employee main area, stranded in a mode with
+ * no switcher to get back from.
+ *
+ * Everything that renders off the mode reads this instead, so the pin is in one
+ * place rather than re-derived per consumer. Restoring cloud mode means making
+ * this return the stored value again.
  */
-export const cloudModeEnabledAtom = atomWithStorage(
-  "holaboss.experimental.cloud-mode",
-  false,
-);
+export const effectiveSidebarModeAtom = atom<SidebarMode>(() => "local");
 
 /**
  * The middle tab area is maximized to fill the window (sidebar + chat hidden).
