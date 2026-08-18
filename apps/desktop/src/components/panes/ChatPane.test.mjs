@@ -648,7 +648,7 @@ test("chat pane polling can clear a stale stream after runtime reaches terminal 
   );
   assert.match(
     source,
-    /status === "WAITING_USER" \|\| status === "PAUSED"[\s\S]*commitLiveAssistantMessage\(\);[\s\S]*scheduleConversationRefresh\(normalizedCurrentSessionId, selectedWorkspaceId\);/,
+    /status === "WAITING_USER" \|\| status === "PAUSED"[\s\S]*commitLiveAssistantMessage\(\);[\s\S]*scheduleConversationRefresh\(\s*normalizedCurrentSessionId,\s*selectedWorkspaceId,?\s*\);/,
   );
   assert.match(
     source,

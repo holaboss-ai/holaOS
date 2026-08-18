@@ -146,7 +146,7 @@ test("workspace desktop re-activates workspaces while installed apps are still s
 
 	assert.match(
 		source,
-		/const hasInitializing = installedApps\.some\(\(app\) => !app\.ready\);/,
+		/const hasInitializingApps = installedApps\.some\(\(app\) => !app\.ready\);/,
 	);
 	assert.match(
 		source,
