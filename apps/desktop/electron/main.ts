@@ -17341,6 +17341,8 @@ async function waitForRuntimeHealth(
   // attempt count, unchanged.
   let lastPhase: string | null = null;
   let attemptsSpentOnThisPhase = 0;
+  // One warning per phase: a line per poll for 80s buries the log it annotates.
+  let overBudgetPhaseLogged = false;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (await isRuntimeHealthy(url)) {
       return true;
@@ -17356,9 +17358,22 @@ async function waitForRuntimeHealth(
         // scales with how much work there is rather than with a guess.
         lastPhase = status.phase;
         attemptsSpentOnThisPhase = 0;
+        overBudgetPhaseLogged = false;
         options.onPhase?.(status);
       } else {
         attemptsSpentOnThisPhase += 1;
+      }
+      // Mirror the runtime's own alarm into THIS log. The runtime warns in
+      // runtime.log, but the desktop log is the one that comes back attached to
+      // a bug report, and "the app hung on launch" is exactly the report where
+      // knowing which phase overran is the whole diagnosis.
+      if (status.phase_over_budget && !overBudgetPhaseLogged) {
+        overBudgetPhaseLogged = true;
+        console.warn(
+          `[runtime] boot phase "${status.phase}" is over budget: ${status.phase_elapsed_ms}ms` +
+            (status.phase_budget_ms ? ` (budget ${status.phase_budget_ms}ms)` : "") +
+            ` — still advancing, so not treating it as dead`,
+        );
       }
       if (attemptsSpentOnThisPhase < STALLED_BOOT_PHASE_ATTEMPTS) {
         // Don't count this against the overall budget — it is working.
@@ -17409,6 +17424,11 @@ interface RuntimeBootStatus {
   phase: string;
   phase_elapsed_ms: number;
   total_elapsed_ms: number;
+  /** Budget for the current phase, and whether it has been exceeded. Optional:
+   *  a runtime older than the budgets simply omits them, and every reader here
+   *  treats absent as "no opinion" rather than as "fine". */
+  phase_budget_ms?: number;
+  phase_over_budget?: boolean;
 }
 
 /**

@@ -136,6 +136,15 @@ import {
   type DbMaintenanceProgress,
 } from "./db-maintenance.js";
 import {
+  appendBootRecord,
+  classifyBoot,
+  parseBootHistory,
+  phaseBudgetMs,
+  phaseOverBudget,
+  type BootAlarm,
+  type BootRecord,
+} from "./boot-telemetry.js";
+import {
   type RecallEmbeddingBackfillWorkerLike,
   RuntimeRecallEmbeddingBackfillWorker,
 } from "./recall-embedding-backfill-worker.js";
@@ -259,6 +268,10 @@ import {
 // without busy-polling. Kept off the hot path, so it's a safety net, not the
 // streaming cadence.
 const STREAM_IDLE_FALLBACK_MS = 250;
+// How often the boot watchdog checks the in-flight phase against its budget.
+// A second is far below every budget, so the warning lands promptly, and the
+// timer is unref'd and cleared at `ready` — it costs nothing after boot.
+const BOOT_WATCHDOG_INTERVAL_MS = 1_000;
 const DEFAULT_BODY_LIMIT_BYTES = 10 * 1024 * 1024;
 const DEFAULT_APP_SETUP_TIMEOUT_MS = 900_000;
 const DEFAULT_TERMINAL_COLS = 120;
@@ -4027,6 +4040,9 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   let bootPhaseStartedAtMs = bootStartedAtMs;
   let bootReady = false;
   const bootPhaseHistory: Array<{ phase: string; ms: number }> = [];
+  const bootAlarms: BootAlarm[] = [];
+  // Phases already warned about, so the watchdog says it once and then stops.
+  const bootPhasesWarned = new Set<string>();
   const enterBootPhase = (phase: string): void => {
     const now = Date.now();
     const previous = bootPhase;
@@ -4041,6 +4057,42 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     bootPhase = phase;
     bootPhaseStartedAtMs = now;
   };
+
+  /**
+   * Watchdog over the IN-FLIGHT phase.
+   *
+   * This is the part that matters. The boot that motivated all of this never
+   * finished — it was SIGKILLed mid-`quick_check` on every attempt — so any
+   * check that runs when boot completes would have stayed silent for precisely
+   * the failure it was written to catch. Polling the current phase against its
+   * budget is the only version of this alarm that fires during the incident
+   * rather than after it.
+   *
+   * Unref'd so it can never hold the process open, and it says each phase once:
+   * a warning per second for 80s buries the log it is trying to annotate.
+   */
+  const bootWatchdog = setInterval(() => {
+    if (bootReady) {
+      return;
+    }
+    const elapsed = Date.now() - bootPhaseStartedAtMs;
+    if (bootPhasesWarned.has(bootPhase) || !phaseOverBudget(bootPhase, elapsed)) {
+      return;
+    }
+    bootPhasesWarned.add(bootPhase);
+    const budget = phaseBudgetMs(bootPhase);
+    app.log.warn(
+      {
+        event: "runtime.boot.phase_over_budget",
+        phase: bootPhase,
+        elapsed_ms: elapsed,
+        budget_ms: budget,
+        total_elapsed_ms: Date.now() - bootStartedAtMs,
+      },
+      `runtime boot: still in ${bootPhase} after ${elapsed}ms (budget ${budget}ms) — this boot is slow, not necessarily stuck`,
+    );
+  }, BOOT_WATCHDOG_INTERVAL_MS);
+  bootWatchdog.unref();
 
   /**
    * Ensures this app's MCP tools are registered in workspace.yaml's
@@ -4803,10 +4855,56 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       }
       enterBootPhase("ready");
       bootReady = true;
+      clearInterval(bootWatchdog);
+      const totalMs = Date.now() - bootStartedAtMs;
       app.log.info(
-        { totalMs: Date.now() - bootStartedAtMs, phases: bootPhaseHistory },
-        `runtime boot: ready in ${Date.now() - bootStartedAtMs}ms`,
+        { totalMs, phases: bootPhaseHistory },
+        `runtime boot: ready in ${totalMs}ms`,
       );
+
+      // Telemetry is strictly an observer: anything it throws would turn a
+      // diagnostic into the outage it exists to diagnose, so the whole block is
+      // guarded and failure is silent beyond a debug line.
+      try {
+        const dbTimings = store.rootRuntimeDbOpenTimings();
+        const record: BootRecord = {
+          total_ms: totalMs,
+          phases: [...bootPhaseHistory],
+          ...(dbTimings.openMs !== null
+            ? { root_db_open_ms: dbTimings.openMs }
+            : {}),
+          ...(dbTimings.integrityCheckMs !== null
+            ? { root_db_integrity_check_ms: dbTimings.integrityCheckMs }
+            : {}),
+          at: new Date().toISOString(),
+        };
+        const history = parseBootHistory(store.readBootTimingHistoryJson());
+        for (const alarm of classifyBoot(record, history)) {
+          bootAlarms.push(alarm);
+          app.log.warn(
+            {
+              event: `runtime.boot.${alarm.kind}`,
+              phase: alarm.phase,
+              elapsed_ms: alarm.elapsed_ms,
+              budget_ms: alarm.budget_ms,
+              baseline_ms: alarm.baseline_ms,
+              root_db_open_ms: record.root_db_open_ms,
+              root_db_integrity_check_ms: record.root_db_integrity_check_ms,
+            },
+            `runtime boot: ${alarm.message}`,
+          );
+        }
+        // Written last: a boot slow enough to be worth alarming about is also
+        // the one whose numbers the next boot needs for its baseline.
+        store.writeBootTimingHistoryJson(
+          JSON.stringify(appendBootRecord(history, record)),
+        );
+      } catch (err) {
+        app.log.debug(
+          { err: err instanceof Error ? err.message : String(err) },
+          "runtime boot: telemetry not recorded",
+        );
+      }
     })();
 
     // Background DB retention sweep: prune the append-only session_output_events
@@ -4887,13 +4985,24 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   // means the port is about to bind.
   app.decorate("runtimeBootComplete", () => bootCompletePromise);
 
-  app.get("/runtime/boot-status", async () => ({
-    ready: bootReady,
-    phase: bootPhase,
-    phase_elapsed_ms: Date.now() - bootPhaseStartedAtMs,
-    total_elapsed_ms: Date.now() - bootStartedAtMs,
-    phases: bootPhaseHistory,
-  }));
+  app.get("/runtime/boot-status", async () => {
+    const phaseElapsedMs = Date.now() - bootPhaseStartedAtMs;
+    return {
+      ready: bootReady,
+      phase: bootPhase,
+      phase_elapsed_ms: phaseElapsedMs,
+      total_elapsed_ms: Date.now() - bootStartedAtMs,
+      phases: bootPhaseHistory,
+      // Lets the supervisor and the splash distinguish "slow" from "stuck"
+      // without duplicating the budget table on the desktop side. The
+      // supervisor already refunds attempts while the phase advances, so a slow
+      // phase is not killed — this is what makes the waiting honest to the user
+      // instead of a silent spinner.
+      phase_budget_ms: phaseBudgetMs(bootPhase),
+      phase_over_budget: !bootReady && phaseOverBudget(bootPhase, phaseElapsedMs),
+      alarms: bootAlarms,
+    };
+  });
 
   // Live retention-sweep progress. Unauthed like /healthz — the desktop polls
   // it during boot (before the app shell / auth headers exist) to drive the

@@ -17,6 +17,7 @@ import yazl from "yazl";
 import * as tar from "tar";
 
 import { buildRuntimeApiServer, type BuildRuntimeApiServerOptions } from "./app.js";
+import { parseBootHistory } from "./boot-telemetry.js";
 import { appLocalNpmCacheDir, buildAppSetupEnv } from "./app-setup-env.js";
 import { processClaimedInput } from "./claimed-input-executor.js";
 import { runtimeUserTimezone } from "./cron-worker.js";
@@ -14432,6 +14433,77 @@ test("boot-status is reachable without auth, like the other boot probes", async 
       process.env.SANDBOX_RUNTIME_API_TOKEN = previousToken;
     }
     await app!.close();
+    store.close();
+  }
+});
+
+test("boot-status publishes the phase budget so slow can be told from stuck", async () => {
+  // Steps 1-5 made boot observable; this is what makes it judgeable. The
+  // supervisor already refunds attempts while the phase advances, so a slow
+  // phase is not killed — but without a budget on the wire, neither it nor the
+  // splash can say anything more useful than "still working". Publishing the
+  // budget keeps that table in one place instead of duplicated on the desktop.
+  const root = makeTempDir("hb-runtime-api-boot-budget-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  try {
+    await app.ready();
+    const response = await app.inject({ method: "GET", url: "/runtime/boot-status" });
+    assert.equal(response.statusCode, 200);
+    const body = response.json() as {
+      phase: string;
+      phase_budget_ms: number;
+      phase_over_budget: boolean;
+      alarms: unknown[];
+    };
+    assert.ok(
+      Number.isFinite(body.phase_budget_ms) && body.phase_budget_ms > 0,
+      "every phase has a budget, including ones added later",
+    );
+    assert.equal(typeof body.phase_over_budget, "boolean");
+    assert.ok(Array.isArray(body.alarms));
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("a healthy boot records its timings and raises no alarm", async () => {
+  // The baseline half of the alarm: without a persisted history, "slow" can only
+  // ever mean "past an absolute threshold", which either cries wolf on a slow
+  // disk or never fires on a fast one.
+  const root = makeTempDir("hb-runtime-api-boot-telemetry-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  try {
+    await app.ready();
+    await app.runtimeBootComplete();
+
+    const body = (
+      await app.inject({ method: "GET", url: "/runtime/boot-status" })
+    ).json() as { ready: boolean; alarms: unknown[] };
+    assert.equal(body.ready, true);
+    assert.deepEqual(body.alarms, [], "a test-speed boot is not a slow boot");
+
+    const history = parseBootHistory(store.readBootTimingHistoryJson());
+    assert.equal(history.length, 1, "the boot that just happened is recorded");
+    assert.ok(Number.isFinite(history[0].total_ms));
+    assert.ok(
+      Array.isArray(history[0].phases) && history[0].phases.length > 0,
+      "per-phase timings are kept, so a slow boot is diagnosable from the record alone",
+    );
+    assert.ok(
+      typeof history[0].root_db_open_ms === "number",
+      "the root DB open is attributed to the open, not to whichever worker touched the store first",
+    );
+  } finally {
+    await app.close();
     store.close();
   }
 });

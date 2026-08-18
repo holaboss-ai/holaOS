@@ -40,6 +40,10 @@ const WORKSPACE_RUNTIME_LEGACY_BACKFILL_MARKER_KEY =
 // for every legacy workspace_id (INSERT OR IGNORE) on every launch, silently
 // resurrecting projects the user has since deleted.
 const HOST_STATE_MONOLITH_FOLDED_MARKER_KEY = "host_state_monolith_folded_v1";
+// Persisted (root-DB) ring of recent boot timings. Lives in the root so a boot can
+// be compared against THIS machine's own history — an absolute threshold alone
+// either cries wolf on a slow disk or never fires on a fast one.
+const BOOT_TIMING_HISTORY_KEY = "boot_timing_history_v1";
 const MAIN_SESSION_KIND = "main_session";
 const SUBAGENT_SESSION_KIND = "subagent";
 const MAIN_SESSION_BINDING_ROLE = "main_session";
@@ -1611,6 +1615,13 @@ export class RuntimeStateStore {
   #workspaceRuntimeDbs: Map<string, { dbPath: string; db: Database.Database }> = new Map();
   #vectorIndexSupported = false;
   #statementCache: Map<string, Database.Statement> = new Map();
+  // How long the root DB open took, and how much of that was the integrity
+  // check. Recorded because the open is LAZY: without attributing it here it is
+  // charged to whichever background worker first touched the store, so an 80s
+  // quick_check reads as "durable_memory took 80s" and sends the next person
+  // reading the log to entirely the wrong file.
+  #rootRuntimeDbOpenMs: number | null = null;
+  #rootRuntimeDbIntegrityCheckMs: number | null = null;
 
   constructor(options: RuntimeStateStoreOptions = {}) {
     this.dbPath = hostStateDbPath(options);
@@ -1669,6 +1680,74 @@ export class RuntimeStateStore {
   supportsVectorIndex(): boolean {
     void this.db();
     return this.#vectorIndexSupported;
+  }
+
+  /**
+   * Timings for the root DB open, or nulls if it has not been opened in this
+   * process yet.
+   *
+   * Deliberately does NOT open the DB to answer — the caller is boot telemetry,
+   * and telemetry that triggers the expensive thing it is trying to measure is
+   * worse than no telemetry. A null here means "not opened", which is itself the
+   * honest answer.
+   */
+  rootRuntimeDbOpenTimings(): {
+    openMs: number | null;
+    integrityCheckMs: number | null;
+  } {
+    return {
+      openMs: this.#rootRuntimeDbOpenMs,
+      integrityCheckMs: this.#rootRuntimeDbIntegrityCheckMs,
+    };
+  }
+
+  /**
+   * Recent boot timings, as raw JSON, or null when the root DB is not already
+   * open in this process.
+   *
+   * Both this and its writer refuse to OPEN the DB, which is the whole point:
+   * the open is the expensive thing boot telemetry exists to measure, and a
+   * telemetry read that triggers an 80s integrity check would be strictly worse
+   * than having no telemetry at all. Losing a baseline is cheap; causing the
+   * failure you are measuring is not.
+   */
+  readBootTimingHistoryJson(): string | null {
+    const db = this.#rootRuntimeDb;
+    if (!db || !this.tableExists(db, "workspace_runtime_metadata")) {
+      return null;
+    }
+    try {
+      const row = db
+        .prepare<[string], { value?: string }>(
+          "SELECT value FROM workspace_runtime_metadata WHERE key = ? LIMIT 1",
+        )
+        .get(BOOT_TIMING_HISTORY_KEY);
+      return row?.value ?? null;
+    } catch {
+      // A telemetry read must never be the reason a boot fails.
+      return null;
+    }
+  }
+
+  /** Persist the boot-timing ring. No-ops (returning false) when the root DB is
+   *  not already open — see `readBootTimingHistoryJson`. */
+  writeBootTimingHistoryJson(json: string): boolean {
+    const db = this.#rootRuntimeDb;
+    if (!db || !this.tableExists(db, "workspace_runtime_metadata")) {
+      return false;
+    }
+    try {
+      db.prepare(`
+        INSERT INTO workspace_runtime_metadata (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `).run(BOOT_TIMING_HISTORY_KEY, json, utcNowIso());
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -14041,6 +14120,7 @@ export class RuntimeStateStore {
         if (!this.rootDbPassesIntegrityCheck(db)) {
           throw new Error("root data.db failed quick_check");
         }
+        this.#rootRuntimeDbIntegrityCheckMs = Date.now() - startedAt;
         console.warn(
           `[state-store] integrity check passed in ${Math.round((Date.now() - startedAt) / 1000)}s`,
         );
@@ -14081,6 +14161,10 @@ export class RuntimeStateStore {
     if (this.#rootRuntimeDb) {
       return this.#rootRuntimeDb;
     }
+    // Times the WHOLE open, not just the connection: compaction, the integrity
+    // check, the vector extension, schema and migrations all land on the first
+    // caller, and any of them can be the slow one. Boot telemetry reads this.
+    const openStartedAt = Date.now();
     // One-time file compaction, if the background retention sweep requested it.
     // Runs here — before the connection is opened, while the DB is quiescent in
     // this single process — because that is the only point a VACUUM snapshot is
@@ -14101,6 +14185,7 @@ export class RuntimeStateStore {
     // `consolidateWorkspaceRuntimeDbsIntoRoot()` is retained (tests + that manual
     // recovery reference the same logic) but is never auto-invoked.
     this.#rootRuntimeDb = db;
+    this.#rootRuntimeDbOpenMs = Date.now() - openStartedAt;
     return db;
   }
 
