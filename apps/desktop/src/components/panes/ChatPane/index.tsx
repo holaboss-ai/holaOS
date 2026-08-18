@@ -5156,10 +5156,13 @@ export function ChatPane({
     });
   }
 
+  /** Returns the committed message id, or null when there was nothing to
+   *  commit. Callers that only need "did it commit?" still read it as a
+   *  boolean; the id lets the refresh ladder name the turn it is waiting for. */
   function commitLiveAssistantMessage(options?: {
     fallbackText?: string;
     tone?: ChatMessage["tone"];
-  }) {
+  }): string | null {
     const messageId =
       activeAssistantMessageIdRef.current ?? `assistant-${Date.now()}`;
     let nextSegments = liveAssistantSegmentsRef.current;
@@ -5192,7 +5195,7 @@ export function ChatPane({
 
     if (nextSegments.length === 0) {
       resetLiveTurn();
-      return false;
+      return null;
     }
 
     const nextMessage: ChatMessage = {
@@ -5210,7 +5213,7 @@ export function ChatPane({
       })
     ) {
       resetLiveTurn();
-      return false;
+      return null;
     }
 
     setMessages((prev) => [...prev, nextMessage]);
@@ -5222,7 +5225,7 @@ export function ChatPane({
       nextMessage,
     ];
     resetLiveTurn();
-    return true;
+    return messageId;
   }
 
   // Coalesce overlapping refreshes: at most one load runs at a time, with a
@@ -5261,6 +5264,11 @@ export function ChatPane({
   function scheduleConversationRefresh(
     sessionId: string | null,
     workspaceId: string | null | undefined,
+    options?: {
+      /** The turn this ladder is waiting for the runtime to persist. Once it
+       *  lands, the remaining refreshes have nothing left to converge on. */
+      awaitAssistantMessageId?: string | null;
+    },
   ) {
     const normalizedSessionId = (sessionId || "").trim();
     const normalizedWorkspaceId = (workspaceId || "").trim();
@@ -5268,11 +5276,45 @@ export function ChatPane({
       return;
     }
 
+    // The ladder covers an unknown persistence delay, so it retries on a curve
+    // rather than once. But every rung re-derives the WHOLE conversation, so
+    // running all four unconditionally costs three full rebuilds of every
+    // message after the data has already converged — the bulk of the
+    // end-of-turn stutter on a long chat.
+    //
+    // When the caller names the turn it is waiting for, stop as soon as that
+    // turn lands. Callers that name nothing keep the old behaviour exactly.
     const delays = [150, 500, 1_500, 3_000];
+    const timers: number[] = [];
+    const awaited = (options?.awaitAssistantMessageId ?? "").trim();
+    const cancelRemaining = () => {
+      for (const timer of timers) {
+        window.clearTimeout(timer);
+      }
+      timers.length = 0;
+    };
     for (const delayMs of delays) {
-      window.setTimeout(() => {
-        void runConversationRefresh(normalizedSessionId, normalizedWorkspaceId);
-      }, delayMs);
+      timers.push(
+        window.setTimeout(() => {
+          void runConversationRefresh(
+            normalizedSessionId,
+            normalizedWorkspaceId,
+          ).then(() => {
+            if (!awaited) {
+              return;
+            }
+            // Settled by the refresh itself (see settleCommittedAssistantTurns)
+            // the moment the server returns the turn.
+            const stillPending =
+              pendingCommittedAssistantTurnsRef.current.some(
+                (message) => message.id === awaited,
+              );
+            if (!stillPending) {
+              cancelRemaining();
+            }
+          });
+        }, delayMs),
+      );
     }
   }
 
@@ -6866,7 +6908,9 @@ export function ChatPane({
             action: "applied_run_completed",
             detail: "run completed",
           });
-          scheduleConversationRefresh(eventSessionId, selectedWorkspaceId);
+          scheduleConversationRefresh(eventSessionId, selectedWorkspaceId, {
+            awaitAssistantMessageId: committedAssistantMessage,
+          });
           void refreshWorkspaceData().catch(() => undefined);
         }
       },
