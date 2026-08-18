@@ -5280,458 +5280,10 @@ test("runtime memory routes archive request-shaped junk memories on first read",
   }
 });
 
-test("runtime memory routes enrich an existing memory when a later turn repeats the same fact with better related entities", async () => {
-  const root = makeTempDir("hb-runtime-api-memory-repeat-mention-enrichment-");
-  const workspaceRoot = path.join(root, "workspace");
-  const store = new RuntimeStateStore({
-    dbPath: path.join(root, "runtime.db"),
-    workspaceRoot,
-  });
-  const memoryService = new FilesystemMemoryService({ workspaceRoot });
-  const workspace = seedWorkspaceRecord(store, {
-    workspaceId: "workspace-1",
-    name: "Workspace 1",
-    harness: "pi",
-    status: "active",
-  });
-  store.ensureSession({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    kind: "main_session",
-  });
-  store.upsertInteractionEntity({
-    workspaceId: workspace.id,
-    entityId: "interaction:customer:redwood-care",
-    entityType: "customer",
-    canonicalName: "Redwood Care",
-    slug: "customer-redwood-care",
-    summary: "Customer memory.",
-    aliases: [],
-    isSystem: false,
-    status: "active",
-  });
-  store.upsertInteractionEntity({
-    workspaceId: workspace.id,
-    entityId: "interaction:person:paul-reed",
-    entityType: "person",
-    canonicalName: "Paul Reed",
-    slug: "person-paul-reed",
-    summary: "Account manager memory.",
-    aliases: [],
-    isSystem: false,
-    status: "active",
-  });
-  await rebuildInteractionEntityTree({
-    store,
-    workspaceId: workspace.id,
-    entityId: "interaction:customer:redwood-care",
-    summaryModelClient: null,
-    embeddingClient: null,
-  });
-  await rebuildInteractionEntityTree({
-    store,
-    workspaceId: workspace.id,
-    entityId: "interaction:person:paul-reed",
-    summaryModelClient: null,
-    embeddingClient: null,
-  });
-
-  const firstInput = store.enqueueInput({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    payload: {
-      text: "Remember who owns the Redwood Care account.",
-    },
-  });
-  const firstTurnResult = store.upsertTurnResult({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    inputId: firstInput.inputId,
-    startedAt: "2026-06-04T19:00:00.000Z",
-    completedAt: "2026-06-04T19:00:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Redwood Care's account manager is Paul Reed.",
-  });
-
-  await withMockMemoryModel({
-    workspaceId: workspace.id,
-    responseForRequest: (body) => {
-      const payload = JSON.parse(body) as {
-        messages?: Array<{ role?: string; content?: string }>;
-      };
-      const systemPrompt = payload.messages?.find((message) => message.role === "system")?.content ?? "";
-      if (systemPrompt.includes("Extract contextual durable memory")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    memories: [
-                      {
-                        scope: "workspace",
-                        memory_type: "reference",
-                        subject_key: "redwood-care-account-manager",
-                        title: "Redwood Care account manager",
-                        summary: "Redwood Care's account manager is Paul Reed.",
-                        tags: ["customer", "contact"],
-                        evidence: "Redwood Care's account manager is Paul Reed.",
-                        confidence: 0.97,
-                      },
-                    ],
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("Extract related durable entities and relations")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    related_entities: [
-                      { entity_type: "organization", label: "Redwood Care" },
-                    ],
-                    relations: [
-                      { relation_type: "applies_to", entity_type: "organization", entity_label: "Redwood Care" },
-                    ],
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("You assign one durable interaction memory chunk")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    action: "match_existing",
-                    existing_entity_id: "interaction:customer:redwood-care",
-                    new_entity_type: null,
-                    new_entity_name: null,
-                    secondary_entity_ids: [],
-                    confidence: 0.97,
-                    rationale: "This fact belongs to the existing Redwood Care customer memory.",
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("You write concise markdown-tree summary sentences")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    summary: "This customer memory captures durable Redwood Care relationship facts.",
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      return {
-        statusCode: 200,
-        body: {
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({}),
-              },
-            },
-          ],
-        },
-      };
-    },
-    run: async (modelContext) => {
-      await writeTurnDurableMemory({
-        store,
-        memoryService,
-        turnResult: firstTurnResult,
-        modelContext,
-      });
-    },
-  });
-
-  let activeLeaves = store.listInteractionLeaves({
-    workspaceId: workspace.id,
-    entityId: "interaction:customer:redwood-care",
-    status: "active",
-    limit: 10,
-    offset: 0,
-  });
-  assert.equal(activeLeaves.length, 1);
-  const firstLeafPath = path.join(
-    workspaceMemoryDir(path.join(workspaceRoot, workspace.id)),
-    activeLeaves[0]!.path.startsWith("workspace/")
-      ? activeLeaves[0]!.path.split("/").slice(2).join("/")
-      : activeLeaves[0]!.path,
-  );
-  const firstLeafBody = fs.readFileSync(firstLeafPath, "utf8");
-  assert.match(firstLeafBody, /Redwood Care/);
-  assert.doesNotMatch(
-    firstLeafBody,
-    /`person:entity:interaction:person:paul-reed` \| Paul Reed/,
-  );
-  assert.doesNotMatch(firstLeafBody, /`managed_by` -> `person:entity:interaction:person:paul-reed`/);
-
-  const secondInput = store.enqueueInput({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    payload: {
-      text: "Also remember that Paul Reed is the Redwood Care account manager.",
-    },
-  });
-  const secondTurnResult = store.upsertTurnResult({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    inputId: secondInput.inputId,
-    startedAt: "2026-06-04T19:05:00.000Z",
-    completedAt: "2026-06-04T19:05:05.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "Paul Reed owns the Redwood Care account relationship.",
-  });
-
-  await withMockMemoryModel({
-    workspaceId: workspace.id,
-    responseForRequest: (body) => {
-      const payload = JSON.parse(body) as {
-        messages?: Array<{ role?: string; content?: string }>;
-      };
-      const systemPrompt = payload.messages?.find((message) => message.role === "system")?.content ?? "";
-      if (systemPrompt.includes("Extract contextual durable memory")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    memories: [
-                      {
-                        scope: "workspace",
-                        memory_type: "reference",
-                        subject_key: "redwood-care-account-manager",
-                        title: "Redwood Care account manager",
-                        summary: "Redwood Care's account manager is Paul Reed.",
-                        tags: ["customer", "contact"],
-                        evidence: "Paul Reed owns the Redwood Care account relationship.",
-                        confidence: 0.98,
-                      },
-                    ],
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("Extract related durable entities and relations")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    related_entities: [
-                      { entity_type: "person", label: "Paul Reed" },
-                      { entity_type: "organization", label: "Redwood Care" },
-                    ],
-                    relations: [
-                      { relation_type: "managed_by", entity_type: "person", entity_label: "Paul Reed" },
-                      { relation_type: "applies_to", entity_type: "organization", entity_label: "Redwood Care" },
-                    ],
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("You assign one durable interaction memory chunk")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    action: "match_existing",
-                    existing_entity_id: "interaction:customer:redwood-care",
-                    new_entity_type: null,
-                    new_entity_name: null,
-                    secondary_entity_ids: [],
-                    confidence: 0.97,
-                    rationale: "This fact belongs to the existing Redwood Care customer memory.",
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("You arbitrate semantic deduplication")) {
-        const existingLeafId = store.listInteractionLeaves({
-          workspaceId: workspace.id,
-          entityId: "interaction:customer:redwood-care",
-          status: "active",
-          limit: 10,
-          offset: 0,
-        })[0]?.leafId ?? null;
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    action: "same_memory",
-                    existing_leaf_id: existingLeafId,
-                    rationale: "Both turns capture the same Redwood Care account-manager fact, but the later one adds the missing person relation.",
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("You write concise markdown-tree summary sentences")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    summary: "This customer memory captures durable Redwood Care relationship facts.",
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      return {
-        statusCode: 200,
-        body: {
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({}),
-              },
-            },
-          ],
-        },
-      };
-    },
-    run: async (modelContext) => {
-      await writeTurnDurableMemory({
-        store,
-        memoryService,
-        turnResult: secondTurnResult,
-        modelContext,
-      });
-    },
-  });
-
-  activeLeaves = store.listInteractionLeaves({
-    workspaceId: workspace.id,
-    entityId: "interaction:customer:redwood-care",
-    status: "active",
-    limit: 10,
-    offset: 0,
-  });
-  assert.equal(activeLeaves.length, 1);
-  const refreshedLeafPath = path.join(
-    workspaceMemoryDir(path.join(workspaceRoot, workspace.id)),
-    activeLeaves[0]!.path.startsWith("workspace/")
-      ? activeLeaves[0]!.path.split("/").slice(2).join("/")
-      : activeLeaves[0]!.path,
-  );
-  const refreshedLeafBody = fs.readFileSync(refreshedLeafPath, "utf8");
-  assert.match(
-    refreshedLeafBody,
-    /`person:entity:interaction:person:paul-reed` \| Paul Reed/,
-  );
-  assert.match(
-    refreshedLeafBody,
-    /`organization:entity:interaction:customer:redwood-care` \| Redwood Care/,
-  );
-  assert.match(
-    refreshedLeafBody,
-    /`managed_by` -> `person:entity:interaction:person:paul-reed` \| Paul Reed/,
-  );
-
-  const app = buildTestRuntimeApiServer({ store, memoryService });
-
-  try {
-    const retrieveResponse = await app.inject({
-      method: "POST",
-      url: "/api/v1/capabilities/runtime-tools/memory/retrieve",
-      headers: {
-        "x-holaboss-workspace-id": workspace.id,
-      },
-      payload: {
-        query: "Paul Reed Redwood Care account manager",
-        retrieval_policy: {
-          max_evidence: 6,
-        },
-      },
-    });
-    assert.equal(retrieveResponse.statusCode, 200);
-    assert.equal(retrieveResponse.json().evidence[0]?.title, "Redwood Care account manager");
-
-    const leafNode = store.listSemanticMemoryNodes({
-      category: "workspace",
-      workspaceId: workspace.id,
-      treeId: "interaction:customer:redwood-care",
-      status: "active",
-      limit: 10_000,
-      offset: 0,
-    }).find((node) =>
-      node.nodeClass === "leaf"
-      && node.title === "Redwood Care account manager"
-    );
-    assert.ok(leafNode);
-
-    const leafDetailResponse = await app.inject({
-      method: "GET",
-      url: `/api/v1/memory/browser/node-detail?workspace_id=${workspace.id}&tree_id=${encodeURIComponent("interaction:customer:redwood-care")}&node_id=${encodeURIComponent(leafNode!.nodeId)}`,
-    });
-    assert.equal(leafDetailResponse.statusCode, 200);
-    assert.ok(leafDetailResponse.json().outgoing_relations.some((relation: {
-      relation_type?: string;
-      target_label?: string | null;
-      target_resolution_kind?: string | null;
-    }) =>
-      relation.relation_type === "managed_by"
-      && relation.target_label === "Paul Reed"
-      && relation.target_resolution_kind === "resolved",
-    ));
-  } finally {
-    await app.close();
-    store.close();
-  }
-});
+// REMOVED 2026-08-18: enrichment via the per-turn model EXTRACTION pass,
+// deleted 2026-07-14. Enrichment is still covered against the surviving
+// mechanism by the four "enrich stale weak leaves from backfilled … artifacts"
+// tests above.
 
 test("runtime memory browser routes resolve sibling artifact placeholders to the same output artifact node", async () => {
   const root = makeTempDir("hb-runtime-api-memory-sibling-output-artifact-");
@@ -6294,16 +5846,18 @@ test("runtime memory routes recover delegated subagent artifact provenance and s
     },
   });
 
-  const toolResultTree = listWorkspaceToolResultDocumentTrees({
-    store,
-    workspaceId: workspace.id,
-  })[0];
   const outputTree = listWorkspaceOutputDocumentTrees({
     store,
     workspaceId: workspace.id,
   }).find((item) => item.title === "outreach-delegated.md");
-  assert.ok(toolResultTree);
   assert.ok(outputTree);
+  // Integration tool results are intentionally NOT indexed as durable documents
+  // — the rule is pinned positively in claimed-input-executor.test.ts. This used
+  // to assert a tool-result tree exists.
+  assert.equal(
+    listWorkspaceToolResultDocumentTrees({ store, workspaceId: workspace.id }).length,
+    0,
+  );
 
   store.syncSemanticMemoryRelations({
     category: "workspace",
@@ -6329,10 +5883,10 @@ test("runtime memory routes recover delegated subagent artifact provenance and s
       },
     });
     assert.equal(retrieveResponse.statusCode, 200);
-    assert.equal(
-      retrieveResponse.json().evidence[0]?.title,
-      "External individuals contacted the user personally about holaboss",
-    );
+    // Assertions on the extracted-fact leaf were removed 2026-08-18: the
+    // per-turn model EXTRACTION pass that produced it was deleted 2026-07-14
+    // in favour of the agent-invoked `remember` tool (turn-memory-writeback.ts).
+    // The artifact-provenance assertions this test is named for are untouched.
     assert.ok(retrieveResponse.json().evidence.some((item: {
       title?: string;
       account_namespace?: string | null;
@@ -6355,10 +5909,10 @@ test("runtime memory routes recover delegated subagent artifact provenance and s
       },
     });
     assert.equal(benResponse.statusCode, 200);
-    assert.equal(
-      benResponse.json().evidence[0]?.title,
-      "External individuals contacted the user personally about holaboss",
-    );
+    // Assertions on the extracted-fact leaf were removed 2026-08-18: the
+    // per-turn model EXTRACTION pass that produced it was deleted 2026-07-14
+    // in favour of the agent-invoked `remember` tool (turn-memory-writeback.ts).
+    // The artifact-provenance assertions this test is named for are untouched.
 
     const deliverableResponse = await app.inject({
       method: "POST",
@@ -6412,41 +5966,10 @@ test("runtime memory routes recover delegated subagent artifact provenance and s
       && edge.from === outputTree!.rootNodeId
       && edge.to === "semantic:related:person:ben-book"
     ));
-    assert.ok(graphResponse.json().edges.some((edge: {
-      from?: string;
-      to?: string;
-      kind?: string;
-    }) =>
-      edge.kind === "reference"
-      && edge.from === outputTree!.rootNodeId
-      && edge.to === toolResultTree!.rootNodeId
-    ));
+    // The edge to a tool-result tree cannot exist: integration tool results are
+    // intentionally not indexed as durable documents (asserted above).
 
-    const leafNode = store.listSemanticMemoryNodes({
-      category: "workspace",
-      workspaceId: workspace.id,
-      treeId: "interaction:topic:holaboss-personal-outreach",
-      status: "active",
-      limit: 10_000,
-      offset: 0,
-    }).find((node) =>
-      node.nodeClass === "leaf"
-      && node.title === "External individuals contacted the user personally about holaboss"
-    );
-    assert.ok(leafNode);
 
-    const leafDetailResponse = await app.inject({
-      method: "GET",
-      url: `/api/v1/memory/browser/node-detail?workspace_id=${workspace.id}&tree_id=${encodeURIComponent("interaction:topic:holaboss-personal-outreach")}&node_id=${encodeURIComponent(leafNode!.nodeId)}`,
-    });
-    assert.equal(leafDetailResponse.statusCode, 200);
-    assert.ok(leafDetailResponse.json().outgoing_relations.some((relation: {
-      relation_type?: string;
-      target_label?: string | null;
-    }) =>
-      relation.relation_type === "derived_from"
-      && relation.target_label === "outreach-delegated.md",
-    ));
 
   } finally {
     await app.close();
@@ -6682,12 +6205,13 @@ test("runtime memory routes recover attachment artifact provenance and surface d
     store,
     workspaceId: workspace.id,
   })[0];
-  const toolResultTree = listWorkspaceToolResultDocumentTrees({
-    store,
-    workspaceId: workspace.id,
-  })[0];
   assert.ok(attachmentTree);
-  assert.ok(toolResultTree);
+  // See the delegated-subagent test: integration tool results are intentionally
+  // not indexed as durable documents.
+  assert.equal(
+    listWorkspaceToolResultDocumentTrees({ store, workspaceId: workspace.id }).length,
+    0,
+  );
 
   store.syncSemanticMemoryRelations({
     category: "workspace",
@@ -6713,10 +6237,10 @@ test("runtime memory routes recover attachment artifact provenance and surface d
       },
     });
     assert.equal(benResponse.statusCode, 200);
-    assert.equal(
-      benResponse.json().evidence[0]?.title,
-      "External individuals contacted the user personally about holaboss",
-    );
+    // Assertions on the extracted-fact leaf were removed 2026-08-18: the
+    // per-turn model EXTRACTION pass that produced it was deleted 2026-07-14
+    // in favour of the agent-invoked `remember` tool (turn-memory-writeback.ts).
+    // The artifact-provenance assertions this test is named for are untouched.
 
     const accountResponse = await app.inject({
       method: "POST",
@@ -6732,10 +6256,10 @@ test("runtime memory routes recover attachment artifact provenance and surface d
       },
     });
     assert.equal(accountResponse.statusCode, 200);
-    assert.equal(
-      accountResponse.json().evidence[0]?.title,
-      "External individuals contacted the user personally about holaboss",
-    );
+    // Assertions on the extracted-fact leaf were removed 2026-08-18: the
+    // per-turn model EXTRACTION pass that produced it was deleted 2026-07-14
+    // in favour of the agent-invoked `remember` tool (turn-memory-writeback.ts).
+    // The artifact-provenance assertions this test is named for are untouched.
     assert.ok(accountResponse.json().evidence.some((item: {
       title?: string;
       account_namespace?: string | null;
@@ -6795,31 +6319,7 @@ test("runtime memory routes recover attachment artifact provenance and surface d
       && edge.to === "semantic:related:person:ben-book"
     ));
 
-    const leafNode = store.listSemanticMemoryNodes({
-      category: "workspace",
-      workspaceId: workspace.id,
-      treeId: "interaction:topic:holaboss-personal-outreach",
-      status: "active",
-      limit: 10_000,
-      offset: 0,
-    }).find((node) =>
-      node.nodeClass === "leaf"
-      && node.title === "External individuals contacted the user personally about holaboss"
-    );
-    assert.ok(leafNode);
 
-    const leafDetailResponse = await app.inject({
-      method: "GET",
-      url: `/api/v1/memory/browser/node-detail?workspace_id=${workspace.id}&tree_id=${encodeURIComponent("interaction:topic:holaboss-personal-outreach")}&node_id=${encodeURIComponent(leafNode!.nodeId)}`,
-    });
-    assert.equal(leafDetailResponse.statusCode, 200);
-    assert.ok(leafDetailResponse.json().outgoing_relations.some((relation: {
-      relation_type?: string;
-      target_label?: string | null;
-    }) =>
-      relation.relation_type === "derived_from"
-      && relation.target_label === "outreach-report.html",
-    ));
   } finally {
     await app.close();
     store.close();
@@ -7131,233 +6631,12 @@ test("runtime memory routes surface fresh non-ASCII owner relations as canonical
   }
 });
 
-test("runtime memory routes surface fresh non-ASCII owner relations as canonical resolved targets after turn writeback", async () => {
-  const root = makeTempDir("hb-runtime-api-memory-writeback-non-ascii-owner-");
-  const workspaceRoot = path.join(root, "workspace");
-  const store = new RuntimeStateStore({
-    dbPath: path.join(root, "runtime.db"),
-    workspaceRoot,
-  });
-  const memoryService = new FilesystemMemoryService({ workspaceRoot });
-  seedWorkspaceRecord(store, {
-    workspaceId: "workspace-1",
-    name: "Workspace 1",
-    harness: "pi",
-    status: "active",
-  });
-  store.insertSessionMessage({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    role: "user",
-    text: "Please remember the durable planning guidance for 渠道设计阶段.",
-    messageId: "user-1",
-    createdAt: "2026-06-05T08:57:50.000Z",
-  });
-  const turnResult = store.upsertTurnResult({
-    workspaceId: "workspace-1",
-    sessionId: "session-main",
-    inputId: "input-1",
-    startedAt: "2026-06-05T08:57:50.000Z",
-    completedAt: "2026-06-05T08:57:55.000Z",
-    status: "completed",
-    stopReason: "ok",
-    assistantText: "I will preserve the durable planning guidance for 渠道设计阶段.",
-  });
-
-  await withMockMemoryModel({
-    responseForRequest: (body) => {
-      const payload = JSON.parse(body) as {
-        messages?: Array<{ role?: string; content?: string }>;
-      };
-      const systemPrompt = payload.messages?.find((message) => message.role === "system")?.content ?? "";
-      if (systemPrompt.includes("Extract contextual durable memory")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    memories: [
-                      {
-                        scope: "workspace",
-                        memory_type: "reference",
-                        subject_key: "channel-design-stage",
-                        title: "渠道设计阶段",
-                        summary: "渠道设计阶段的主叙事和优先级决策。",
-                        tags: ["gtm", "planning"],
-                        evidence: "The current turn asks the agent to remember the durable planning guidance for 渠道设计阶段.",
-                        confidence: 0.95,
-                      },
-                    ],
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("Extract related durable entities and relations")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    related_entities: [
-                      { entity_type: "topic", label: "渠道设计阶段" },
-                    ],
-                    relations: [
-                      { relation_type: "about", entity_type: "topic", entity_label: "渠道设计阶段" },
-                    ],
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      if (systemPrompt.includes("You assign one durable interaction memory chunk")) {
-        return {
-          statusCode: 200,
-          body: {
-            choices: [
-              {
-                message: {
-                  content: JSON.stringify({
-                    action: "create_new",
-                    existing_entity_id: null,
-                    new_entity_type: "topic",
-                    new_entity_name: "渠道设计阶段",
-                    secondary_entity_ids: [],
-                    confidence: 0.95,
-                    rationale: "This is a durable topic cluster for the 渠道设计阶段 planning guidance.",
-                  }),
-                },
-              },
-            ],
-          },
-        };
-      }
-      return {
-        statusCode: 200,
-        body: {
-          choices: [
-            {
-              message: {
-                content: JSON.stringify({}),
-              },
-            },
-          ],
-        },
-      };
-    },
-    run: async (modelContext) => {
-      await writeTurnDurableMemory({
-        store,
-        memoryService,
-        turnResult,
-        modelContext,
-      });
-    },
-  });
-
-  const leaf = store.listInteractionLeaves({
-    workspaceId: "workspace-1",
-    status: "active",
-    limit: 10_000,
-    offset: 0,
-  }).find((item) => item.title === "渠道设计阶段");
-  assert.ok(leaf);
-
-  const leafNode = store.listSemanticMemoryNodes({
-    category: "workspace",
-    workspaceId: "workspace-1",
-    treeId: leaf!.entityId,
-    status: "active",
-    limit: 10_000,
-    offset: 0,
-  }).find((node) => node.nodeClass === "leaf" && node.sourceLeafId === leaf!.leafId);
-  assert.ok(leafNode);
-
-  const app = buildTestRuntimeApiServer({ store, memoryService });
-  try {
-    const retrievalResponse = await app.inject({
-      method: "POST",
-      url: "/api/v1/capabilities/runtime-tools/memory/retrieve",
-      headers: {
-        "x-holaboss-workspace-id": "workspace-1",
-      },
-      payload: {
-        query: "渠道设计阶段",
-        retrieval_policy: {
-          max_evidence: 4,
-        },
-      },
-    });
-    assert.equal(retrievalResponse.statusCode, 200);
-    assert.equal(retrievalResponse.json().evidence[0]?.title, "渠道设计阶段");
-    assert.equal(retrievalResponse.json().evidence[0]?.tree_id, leaf!.entityId);
-
-    const detailResponse = await app.inject({
-      method: "GET",
-      url: `/api/v1/memory/browser/node-detail?workspace_id=workspace-1&tree_id=${encodeURIComponent(leaf!.entityId)}&node_id=${encodeURIComponent(leafNode!.nodeId)}`,
-    });
-    assert.equal(detailResponse.statusCode, 200);
-    assert.ok(detailResponse.json().outgoing_relations.some((relation: {
-      relation_type?: string;
-      target_label?: string | null;
-      target_resolution_kind?: string | null;
-      target_entity_key?: string | null;
-      target_tree_id?: string | null;
-    }) =>
-      relation.relation_type === "about"
-      && relation.target_label === "渠道设计阶段"
-      && relation.target_resolution_kind === "resolved"
-      && relation.target_entity_key === `topic:entity:${leaf!.entityId}`
-      && relation.target_tree_id === leaf!.entityId,
-    ));
-
-    const browserPath = leafNode!.path.replace(/^semantic\//, "");
-    const fileResponse = await app.inject({
-      method: "GET",
-      url: `/api/v1/memory/browser/file?workspace_id=workspace-1&path=${encodeURIComponent(browserPath)}`,
-    });
-    assert.equal(fileResponse.statusCode, 200);
-    const relatedInfo = parseDurableMemoryRelatedInfo(fileResponse.json().content as string);
-    assert.deepEqual(
-      relatedInfo.relatedEntities.map((entry) => entry.entityKey),
-      [`topic:entity:${leaf!.entityId}`],
-    );
-
-    const graphResponse = await app.inject({
-      method: "GET",
-      url: "/api/v1/memory/browser/graph?workspace_id=workspace-1&forest=workspace",
-    });
-    assert.equal(graphResponse.statusCode, 200);
-    const ownerRootNodeId = `semantic:interaction:${leaf!.entityId}:tree`;
-    assert.ok(graphResponse.json().nodes.some((node: {
-      id?: string;
-      label?: string | null;
-    }) =>
-      node.id === ownerRootNodeId
-      && node.label === "渠道设计阶段",
-    ));
-    assert.ok(graphResponse.json().edges.some((edge: {
-      from?: string;
-      to?: string;
-      kind?: string;
-    }) =>
-      edge.from === leafNode!.nodeId
-      && edge.to === ownerRootNodeId
-      && edge.kind === "reference",
-    ));
-  } finally {
-    await app.close();
-    store.close();
-  }
-});
+// REMOVED 2026-08-18: pinned the per-turn model EXTRACTION pass, deleted
+// 2026-07-14 for the agent-invoked `remember` tool (turn-memory-writeback.ts).
+// Every downstream assertion it made — leafNode, retrieval evidence
+// title/tree_id, node-detail outgoing_relations, the file response — is
+// covered by its sibling "…canonical resolved targets on first write", which
+// reaches the same state through the mechanism that still exists.
 
 test("runtime memory browser node-detail route returns evidence refs and relation metadata for real workspace nodes", async () => {
   const root = makeTempDir("hb-runtime-api-memory-browser-node-detail-");
@@ -8663,7 +7942,7 @@ test("runtime image generation tool uses native Gemini image generation for gemi
   }
 });
 
-test("runtime image generation tool uses OpenRouter chat image generation for openrouter_direct", async () => {
+test("runtime image generation tool uses OpenRouter's image router for openrouter_direct", async () => {
   // Single-tenant root alignment: the runtime resolves every request to the
   // synthetic "root" workspace, so this test's workspace ids + fs paths use "root".
   const root = makeTempDir("hb-runtime-api-openrouter-image-tools-");
@@ -8761,7 +8040,9 @@ test("runtime image generation tool uses OpenRouter chat image generation for op
     });
 
     assert.equal(response.statusCode, 200);
-    assert.equal(recordedUrl, "https://openrouter.ai/api/v1/chat/completions");
+    // The dedicated image router. See image-generation.ts: "Replaces the old
+    // /chat/completions" — this pinned the shape it replaced.
+    assert.equal(recordedUrl, "https://openrouter.ai/api/v1/images");
     assert.ok(recordedRequestBody);
     assert.deepEqual(recordedHeaders, {
       "Content-Type": "application/json",
@@ -8770,19 +8051,13 @@ test("runtime image generation tool uses OpenRouter chat image generation for op
       "X-OpenRouter-Title": "holaOS",
       "X-OpenRouter-Categories": "personal-agent,general-chat",
     });
+    // Flat prompt/aspect_ratio/resolution body; the chat-shaped one this used to
+    // pin (messages + modalities + image_config) went with /chat/completions.
     assert.deepEqual(recordedRequestBody, {
       model: "google/gemini-3.1-flash-image",
-      messages: [
-        {
-          role: "user",
-          content: "Generate a Nano Banana 2 style image",
-        },
-      ],
-      modalities: ["image", "text"],
-      image_config: {
-        aspect_ratio: "1:1",
-        image_size: "1K",
-      },
+      prompt: "Generate a Nano Banana 2 style image",
+      aspect_ratio: "1:1",
+      resolution: "1K",
     });
     assert.equal(response.json().file_path, "outputs/images/openrouter-sample-output.png");
     assert.equal(response.json().provider_id, "openrouter_direct");
@@ -11355,6 +10630,8 @@ test("app ports route preserves deterministic workspace port assignments", async
 });
 
 test("app lifecycle routes delegate to the lifecycle executor and uninstall updates workspace state", async () => {
+  // App MCP servers serve SSE at /mcp/sse — workspace-apps.ts: "there is no
+  // /mcp route — and every downstream consumer already defaults to it."
   const root = makeTempDir("hb-runtime-api-");
   const workspaceRoot = path.join(root, "workspace");
   const store = new RuntimeStateStore({
@@ -11468,7 +10745,7 @@ test("app lifecycle routes delegate to the lifecycle executor and uninstall upda
       skipSetup: true,
       resolvedApp: {
         appId: "app-b",
-        mcp: { transport: "http-sse", port: 4100, path: "/mcp" },
+        mcp: { transport: "http-sse", port: 4100, path: "/mcp/sse" },
         mcpTools: [],
         healthCheck: {
           path: "/health",
@@ -11491,7 +10768,7 @@ test("app lifecycle routes delegate to the lifecycle executor and uninstall upda
       workspaceId: "workspace-1",
       resolvedApp: {
         appId: "app-b",
-        mcp: { transport: "http-sse", port: 4100, path: "/mcp" },
+        mcp: { transport: "http-sse", port: 4100, path: "/mcp/sse" },
         mcpTools: [],
         healthCheck: {
           path: "/health",
@@ -11514,7 +10791,7 @@ test("app lifecycle routes delegate to the lifecycle executor and uninstall upda
       workspaceId: "workspace-1",
       resolvedApp: {
         appId: "app-b",
-        mcp: { transport: "http-sse", port: 4100, path: "/mcp" },
+        mcp: { transport: "http-sse", port: 4100, path: "/mcp/sse" },
         mcpTools: [],
         healthCheck: {
           path: "/health",

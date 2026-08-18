@@ -3897,28 +3897,10 @@ test("delegated subagent flow keeps subagent tool artifacts, forwarded deliverab
   const delegatedOutputTree = outputTrees.find((tree) => tree.title === "outreach-delegated.md");
   assert.ok(delegatedOutputTree);
 
-  const leaf = listActiveInteractionLeaves(store, workspace.id).find(
-    (item) => item.title === "External individuals contacted the user personally about holaboss",
-  );
-  assert.ok(leaf);
-
-  const benResult = await retrieveWorkspaceMemory({
-    store,
-    workspaceId: workspace.id,
-    query: "Ben Book",
-    executionProfile: {
-      useEmbeddings: false,
-      useLlmRerank: false,
-    },
-  });
-  assert.equal(
-    benResult.evidence[0]?.title,
-    "External individuals contacted the user personally about holaboss",
-  );
-  assert.ok(benResult.evidence.some((item) =>
-    item.title === "External individuals contacted the user personally about holaboss"
-    && item.reasons.includes("relation_match"),
-  ));
+  // Assertions on the extracted-fact leaf were removed 2026-08-18: the per-turn
+  // model EXTRACTION pass that produced it was deleted 2026-07-14 in favour of
+  // the agent-invoked `remember` tool. The subagent artifact/deliverable
+  // provenance this test is named for is untouched.
 
   const deliverableResult = await retrieveWorkspaceMemory({
     store,
@@ -3931,57 +3913,9 @@ test("delegated subagent flow keeps subagent tool artifacts, forwarded deliverab
   });
   assert.equal(deliverableResult.evidence[0]?.title, "outreach-delegated.md");
 
-  const accountResult = await retrieveWorkspaceMemory({
-    store,
-    workspaceId: workspace.id,
-    query: "ops@example.com",
-    executionProfile: {
-      useEmbeddings: false,
-      useLlmRerank: false,
-    },
-  });
-  assert.equal(
-    accountResult.evidence[0]?.title,
-    "External individuals contacted the user personally about holaboss",
-  );
-  assert.equal(accountResult.evidence[0]?.account_namespace, "ops@example.com");
-  assert.ok(
-    accountResult.evidence[0]?.reasons.includes("lexical_match")
-    || accountResult.evidence[0]?.reasons.includes("relation_match"),
-  );
-  const semanticLeafNode = store.listSemanticMemoryNodes({
-    category: "workspace",
-    workspaceId: workspace.id,
-    treeId: leaf!.entityId,
-    status: "active",
-    limit: 10_000,
-    offset: 0,
-  }).find((node) => node.nodeClass === "leaf" && node.title === leaf!.title);
-  assert.ok(semanticLeafNode);
-
-  const leafDetail = await readMemoryBrowserNodeDetail({
-    store,
-    workspaceId: workspace.id,
-    nodeId: semanticLeafNode!.nodeId,
-    treeId: leaf!.entityId,
-  });
-  assert.ok(leafDetail.outgoing_relations.some((relation) =>
-    relation.relation_type === "contacted_by" && relation.target_label === "Ben Book",
-  ));
-  assert.ok(leafDetail.outgoing_relations.some((relation) =>
-    relation.relation_type === "derived_from" && relation.target_label === "outreach-delegated.md",
-  ));
-
-  const outputDetail = await readMemoryBrowserNodeDetail({
-    store,
-    workspaceId: workspace.id,
-    nodeId: delegatedOutputTree!.rootNodeId,
-    treeId: delegatedOutputTree!.treeId,
-  });
-  assert.ok(outputDetail.incoming_relations.some((relation) =>
-    relation.relation_type === "derived_from"
-    && relation.source_label === "External individuals contacted the user personally about holaboss",
-  ));
+  // The Ben Book / ops@example.com / node-detail assertions that used to follow
+  // all keyed on the extracted-fact leaf, so they went with the extraction pass.
+  // What still holds is the deliverable's own provenance, asserted above.
 
   store.close();
 });
@@ -4337,85 +4271,11 @@ test("claimed input does not duplicate a file output already persisted earlier i
   store.close();
 });
 
-test("claimed input does not attach a workspace file output that was already recorded on another turn", async () => {
-  const store = makeStore(
-    "hb-claimed-input-cross-turn-file-output-dedupe-",
-  );
-  const workspace = seedWorkspaceRecord(store, {
-    workspaceId: "workspace-1",
-    name: "Workspace 1",
-    harness: "pi",
-    status: "active",
-  });
-  const queued = store.enqueueInput({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    payload: { text: "open google" },
-  });
-
-  await processClaimedInput({
-    store,
-    record: queued,
-    executeRunnerRequestFn: async (payload, options = {}) => {
-      const workspaceDir = store.workspaceDir(workspace.id);
-      fs.mkdirSync(path.join(workspaceDir, "outputs", "reports"), {
-        recursive: true,
-      });
-      fs.writeFileSync(
-        path.join(workspaceDir, "outputs", "reports", "report.md"),
-        "# Report\n",
-      );
-      store.createOutput({
-        workspaceId: workspace.id,
-        outputType: "document",
-        title: "Report",
-        status: "completed",
-        filePath: "outputs/reports/report.md",
-        sessionId: "subagent-1",
-        inputId: "subagent-input-1",
-        metadata: {
-          origin_type: "runtime_tool",
-          change_type: "created",
-          category: "document",
-          artifact_type: "report",
-        },
-      });
-      await options.onEvent?.({
-        session_id: payload.session_id,
-        input_id: payload.input_id,
-        sequence: 1,
-        event_type: "run_started",
-        payload: {},
-      });
-      await options.onEvent?.({
-        session_id: payload.session_id,
-        input_id: payload.input_id,
-        sequence: 2,
-        event_type: "run_completed",
-        payload: { status: "ok" },
-      });
-      return {
-        events: [],
-        skippedLines: [],
-        stderr: "",
-        returnCode: 0,
-        sawTerminal: true,
-      };
-    },
-  });
-
-  const outputs = store.listOutputs({
-    workspaceId: workspace.id,
-    sessionId: "session-main",
-    inputId: queued.inputId,
-    limit: 20,
-    offset: 0,
-  });
-
-  assert.equal(outputs.length, 0);
-
-  store.close();
-});
+// REMOVED 2026-08-18: this pinned WORKSPACE-WIDE file-capture dedup, which was
+// deliberately replaced by turn-scoped dedup — see the regression test above,
+// "…re-attributes a re-generated file to the current turn even when a prior
+// turn already recorded that path", whose comment explains why the old
+// behaviour broke channel egress. The two rules are mutually exclusive.
 
 test("claimed input records skill-policy denial audit in tool usage summary", async () => {
   const store = makeStore("hb-claimed-input-skill-policy-denial-");

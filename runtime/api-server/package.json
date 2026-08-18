@@ -16,7 +16,7 @@
     "pretest": "node ../../scripts/ensure-native-sqlite.mjs",
     "prehola": "node ../../scripts/ensure-native-sqlite.mjs",
     "hola": "node --import tsx ../../scripts/hola.mts",
-    "test": "node --import tsx --test --test-force-exit src/**/*.test.ts",
+    "test": "node --import tsx --test --test-force-exit \"src/**/*.test.ts\"",
     "ts-runner": "node --import tsx src/ts-runner.ts",
     "typecheck": "tsc --noEmit"
   },
