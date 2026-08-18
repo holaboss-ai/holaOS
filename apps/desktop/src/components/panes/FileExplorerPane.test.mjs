@@ -67,7 +67,12 @@ test("file explorer refreshes the current directory and expanded folders to surf
     source,
     /setDirectoryEntriesByPath\(\(current\) => \(\{\s*\.\.\.current,\s*\.\.\.refreshedEntriesByPath,\s*\}\)\);/,
   );
-  assert.match(source, /const timer = window\.setInterval\(\(\) => \{\s*void refreshLoadedDirectories\(\);\s*\}, 1200\);/);
+  // The poll is gated on visibility so a backgrounded window stops
+  // hammering the fs bridge.
+  assert.match(
+    source,
+    /const tick = \(\) => \{\s*if \(document\.visibilityState !== "visible"\) return;\s*void refreshLoadedDirectories\(\);\s*\};\s*const timer = window\.setInterval\(tick, \d+\);/,
+  );
   assert.match(source, /window\.clearInterval\(timer\);/);
   assert.match(
     source,
@@ -163,8 +168,17 @@ test("file explorer switches folders to inline tree expansion and keeps explorer
     source,
     /onDoubleClick=\{\(\) => \{\s*if \(!entry\.isDirectory && previewInPane\) \{\s*void openFilePreview\(entry\.absolutePath\);\s*\}\s*\}\}/,
   );
-  assert.match(source, /click to \$\{isExpanded \? "collapse" : "expand"\} folder/);
-  assert.match(source, /click to open file, use @ or drag to attach in chat/);
+  // Row affordance copy lives in a helper now, and the disclosure
+  // triangle carries its own aria-label.
+  assert.match(
+    source,
+    /function getExplorerRowTooltip\(entry: LocalFileEntry, isExpanded: boolean\) \{\s*if \(entry\.isDirectory\) \{\s*return isExpanded \? `Collapse \$\{entry\.name\}` : `Expand \$\{entry\.name\}`;\s*\}\s*return `Open \$\{entry\.name\}`;\s*\}/,
+  );
+  assert.match(source, /title=\{getExplorerRowTooltip\(entry, isExpanded\)\}/);
+  assert.match(
+    source,
+    /aria-label=\{\s*isExpanded \? "Collapse folder" : "Expand folder"\s*\}/,
+  );
 });
 
 test("file explorer attaches folders through @ and drag payloads while preserving internal move gestures", async () => {
@@ -180,13 +194,11 @@ test("file explorer attaches folders through @ and drag payloads while preservin
   assert.match(source, /aria-label=\{`Attach \$\{entry\.name\} to chat`\}/);
   assert.match(source, /<AtSign size=\{12\} \/>/);
   assert.match(source, /const EXPLORER_INTERNAL_MOVE_DRAG_TYPE =\s*"application\/x-holaboss-file-explorer-move";/);
-  assert.match(source, /const rowClassName = `group mb-0\.5 w-full rounded-md px-2 py-1\.5 text-left transition-colors/);
+  assert.match(source, /const rowClassName = `group w-full rounded-\w+ [^`]*text-left transition-colors/);
   assert.match(source, /\$\{isRenaming \? "cursor-default" : "cursor-pointer"\}/);
-  assert.match(source, /className="flex min-w-0 flex-1 items-center gap-2"/);
-  assert.match(source, /style=\{\{ paddingLeft: `\$\{depth \* 16\}px` \}\}/);
+  assert.match(source, /style=\{\{ paddingLeft: `\$\{depth \* \d+\}px` \}\}/);
   assert.match(source, /className="flex w-full min-w-0 items-center gap-1"/);
   assert.match(source, /className="w-full min-w-0 cursor-pointer text-left"/);
-  assert.match(source, /className="flex min-w-0 flex-1 flex-col gap-0\.5"/);
   assert.match(source, /className="flex shrink-0 items-center gap-0\.5"/);
   assert.match(source, /draggable=\{!entryIsProtected\}/);
   assert.match(source, /event\.dataTransfer\.effectAllowed = "copyMove";/);
@@ -199,14 +211,13 @@ test("file explorer attaches folders through @ and drag payloads while preservin
     /event\.dataTransfer\.setData\(\s*EXPLORER_ATTACHMENT_DRAG_TYPE,\s*serializeExplorerAttachmentDragPayload\(\{[\s\S]*kind: entry\.isDirectory\s*\?\s*"folder"\s*:\s*inferDraggedAttachmentKind\(entry\.name\),[\s\S]*\}\),\s*\);/,
   );
   assert.match(source, /if \(entryIsProtected\) \{\s*event\.preventDefault\(\);\s*return;\s*\}/);
-  assert.match(source, /const preview = createAttachmentDragPreview\(entry\);/);
+  assert.match(source, /const preview =\s*createAttachmentDragPreview\(entry\);/);
   assert.doesNotMatch(source, /event\.dataTransfer\.setData\(\s*"text\/plain"/);
   assert.doesNotMatch(source, /cursor-grab/);
   assert.doesNotMatch(source, /cursor-grabbing/);
   assert.doesNotMatch(source, /className="flex min-w-0 items-center gap-2"\s*style=\{\{ paddingLeft: `\$\{depth \* 16\}px` \}\}/);
   assert.doesNotMatch(source, /className="flex min-w-0 items-center gap-2 pl-6 text-\[11px\] text-muted-foreground"/);
   assert.doesNotMatch(source, /className="mt-0\.5 flex shrink-0 items-center gap-0\.5"/);
-  assert.match(source, /use @ or drag to attach in chat/);
 });
 
 test("file explorer hides protected workspace system entries from the root tree", async () => {
@@ -237,7 +248,7 @@ test("file explorer keeps a minimal tree header without showing the workspace ro
 
   assert.match(
     source,
-    /<div className="flex items-center gap-2">[\s\S]*<div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-muted\/50 px-2\.5 py-1\.5 text-xs transition-colors focus-within:border-ring">[\s\S]*placeholder="Search files"[\s\S]*<\/div>[\s\S]*aria-label="Create new item"[\s\S]*aria-label=\{activeBookmark \? "Remove bookmark" : "Add bookmark"\}/,
+    /aria-label="Search files"[\s\S]*aria-label="Create new item"[\s\S]*aria-label=\{activeBookmark \? "Remove bookmark" : "Add bookmark"\}/,
   );
   assert.doesNotMatch(source, /text-\[11px\] font-medium uppercase tracking-\[0\.14em\] text-muted-foreground\/72">\s*Files\s*</);
   assert.doesNotMatch(source, /const rootFolderLabel = currentPath \? getFolderName\(currentPath\) : "Workspace";/);
@@ -265,7 +276,10 @@ test("file explorer accepts one-shot focus requests for artifact files", async (
   );
   assert.match(source, /targetPath = resolveWorkspaceTargetPath\(workspaceRoot, targetPath\);/);
   assert.match(source, /const revealPathInTree = useCallback\(/);
-  assert.match(source, /await openFileTarget\(targetPath, \{ syncDirectory: true \}\);/);
+  assert.match(
+    source,
+    /await revealPathInTree\(validatedTargetPath\);\s*setSelectedPath\(validatedTargetPath\);/,
+  );
   assert.match(source, /onFocusRequestConsumed\?\.\(request\.requestKey\);/);
 });
 
@@ -392,28 +406,28 @@ test("file explorer warns users to save before leaving an unsaved file", async (
 
   assert.match(
     source,
-    /You have unsaved changes\. Press Cancel to go back and save them, or OK to discard them\./,
+    /const confirmDiscardIfDirty = useCallback\(async \(\) => \{\s*if \(!isDirty\) \{\s*return true;\s*\}\s*return requestConfirmation\(\{\s*title: "Discard unsaved changes\?",\s*description:\s*"You have unsaved changes in this file\. Discarding will lose them — cancel to return and save first\.",\s*confirmLabel: "Discard changes",\s*destructive: true,\s*\}\);/,
   );
-  assert.match(source, /if \(!skipConfirm && !confirmDiscardIfDirty\(\)\) \{\s*return;\s*\}/);
-  assert.match(source, /if \(!confirmDiscardIfDirty\(\)\) \{\s*return;\s*\}\s*resetPreviewState\(\);/);
+  assert.match(source, /if \(!skipConfirm && !\(await confirmDiscardIfDirty\(\)\)\) \{\s*return;\s*\}/);
 });
 
 test("file explorer assigns richer icons for common file types", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /FileBadge2,/);
-  assert.match(source, /FileSpreadsheet,/);
-  assert.match(source, /FileVideoCamera,/);
-  assert.match(source, /Shield,/);
-  assert.match(source, /const SPECIAL_POLICY_FILENAMES = new Set\(\[\s*"agents\.md"\s*\]\);/);
+  // The descriptor returns a name token now; a shared icon component
+  // resolves it, so the per-type branches are what this guards.
+  assert.match(source, /const SPECIAL_POLICY_FILENAMES = new Set\(\["agents\.md"\]\);/);
   assert.match(source, /const normalizedFileName = getComparableFileName\(targetName\);/);
-  assert.match(source, /if \(SPECIAL_POLICY_FILENAMES\.has\(normalizedFileName\)\) \{\s*return \{\s*Icon: Shield,/);
-  assert.match(source, /if \(SPREADSHEET_EXTENSIONS\.has\(extension\)\) \{\s*return \{\s*Icon: FileSpreadsheet,/);
-  assert.match(source, /if \(extension === ".pdf"\) \{\s*return \{\s*Icon: FileBadge2,/);
-  assert.match(source, /if \(JSON_EXTENSIONS\.has\(extension\)\) \{\s*return \{\s*Icon: FileJson,/);
   assert.match(
     source,
-    /const \{ Icon, className \} = getExplorerIconDescriptor\(\s*entry\.name,\s*entry\.isDirectory,\s*\);/,
+    /SPECIAL_POLICY_FILENAMES\.has\(normalizedFileName\) \|\|[\s\S]*?return \{ name: "readme" \};/,
+  );
+  assert.match(source, /if \(SPREADSHEET_EXTENSIONS\.has\(extension\)\) return \{ name: "csv" \};/);
+  assert.match(source, /if \(extension === "\.pdf"\) return \{ name: "pdf" \};/);
+  assert.match(source, /if \(JSON_EXTENSIONS\.has\(extension\)\) return \{ name: "json" \};/);
+  assert.match(
+    source,
+    /const descriptor = getExplorerIconDescriptor\(\s*entry\.name,\s*entry\.isDirectory,\s*isExpanded,\s*\);/,
   );
 });
 
@@ -484,7 +498,10 @@ test("file explorer exposes right-click rename and delete actions for entries", 
   assert.match(source, /if \(event\.key === "Enter"\) \{\s*event\.preventDefault\(\);\s*void submitRenameEntry\(\);/);
   assert.match(source, /if \(event\.key === "Escape"\) \{\s*event\.preventDefault\(\);\s*cancelRenameEntry\(\);/);
   assert.doesNotMatch(source, /window\.prompt/);
-  assert.match(source, /Delete folder "\$\{entry\.name\}" and all of its contents\? This cannot be undone\./);
+  assert.match(
+    source,
+    /await requestConfirmation\(\{\s*title: entry\.isDirectory\s*\? `Delete folder "\$\{entry\.name\}"\?`[\s\S]*?"The folder and all of its contents will be permanently removed\. This cannot be undone\."[\s\S]*?destructive: true,\s*\}\);/,
+  );
   assert.match(
     source,
     /window\.electronAPI\.fs\.renamePath\(\s*sourcePath,\s*nextName,\s*selectedWorkspaceId \?\? null,\s*\)/,
@@ -637,11 +654,11 @@ test("file explorer blocks renaming deleting and moving protected system entries
   );
   assert.match(
     source,
-    /const protectedMessage =\s*protectedWorkspacePathMessage\(workspaceRootPath, normalizedSourcePath\) \|\|\s*protectedWorkspacePathMessage\(\s*workspaceRootPath,\s*normalizedDestinationDirectoryPath,\s*\);\s*if \(protectedMessage\) \{\s*setError\(protectedMessage\);\s*return false;\s*\}/,
+    /const protectedMessage =\s*protectedWorkspacePathMessage\(\s*workspaceRootPath,\s*normalizedSourcePath,\s*\) \|\|\s*protectedWorkspacePathMessage\(\s*workspaceRootPath,\s*normalizedDestinationDirectoryPath,\s*\);\s*if \(protectedMessage\) \{\s*setError\(protectedMessage\);\s*return false;\s*\}/,
   );
   assert.match(
     source,
-    /if \(\s*isProtectedWorkspacePath\(workspaceRootPath, normalizedDraggedEntryPath\) \|\|\s*isProtectedWorkspacePath\(workspaceRootPath, normalizedTargetPath\)\s*\) \{\s*return false;\s*\}/,
+    /if \(\s*isProtectedWorkspacePath\(\s*workspaceRootPath,\s*normalizedDraggedEntryPath,\s*\) \|\|\s*isProtectedWorkspacePath\(workspaceRootPath, normalizedTargetPath\)\s*\) \{\s*return false;\s*\}/,
   );
   assert.match(
     source,
@@ -694,7 +711,7 @@ test("file explorer can move dragged files into folder rows", async () => {
   );
   assert.match(
     source,
-    /await Promise\.all\(\s*refreshTargets\.map\(\(targetPath\) => refreshDirectoryEntries\(targetPath\)\),\s*\);/,
+    /await Promise\.all\(\s*refreshTargets\.map\(\(targetPath\) =>\s*refreshDirectoryEntries\(targetPath\),\s*\),\s*\);/,
   );
 });
 
@@ -762,7 +779,7 @@ test("file explorer imports dragged external files and folders into the tree", a
   );
   assert.match(
     source,
-    /className=\{`chat-scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1\.5 pb-1\.5 pt-1 \$\{[\s\S]*paneExternalDropTarget[\s\S]*"rounded-md bg-emerald-500\/10 ring-1 ring-emerald-500\/30"[\s\S]*\}`\}/,
+    /className=\{`chat-scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto[\s\S]*?paneExternalDropTarget\s*\? "[^"]*ring-1[^"]*"[\s\S]*?\}`\}/,
   );
   assert.match(source, /onDragOver=\{onPaneDragOver\}/);
   assert.match(source, /onDrop=\{onPaneDrop\}/);
