@@ -163,6 +163,12 @@ function payload(overrides: Record<string, unknown> = {}): Record<string, unknow
 }
 
 function setNodeRunnerTemplate(lines: string[]): void {
+  // Pin the interpreter to the node running this test. `runtimeNode()` falls
+  // back to a bare "node" (runner-worker.ts:114), which resolves off the
+  // spawned shell's PATH — present on a dev box, absent on a CI runner, where
+  // this produced `/bin/bash: line 1: node: command not found`. These tests
+  // never ran in CI before the glob was fixed, so nothing caught it.
+  process.env.HOLABOSS_RUNTIME_NODE_BIN = process.execPath;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "hb-runner-worker-template-"));
   TEMP_DIRS.push(tempDir);
   const runnerScriptPath = path.join(tempDir, "runner-template.mjs");
