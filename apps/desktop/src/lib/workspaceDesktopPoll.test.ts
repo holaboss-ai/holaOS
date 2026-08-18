@@ -33,16 +33,34 @@ test("the initializing-apps poll does not depend on per-render functions", () =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 
-  // Both of these are plain function declarations in the component body, so
-  // they are new objects on every render. Either one in this array recreates
-  // the interval before it can ever fire.
-  for (const unstable of ["refreshInstalledApps", "applyWorkspaceLifecycle"]) {
+  // Every one of these gets a new identity on each render or each lifecycle
+  // payload, and any one of them in this array recreates the interval before
+  // it can fire. `installedApps` is the subtle one: applyWorkspaceLifecycle
+  // replaces it with a freshly hydrated array, and a second lifecycle poll
+  // runs unconditionally on its own 3s timer — so depending on the array
+  // reproduced the bug even after the function deps were dropped.
+  for (const unstable of [
+    "refreshInstalledApps",
+    "applyWorkspaceLifecycle",
+    "installedApps",
+  ]) {
     assert.ok(
       !listed.includes(unstable),
-      `${unstable} is back in the poll effect's deps — the interval will be recreated every render and never fire`,
+      `${unstable} is back in the poll effect's deps — the interval will be recreated before it can fire`,
     );
   }
-  assert.deepEqual(listed.sort(), ["installedApps", "selectedWorkspaceId"]);
+  assert.deepEqual(listed.sort(), ["hasInitializingApps", "selectedWorkspaceId"]);
+});
+
+test("the poll effect keys off the derived boolean, not the array", () => {
+  const source = fs.readFileSync(providerSourcePath, "utf8");
+
+  // The boolean only flips when an app actually becomes ready, which is
+  // exactly when this poll should start or stop.
+  assert.match(
+    source,
+    /const hasInitializingApps = installedApps\.some\(\(app\) => !app\.ready\);/,
+  );
 });
 
 test("the poll tick is read through a ref so it cannot go stale", () => {
@@ -52,4 +70,21 @@ test("the poll tick is read through a ref so it cannot go stale", () => {
   // otherwise capture the first render's closures forever.
   assert.match(source, /pollInitializingAppsRef\.current = \(\) => \{/);
   assert.match(source, /setInterval\(\(\) => pollInitializingAppsRef\.current\(\), 3000\)/);
+});
+
+test("the poll tick ref is assigned in an effect, not during render", () => {
+  const source = fs.readFileSync(providerSourcePath, "utf8");
+
+  // Writing a ref during render leaves it pointing at the closure of a render
+  // React may discard (Strict Mode's double invoke, or a losing concurrent
+  // render).
+  const assignment = source.indexOf("pollInitializingAppsRef.current = () => {");
+  assert.notEqual(assignment, -1, "the poll tick assignment was not found");
+  const preceding = source.slice(0, assignment);
+  const lastEffect = preceding.lastIndexOf("useEffect(() => {");
+  const lastRefDeclaration = preceding.lastIndexOf("const pollInitializingAppsRef");
+  assert.ok(
+    lastEffect > lastRefDeclaration,
+    "pollInitializingAppsRef.current is assigned during render — move it into a useEffect",
+  );
 });

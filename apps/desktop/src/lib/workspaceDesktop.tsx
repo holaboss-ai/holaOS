@@ -1237,24 +1237,38 @@ export function WorkspaceDesktopProvider({ children }: { children: ReactNode }) 
   // Reading through the ref also keeps the tick current, so it can't capture a
   // stale closure the way a longer-lived effect otherwise would.
   const pollInitializingAppsRef = useRef<() => void>(() => {});
-  pollInitializingAppsRef.current = () => {
-    void window.electronAPI.workspace
-      .activateWorkspace(selectedWorkspaceId)
-      .then((response) => {
-        applyWorkspaceLifecycle(response);
-      })
-      .catch(() => {
-        void refreshInstalledApps();
-      });
-  };
+  // Assigned in an effect, not during render: a render React discards (Strict
+  // Mode's double invoke, or a concurrent render that loses) would otherwise
+  // still leave the ref pointing at that render's closure.
   useEffect(() => {
-    const hasInitializing = installedApps.some((app) => !app.ready);
-    if (!hasInitializing || !selectedWorkspaceId) {
+    pollInitializingAppsRef.current = () => {
+      void window.electronAPI.workspace
+        .activateWorkspace(selectedWorkspaceId)
+        .then((response) => {
+          applyWorkspaceLifecycle(response);
+        })
+        .catch(() => {
+          void refreshInstalledApps();
+        });
+    };
+  });
+  // Depend on the DERIVED BOOLEAN, not on `installedApps`.
+  //
+  // applyWorkspaceLifecycle calls setInstalledApps with a freshly hydrated
+  // array, so its identity changes on every lifecycle payload — and a second,
+  // unconditional lifecycle poll runs on its own 3s timer just below. Keeping
+  // the array as a dep therefore still cleared and recreated this interval
+  // every ~3s at an arbitrary offset, so it could be reset before it ever
+  // fired. The boolean only changes when an app actually becomes ready, which
+  // is exactly when this poll should start or stop.
+  const hasInitializingApps = installedApps.some((app) => !app.ready);
+  useEffect(() => {
+    if (!hasInitializingApps || !selectedWorkspaceId) {
       return;
     }
     const timer = setInterval(() => pollInitializingAppsRef.current(), 3000);
     return () => clearInterval(timer);
-  }, [installedApps, selectedWorkspaceId]);
+  }, [hasInitializingApps, selectedWorkspaceId]);
 
   const value = useMemo(
     () => ({
