@@ -277,8 +277,10 @@ jobs:
 
       # Coverage for the shared packages that previously had no CI job.
       # app-builder-sdk is intentionally not gated in CI yet (kept out per request).
+      # app-host was not excluded on purpose — it was simply never listed, so
+      # its nine tests had never run in CI. They pass; it is gated now.
       - name: Package checks
-        run: bunx turbo run typecheck test build --filter=@holaboss/remote-api --filter=@holaboss/runtime-client --filter=@holaboss/editor --filter=@holaboss/ui
+        run: bunx turbo run typecheck test build --filter=@holaboss/remote-api --filter=@holaboss/runtime-client --filter=@holaboss/editor --filter=@holaboss/ui --filter=@holaboss/app-host
 
   ensure-release:
     if: ${{ github.event_name == 'workflow_dispatch' }}

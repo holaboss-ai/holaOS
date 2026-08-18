@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --import tsx --test --test-force-exit src/**/*.test.ts"
+    "test": "node --import tsx --test --test-force-exit \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.100",

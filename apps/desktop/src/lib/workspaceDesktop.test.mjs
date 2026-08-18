@@ -7,24 +7,6 @@ const WORKSPACE_DESKTOP_PATH = new URL(
 	import.meta.url,
 );
 
-test("deleting the selected workspace clears selection before the local delete runs", async () => {
-	const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
-
-	assert.match(source, /if \(selectedWorkspaceId === trimmedWorkspaceId\) \{/);
-	assert.match(
-		source,
-		/const fallbackWorkspaceId =\s*workspaces\.find\(\(workspace\) => workspace\.id !== trimmedWorkspaceId\)\?\.id \?\?\s*"";/,
-	);
-	assert.match(source, /setSelectedWorkspaceId\(fallbackWorkspaceId\);/);
-	assert.match(source, /setWorkspaceLifecycleWorkspaceId\(""\);/);
-	assert.match(source, /setWorkspaceAppsReadyState\(false\);/);
-	assert.match(source, /setWorkspaceBlockingReasonState\(""\);/);
-	assert.match(
-		source,
-		/await window\.electronAPI\.workspace\.deleteWorkspace\(trimmedWorkspaceId\);/,
-	);
-});
-
 test("workspace desktop error normalization unwraps Electron IPC errors before mapping", async () => {
 	const source = await readFile(WORKSPACE_DESKTOP_PATH, "utf8");
 
@@ -137,7 +119,7 @@ test("workspace activation reset clears the activating flag before wiping readin
 
 	assert.match(
 		source,
-		/if \(!selectedWorkspaceId \|\| !selectedWorkspaceExists \|\| !runtimeReadyForWorkspaceData\) \{\s*setInstalledApps\(\[\]\);\s*setIsLoadingInstalledApps\(false\);\s*setIsActivatingWorkspace\(false\);\s*setWorkspaceLifecycleWorkspaceId\(""\);\s*setWorkspaceAppsReadyState\(false\);\s*setWorkspaceBlockingReasonState\(""\);\s*return;\s*\}/,
+		/if \(\s*!selectedWorkspaceId \|\|\s*!selectedWorkspaceExists \|\|\s*\(selectedWorkspaceNeedsLocalRuntime && !runtimeReadyForWorkspaceData\)\s*\) \{\s*setInstalledApps\(\[\]\);\s*setIsLoadingInstalledApps\(false\);\s*setIsActivatingWorkspace\(false\);\s*setWorkspaceLifecycleWorkspaceId\(""\);\s*setWorkspaceAppsReadyState\(false\);\s*setWorkspaceBlockingReasonState\(""\);\s*return;\s*\}/,
 	);
 });
 

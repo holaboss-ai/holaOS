@@ -13,7 +13,7 @@
     "build": "tsup --config tsup.config.ts",
     "clean": "node ../../scripts/remove-paths.mjs dist",
     "pretest": "node ../../scripts/ensure-native-sqlite.mjs",
-    "test": "node --import tsx --test --test-force-exit src/**/*.test.ts",
+    "test": "node --import tsx --test --test-force-exit \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
