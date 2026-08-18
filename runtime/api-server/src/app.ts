@@ -2980,6 +2980,17 @@ async function cleanupOrphanAppProcesses(
   }
 }
 
+declare module "fastify" {
+  interface FastifyInstance {
+    /**
+     * Resolves when the background boot sequence (workers, health monitor) has
+     * finished. `ready()` only covers the point at which the port binds — the
+     * workers deliberately start after it so a slow one cannot delay the bind.
+     */
+    runtimeBootComplete: () => Promise<void>;
+  }
+}
+
 export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}): FastifyInstance {
   const ownsStore = !options.store;
   const store =
@@ -3037,6 +3048,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     const AUTH_EXEMPT_PATHS = new Set<string>([
       "/healthz",
       "/runtime/db-maintenance-status",
+      "/runtime/boot-status",
     ]);
     const expectedHeader = `Bearer ${runtimeApiAuthToken}`;
     app.addHook("onRequest", async (request, reply) => {
@@ -3997,6 +4009,40 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   let dbMaintenanceProgress: DbMaintenanceProgress = IDLE_DB_MAINTENANCE_PROGRESS;
 
   /**
+   * Boot phase, published over /runtime/boot-status.
+   *
+   * A boot that takes a while is not a boot that has failed, but for a user
+   * those are the same picture: a spinner. The desktop had exactly one phase it
+   * could see (the retention sweep) and rendered a bare splash for everything
+   * else — so a runtime doing 80s of honest work looked identical to a wedged
+   * one, and the supervisor treated it as wedged.
+   *
+   * Every phase that can plausibly exceed a second reports here, so the splash
+   * can say what it is waiting for and the supervisor can tell "working" from
+   * "hung" by whether the phase advances.
+   */
+  const bootStartedAtMs = Date.now();
+  let bootCompletePromise: Promise<void> = Promise.resolve();
+  let bootPhase = "starting";
+  let bootPhaseStartedAtMs = bootStartedAtMs;
+  let bootReady = false;
+  const bootPhaseHistory: Array<{ phase: string; ms: number }> = [];
+  const enterBootPhase = (phase: string): void => {
+    const now = Date.now();
+    const previous = bootPhase;
+    const elapsed = now - bootPhaseStartedAtMs;
+    // Timings for every phase, so a slow boot is diagnosable from the log alone
+    // rather than needing a process sample.
+    bootPhaseHistory.push({ phase: previous, ms: elapsed });
+    app.log.info(
+      { phase: previous, ms: elapsed, next: phase },
+      `runtime boot: ${previous} took ${elapsed}ms`,
+    );
+    bootPhase = phase;
+    bootPhaseStartedAtMs = now;
+  };
+
+  /**
    * Ensures this app's MCP tools are registered in workspace.yaml's
    * `mcp_registry`. Runs idempotently after every app start so apps
    * installed via legacy paths or stale templates get auto-healed.
@@ -4711,16 +4757,57 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   });
 
   app.addHook("onReady", async () => {
-    await terminalSessionManager?.start();
-    await durableMemoryWorker?.start();
-    await queueWorker?.start();
-    await cronWorker?.start();
-    await mainSessionEventWorker?.start();
-    await recallEmbeddingBackfillWorker?.start();
-    await channelGatewayManager.start();
-    if (options.enableAppHealthMonitor !== false) {
-      startHealthMonitor();
-    }
+    // Everything below runs BEFORE app.listen() resolves, so anything awaited
+    // here delays the port bind — and a runtime that has not bound is
+    // indistinguishable from a dead one to the desktop's health probe, which
+    // kills and respawns it. That is the livelock that bricked a 1.9GB install.
+    //
+    // The app auto-start below already had to be moved off this path for
+    // exactly that reason; the worker starts never were. They are started in
+    // the background now, in order, with each phase published so the splash can
+    // say what it is waiting for instead of showing a bare spinner.
+    //
+    // Ordering is preserved: these ran sequentially before and some assume the
+    // store is open, so they stay sequential — just off the bind path.
+    // Exposed as `app.runtimeBootComplete` so a caller that genuinely needs the
+    // workers running (tests, and anything that used to rely on onReady
+    // awaiting them) can wait for it. "Listening" and "background boot
+    // finished" are different events now, and both are worth being able to
+    // await — conflating them is what put the DB open on the bind path.
+    bootCompletePromise = (async () => {
+      const steps: Array<[string, () => Promise<unknown> | unknown]> = [
+        ["terminal_sessions", () => terminalSessionManager?.start()],
+        ["durable_memory", () => durableMemoryWorker?.start()],
+        ["queue_worker", () => queueWorker?.start()],
+        ["cron_worker", () => cronWorker?.start()],
+        ["main_session_events", () => mainSessionEventWorker?.start()],
+        ["recall_embeddings", () => recallEmbeddingBackfillWorker?.start()],
+        ["channel_gateway", () => channelGatewayManager.start()],
+      ];
+      for (const [phase, run] of steps) {
+        enterBootPhase(phase);
+        try {
+          await run();
+        } catch (err) {
+          // One worker failing to start must not strand the rest — or the boot
+          // phase, which would leave the splash waiting forever on a phase that
+          // never advances.
+          app.log.error(
+            { phase, err: err instanceof Error ? err.message : String(err) },
+            `runtime boot: ${phase} failed to start`,
+          );
+        }
+      }
+      if (options.enableAppHealthMonitor !== false) {
+        startHealthMonitor();
+      }
+      enterBootPhase("ready");
+      bootReady = true;
+      app.log.info(
+        { totalMs: Date.now() - bootStartedAtMs, phases: bootPhaseHistory },
+        `runtime boot: ready in ${Date.now() - bootStartedAtMs}ms`,
+      );
+    })();
 
     // Background DB retention sweep: prune the append-only session_output_events
     // log (age + per-session cap) and, once enough is freed, request a one-time
@@ -4786,6 +4873,27 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
 
 
   app.get("/healthz", async () => ({ ok: true }));
+
+  /**
+   * What the runtime is doing while it starts, and how long it has been doing
+   * it. Unauthed like /healthz, because the desktop polls this before the app
+   * shell (and therefore any auth header) exists.
+   *
+   * `ready` false is NOT a failure — it means "still working". A caller
+   * distinguishes a busy runtime from a hung one by whether `phase` advances,
+   * which is the distinction the boolean /healthz probe cannot express.
+   */
+  // Resolves when the background boot sequence has finished. `app.ready()` only
+  // means the port is about to bind.
+  app.decorate("runtimeBootComplete", () => bootCompletePromise);
+
+  app.get("/runtime/boot-status", async () => ({
+    ready: bootReady,
+    phase: bootPhase,
+    phase_elapsed_ms: Date.now() - bootPhaseStartedAtMs,
+    total_elapsed_ms: Date.now() - bootStartedAtMs,
+    phases: bootPhaseHistory,
+  }));
 
   // Live retention-sweep progress. Unauthed like /healthz — the desktop polls
   // it during boot (before the app shell / auth headers exist) to drive the

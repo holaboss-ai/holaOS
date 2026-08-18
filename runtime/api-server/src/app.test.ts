@@ -12999,6 +12999,8 @@ test("runtime api server starts and closes the recall embedding backfill worker"
   });
 
   await app.ready();
+  // Workers start in the background now, off the bind path.
+  await app.runtimeBootComplete();
   assert.equal(started, 1);
   assert.equal(woke, 0);
 
@@ -13085,6 +13087,8 @@ test("runtime api server starts and closes the main-session event worker", async
   });
 
   await app.ready();
+  // Workers start in the background now, off the bind path.
+  await app.runtimeBootComplete();
 
   assert.equal(started, 1);
   assert.equal(woke, 0);
@@ -14362,6 +14366,72 @@ test("POST /apps/install-archive serializes concurrent archive_url installs", as
       process.env.HOLABOSS_APP_ARCHIVE_URL_ALLOWLIST = savedEnv;
     }
     await app.close();
+    store.close();
+  }
+});
+
+test("the port binds without waiting for the background workers", async () => {
+  // The livelock this guards: everything awaited in onReady runs BEFORE
+  // app.listen() resolves, so a slow start delays the bind — and a runtime that
+  // has not bound is indistinguishable from a dead one to the desktop's health
+  // probe, which kills and respawns it. A 1.9GB install bricked exactly this
+  // way. The app auto-start had already been moved off this path for the same
+  // reason; the seven worker starts had not.
+  const root = makeTempDir("hb-runtime-api-boot-phase-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  const app = buildTestRuntimeApiServer({ store });
+  try {
+    await app.ready();
+    // /runtime/boot-status must answer as soon as the server is up, whatever the
+    // workers are doing — that is the whole point of publishing a phase.
+    const response = await app.inject({ method: "GET", url: "/runtime/boot-status" });
+    assert.equal(response.statusCode, 200);
+    const body = response.json() as {
+      ready: boolean;
+      phase: string;
+      phase_elapsed_ms: number;
+      total_elapsed_ms: number;
+    };
+    assert.equal(typeof body.phase, "string");
+    assert.ok(body.phase.length > 0, "a phase is always named");
+    assert.equal(typeof body.ready, "boolean");
+    assert.ok(Number.isFinite(body.phase_elapsed_ms));
+    assert.ok(Number.isFinite(body.total_elapsed_ms));
+  } finally {
+    await app.close();
+    store.close();
+  }
+});
+
+test("boot-status is reachable without auth, like the other boot probes", async () => {
+  // The desktop polls this before the app shell — and therefore any auth header
+  // — exists. If it required auth the splash could never read it, which is the
+  // situation that left users staring at a bare spinner.
+  const root = makeTempDir("hb-runtime-api-boot-status-auth-");
+  const store = new RuntimeStateStore({
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  });
+  const previousToken = process.env.SANDBOX_RUNTIME_API_TOKEN;
+  process.env.SANDBOX_RUNTIME_API_TOKEN = "secret-token";
+  let app: ReturnType<typeof buildTestRuntimeApiServer>;
+  try {
+    app = buildTestRuntimeApiServer({ store });
+    await app.ready();
+    for (const url of ["/healthz", "/runtime/boot-status", "/runtime/db-maintenance-status"]) {
+      const response = await app.inject({ method: "GET", url });
+      assert.equal(response.statusCode, 200, `${url} must not require auth`);
+    }
+  } finally {
+    if (previousToken === undefined) {
+      delete process.env.SANDBOX_RUNTIME_API_TOKEN;
+    } else {
+      process.env.SANDBOX_RUNTIME_API_TOKEN = previousToken;
+    }
+    await app!.close();
     store.close();
   }
 });
