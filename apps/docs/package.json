@@ -11,9 +11,9 @@
     "lint": "biome check",
     "format": "biome format --write",
     "cf:types": "wrangler types --env-interface Env",
-    "deploy:preview": "bun run build && wrangler deploy --env preview",
-    "deploy:staging": "bun run build && wrangler deploy --env staging",
-    "deploy:production": "bun run build && wrangler deploy --env production"
+    "deploy:preview": "echo 'RETIRED: the docs moved to the holaboss-frontend monorepo (apps/docs). Deploy from there (bun run deploy:docs:staging|:production). See apps/docs/MOVED.md.' && exit 1",
+    "deploy:staging": "echo 'RETIRED: the docs moved to the holaboss-frontend monorepo (apps/docs). Deploy from there (bun run deploy:docs:staging|:production). See apps/docs/MOVED.md.' && exit 1",
+    "deploy:production": "echo 'RETIRED: the docs moved to the holaboss-frontend monorepo (apps/docs). Deploy from there (bun run deploy:docs:staging|:production). See apps/docs/MOVED.md.' && exit 1"
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "^5.2.7",
