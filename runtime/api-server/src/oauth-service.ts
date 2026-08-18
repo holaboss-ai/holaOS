@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { randomBytes, createHash, randomUUID } from "node:crypto";
 import { type RuntimeStateStore } from "@holaboss/runtime-state-store";
+import { invalidateComposioInlineToolCache } from "./composio-cache-invalidation.js";
 
 export class OAuthService {
   readonly store: RuntimeStateStore;
@@ -125,5 +126,9 @@ export class OAuthService {
       grantedScopes: tokens.scope ? tokens.scope.split(" ") : config.scopes,
       status: "active", secretRef: secretPayload
     });
+    // A brand-new active connection changes the inline tool listing; without
+    // this the agent cannot see the integration the user just authorized until
+    // the cache TTL lapses.
+    invalidateComposioInlineToolCache(this.store);
   }
 }

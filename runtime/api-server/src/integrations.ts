@@ -11,6 +11,7 @@ import {
   type IntegrationCatalogProviderRecord,
 } from "./integration-catalog.js";
 import { resolveWorkspaceAppRuntime } from "./workspace-apps.js";
+import { invalidateComposioInlineToolCache } from "./composio-cache-invalidation.js";
 
 export interface IntegrationConnectionPayload {
   connection_id: string;
@@ -367,6 +368,9 @@ export class RuntimeIntegrationService {
       accountHandle: params.accountHandle ?? existing?.accountHandle ?? null,
       accountEmail: params.accountEmail ?? existing?.accountEmail ?? null
     });
+    // The set of connected toolkits just changed, so the cached inline tool
+    // listing is wrong until this drops it.
+    invalidateComposioInlineToolCache(this.store);
 
     this.notifyConnectionActive(
       record.connectionId,
@@ -433,6 +437,9 @@ export class RuntimeIntegrationService {
           ? params.contextCronAutoFetchEnabled
           : existing.contextCronAutoFetchEnabled,
     });
+    // status and grantedScopes are both updatable here, and either can move a
+    // connection in or out of the active set the listing is built from.
+    invalidateComposioInlineToolCache(this.store);
 
     this.notifyConnectionActive(
       record.connectionId,
@@ -552,6 +559,7 @@ export class RuntimeIntegrationService {
         repointed += 1;
       }
       this.store.deleteIntegrationConnection(removeId);
+      invalidateComposioInlineToolCache(this.store);
     }
     });
 
@@ -582,6 +590,9 @@ export class RuntimeIntegrationService {
     }
 
     this.store.deleteIntegrationConnection(normalizedId);
+    // Connections are user-global, so this removal affects every workspace's
+    // listing — see invalidateComposioInlineToolCache on why it fans out.
+    invalidateComposioInlineToolCache(this.store);
     return { deleted: true, removed_bindings: bindings.length };
   }
 

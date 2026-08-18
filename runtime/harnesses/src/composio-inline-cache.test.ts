@@ -36,21 +36,50 @@ test("misses for a different workspace id (no cross-workspace leakage)", () => {
 test("misses once past the TTL, hits inside it", () => {
   const dir = tmpWorkspace();
   const t0 = 1_000_000;
-  writeComposioInlineCache({ workspaceDir: dir, workspaceId: "root", payload: PAYLOAD, nowMs: t0 });
+  // Drive the window off the env override rather than the default, so this
+  // keeps testing the BEHAVIOUR when the default moves. It has moved once
+  // already (120s → 15min, once explicit invalidation landed) and this test
+  // pinned the old number in a comment and a magic offset.
+  const ttl = 30_000;
+  const env = { HB_COMPOSIO_CACHE_TTL_MS: String(ttl) } as NodeJS.ProcessEnv;
+  writeComposioInlineCache({ workspaceDir: dir, workspaceId: "root", payload: PAYLOAD, nowMs: t0, env });
   assert.deepEqual(
-    readComposioInlineCache({ workspaceDir: dir, workspaceId: "root", nowMs: t0 + 60_000 }),
+    readComposioInlineCache({ workspaceDir: dir, workspaceId: "root", nowMs: t0 + ttl - 1, env }),
     PAYLOAD,
-    "inside the 120s TTL",
+    "inside the TTL",
   );
   assert.equal(
-    readComposioInlineCache({ workspaceDir: dir, workspaceId: "root", nowMs: t0 + 300_000 }),
+    readComposioInlineCache({ workspaceDir: dir, workspaceId: "root", nowMs: t0 + ttl + 1, env }),
     null,
     "past the TTL",
   );
   // a clock that jumped backwards must not serve a 'future' entry
   assert.equal(
-    readComposioInlineCache({ workspaceDir: dir, workspaceId: "root", nowMs: t0 - 5_000 }),
+    readComposioInlineCache({ workspaceDir: dir, workspaceId: "root", nowMs: t0 - 5_000, env }),
     null,
+  );
+});
+
+test("the default TTL spans a realistic inter-turn gap", () => {
+  const dir = tmpWorkspace();
+  const t0 = 1_000_000;
+  writeComposioInlineCache({ workspaceDir: dir, workspaceId: "root", payload: PAYLOAD, nowMs: t0 });
+
+  // The whole point of raising it: at 120s the bootstrap fetch missed on any
+  // turn a user took longer than two minutes to send, which is most real
+  // conversation. Freshness is now carried by explicit invalidation on connect
+  // and disconnect (see composio-cache-invalidation.ts), not by this number.
+  assert.deepEqual(
+    readComposioInlineCache({ workspaceDir: dir, workspaceId: "root", nowMs: t0 + 5 * 60_000 }),
+    PAYLOAD,
+    "a five-minute gap between turns must still hit",
+  );
+  // …but it stays bounded, because a change made OUTSIDE this runtime (the web
+  // app, or a revoke at the provider) has no invalidation path here.
+  assert.equal(
+    readComposioInlineCache({ workspaceDir: dir, workspaceId: "root", nowMs: t0 + 60 * 60_000 }),
+    null,
+    "an hour-old entry must not be served",
   );
 });
 

@@ -30,9 +30,29 @@ import path from "node:path";
 const CACHE_VERSION = 1;
 export const COMPOSIO_INLINE_CACHE_FILE = "composio-inline-tool-cache.json";
 
-/** Long enough that a multi-turn conversation pays the fetch once, short enough
- *  that a freshly connected integration shows up without an explicit refresh. */
-const DEFAULT_TTL_MS = 120_000;
+/**
+ * The TTL no longer carries the freshness job.
+ *
+ * It was 120 s because it was the *only* invalidation this cache had —
+ * `clearComposioInlineCache` shipped documented as the connect/install hook and
+ * was never called. One number had to be both short enough that a newly
+ * connected integration appears promptly and long enough that the bootstrap
+ * fetch hits between turns, and it was tuned for the first. So the ~773 ms
+ * bootstrap fetch missed on every turn a user took more than two minutes to
+ * send — which is most real conversation.
+ *
+ * Connection mutations made through this runtime now invalidate explicitly
+ * (`composio-cache-invalidation.ts`), which is strictly fresher than a 120 s
+ * window: a disconnect takes effect immediately instead of up to two minutes
+ * later.
+ *
+ * What the TTL still has to cover is changes made OUTSIDE this runtime — an
+ * integration connected in the web app, or revoked at the provider — which have
+ * no invalidation path here. That is what keeps this minutes rather than hours:
+ * 15 minutes captures nearly every inter-turn gap while bounding how long an
+ * externally-made change can stay invisible.
+ */
+const DEFAULT_TTL_MS = 15 * 60_000;
 
 export function composioInlineCachePath(workspaceDir: string): string {
   return path.join(workspaceDir, ".holaboss", "state", COMPOSIO_INLINE_CACHE_FILE);

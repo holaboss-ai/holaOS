@@ -2,6 +2,7 @@ import { type RuntimeStateStore } from "@holaboss/runtime-state-store";
 
 import { resolveConnectionMerged } from "./integration-connections-merged.js";
 import { validateSignedGrant } from "./grant-signing.js";
+import { invalidateComposioInlineToolCache } from "./composio-cache-invalidation.js";
 
 export type BrokerErrorCode =
   | "grant_invalid"
@@ -446,6 +447,13 @@ export class IntegrationBrokerService {
         secretRef: newPayload,
         accountExternalId: connection.accountExternalId
       });
+      // Only when this refresh REVIVES the connection. A routine refresh swaps
+      // secretRef on an already-active row and cannot change the active-toolkit
+      // set the inline listing is derived from — invalidating there would drop
+      // the cache on a background token rotation and undo the point of having it.
+      if (connection.status !== "active") {
+        invalidateComposioInlineToolCache(this.store);
+      }
       return tokens.access_token;
     } catch { return null; }
   }
