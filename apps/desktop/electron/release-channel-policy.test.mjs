@@ -253,7 +253,12 @@ test("manual CI workflow publishes desktop installers without standalone runtime
   assert.match(builderConfig, /scripts", "write-app-update-config\.mjs"/);
   assert.match(builderConfig, /await writeAppUpdateConfig\(appBundlePath\);/);
   assert.match(source, /Desktop typecheck/);
-  assert.match(source, /Runtime state store \+ harness host/);
+  // Assert the coverage, not a step's prose label. This previously matched the
+  // step NAME, so renaming it failed here even when the rename ADDED packages —
+  // exactly backwards. Dropping a package from CI should fail this; relabelling
+  // a step should not.
+  assert.match(source, /--filter=@holaboss\/runtime-state-store/);
+  assert.match(source, /--filter=@holaboss\/runtime-harness-host/);
 });
 
 test("mac release helper runs zip + dmg in separate electron-builder passes and merges their manifests", async () => {
