@@ -122,3 +122,94 @@ test("a reader never observes a partially written file", async () => {
   // half-written one.
   assert.ok(observed.every((n) => n === 0 || n === 4000), `saw partial states: ${[...new Set(observed)]}`);
 });
+
+test("concurrent writes to one path never destroy it", async () => {
+  const dir = await tempDir();
+  const filePath = path.join(dir, "browser-profiles.json");
+
+  // A pid+timestamp temp name collides when two writes land in the same
+  // millisecond, and these files are rewritten on every profile mutation. The
+  // loser's rename then fails and its cleanup takes the real file with it.
+  await Promise.all(
+    Array.from({ length: 25 }, (_, i) =>
+      writeJsonStateFileAtomically(filePath, { v: i }),
+    ),
+  );
+
+  const value = await readJsonStateFile<{ v: number } | null>(filePath, null);
+  assert.notEqual(value, null, "the state file was destroyed by concurrent writes");
+  assert.ok(value!.v >= 0 && value!.v < 25, `unexpected surviving value ${value!.v}`);
+  assert.deepEqual(await fs.readdir(dir), ["browser-profiles.json"]);
+});
+
+test("a write blocked only on the destination still lands, original discarded", async () => {
+  const dir = await tempDir();
+  const filePath = path.join(dir, "browser-profiles.json");
+  await writeJsonStateFileAtomically(filePath, { profiles: ["work", "personal"] });
+
+  // The Windows case the fallback exists for: renaming ONTO an existing file
+  // fails, but moving that file aside works — so once it is out of the way the
+  // write completes normally.
+  const realRename = fs.rename;
+  let blockedOnce = false;
+  (fs as { rename: typeof fs.rename }).rename = async (from, to) => {
+    if (!blockedOnce && String(to) === filePath) {
+      blockedOnce = true;
+      throw Object.assign(new Error("EPERM: file is locked"), { code: "EPERM" });
+    }
+    return realRename(from, to);
+  };
+
+  try {
+    await writeJsonStateFileAtomically(filePath, { profiles: [] });
+  } finally {
+    (fs as { rename: typeof fs.rename }).rename = realRename;
+  }
+
+  assert.ok(blockedOnce, "the fallback path was never exercised");
+  assert.deepEqual(await readJsonStateFile(filePath, null), { profiles: [] });
+  // The set-aside copy is cleaned up once the new file is in place.
+  assert.deepEqual(await fs.readdir(dir), ["browser-profiles.json"]);
+});
+
+test("a write that can never land leaves the old contents on disk", async () => {
+  const dir = await tempDir();
+  const filePath = path.join(dir, "browser-profiles.json");
+  await writeJsonStateFileAtomically(filePath, { profiles: ["work", "personal"] });
+
+  // Nothing can be renamed onto this path, so neither the write nor the
+  // restore can land. The old code deleted the destination first and then
+  // failed the retry, ending with NO copy of the user's profiles anywhere.
+  const realRename = fs.rename;
+  (fs as { rename: typeof fs.rename }).rename = async (from, to) => {
+    if (String(to) === filePath) {
+      throw Object.assign(new Error("EPERM: file is locked"), { code: "EPERM" });
+    }
+    return realRename(from, to);
+  };
+
+  let raised: unknown;
+  try {
+    await writeJsonStateFileAtomically(filePath, { profiles: [] });
+  } catch (error) {
+    raised = error;
+  } finally {
+    (fs as { rename: typeof fs.rename }).rename = realRename;
+  }
+
+  assert.ok(raised instanceof Error, "a write that cannot land must throw");
+  // Wherever it ended up, the user's data still exists and the error says so.
+  const survivors = await Promise.all(
+    (await fs.readdir(dir)).map(async (name) => [
+      name,
+      await fs.readFile(path.join(dir, name), "utf-8"),
+    ]),
+  );
+  const preserved = survivors.filter(([, body]) => body.includes("personal"));
+  assert.equal(
+    preserved.length,
+    1,
+    `the previous contents must survive somewhere, saw ${JSON.stringify(survivors.map(([n]) => n))}`,
+  );
+  assert.match((raised as Error).message, new RegExp(preserved[0]![0]!.replace(/\./g, "\\.")));
+});

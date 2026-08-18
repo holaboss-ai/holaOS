@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -59,15 +60,60 @@ export async function writeJsonStateFileAtomically(
   payload: unknown,
 ): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  // randomUUID, not pid+timestamp: these files are rewritten on every mutation,
+  // so two writes to the same path can easily land in the same millisecond of
+  // the same process. Sharing a temp made the loser's rename fail with ENOENT
+  // and fall into the replace path below — destroying the real file to install
+  // a temp that no longer existed.
+  const tempPath = `${filePath}.${randomUUID()}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(payload, null, 2), "utf-8");
+  let renamed = false;
   try {
     await fs.rename(tempPath, filePath);
+    renamed = true;
   } catch {
-    // Windows cannot rename onto an existing file.
-    await fs.rm(filePath, { force: true }).catch(() => undefined);
-    await fs.rename(tempPath, filePath);
+    // Windows cannot always rename onto an existing file (an AV scanner or a
+    // second process holding a handle). Move the current file aside rather than
+    // deleting it: whatever blocks the first rename is unlikely to have cleared
+    // microseconds later, and an `rm` + failed retry would leave NO copy at all
+    // — the precise loss this function exists to prevent.
+    const backupPath = `${filePath}.${randomUUID()}.bak`;
+    const movedAside = await fs
+      .rename(filePath, backupPath)
+      .then(() => true)
+      .catch(() => false);
+    try {
+      await fs.rename(tempPath, filePath);
+      renamed = true;
+      if (movedAside) {
+        await fs.rm(backupPath, { force: true }).catch(() => undefined);
+      }
+    } catch (error) {
+      // Put the original back before giving up, so a failed write is a no-op
+      // rather than a deletion. If even that cannot land — whatever blocks
+      // renames onto this path blocks all of them — the backup STAYS on disk
+      // and the error names it. The one outcome that must never happen is
+      // zero surviving copies.
+      if (movedAside) {
+        const restored = await fs
+          .rename(backupPath, filePath)
+          .then(() => true)
+          .catch(() => false);
+        if (!restored) {
+          throw new Error(
+            `Failed to write ${path.basename(filePath)}; its previous contents are preserved at ${backupPath}`,
+            { cause: error },
+          );
+        }
+      }
+      throw error;
+    }
   } finally {
-    await fs.rm(tempPath, { force: true }).catch(() => undefined);
+    // Only ever remove the temp we still own. After a successful rename the
+    // path is the live file, and `force: true` would happily delete it if the
+    // rename were ever reported as failed after the fact.
+    if (!renamed) {
+      await fs.rm(tempPath, { force: true }).catch(() => undefined);
+    }
   }
 }
