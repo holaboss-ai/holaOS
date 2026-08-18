@@ -1014,6 +1014,47 @@ export class NativeRunnerExecutor implements RunnerExecutorLike {
     let lastSequence = 0;
     let heartbeat: NodeJS.Timeout | null = null;
 
+    // The heartbeat below only pushes `: ping` — it proves the HTTP connection
+    // is alive, not that the runner is. Without the two watchdogs that
+    // executeRunnerRequest has, a wedged runner emitted pings forever and the
+    // caller saw a healthy-looking stream that never produced a terminal event
+    // and never errored. Mirror them here so the streaming endpoint fails the
+    // same way, with the same wording, as the non-streaming one.
+    let timedOut = false;
+    let idleTimedOut = false;
+    const hardTimeoutMs = runnerTimeoutSeconds(payload) * 1000;
+    const idleTimeoutMs = runnerIdleTimeoutSeconds(payload) * 1000;
+    const hardTimeout = setTimeout(() => {
+      if (sawTerminal) {
+        return;
+      }
+      timedOut = true;
+      killChildProcess(child, "SIGKILL");
+    }, Math.max(1, hardTimeoutMs));
+    hardTimeout.unref?.();
+    let idleTimeout: NodeJS.Timeout | null = null;
+    const clearWatchdogs = () => {
+      clearTimeout(hardTimeout);
+      if (idleTimeout) {
+        clearTimeout(idleTimeout);
+        idleTimeout = null;
+      }
+    };
+    const resetIdleTimeout = () => {
+      if (idleTimeout) {
+        clearTimeout(idleTimeout);
+      }
+      idleTimeout = setTimeout(() => {
+        if (sawTerminal) {
+          return;
+        }
+        idleTimedOut = true;
+        killChildProcess(child, "SIGKILL");
+      }, idleTimeoutMs);
+      idleTimeout.unref?.();
+    };
+    resetIdleTimeout();
+
     const resetHeartbeat = () => {
       if (heartbeat) {
         clearTimeout(heartbeat);
@@ -1054,10 +1095,14 @@ export class NativeRunnerExecutor implements RunnerExecutorLike {
         }
         stream.push(sseEvent(parsed));
         resetHeartbeat();
+        // A parsed event is real progress; a heartbeat is not, which is why
+        // the idle watchdog resets here and not in resetHeartbeat.
+        resetIdleTimeout();
         if (sawTerminal) {
           if (heartbeat) {
             clearTimeout(heartbeat);
           }
+          clearWatchdogs();
           killChildProcess(child, "SIGTERM");
         }
       }
@@ -1067,6 +1112,7 @@ export class NativeRunnerExecutor implements RunnerExecutorLike {
       if (heartbeat) {
         clearTimeout(heartbeat);
       }
+      clearWatchdogs();
       const trailingLine = stdoutBuffer.trim();
       if (trailingLine) {
         const parsed = parseRunnerEventLine(trailingLine);
@@ -1084,10 +1130,13 @@ export class NativeRunnerExecutor implements RunnerExecutorLike {
         const stderrText = Buffer.concat(stderrChunks).toString("utf-8").trim();
         const details = skippedLines.length > 0 ? skippedLines.slice(0, 3).join("; ") : "";
         const suffix = details ? ` (skipped output: ${details})` : "";
-        const message =
-          returnCode !== 0
-            ? stderrText || `runner command failed with exit_code=${returnCode}`
-            : `runner stream ended before terminal event${suffix}`;
+        const message = timedOut
+          ? "runner command timed out"
+          : idleTimedOut
+            ? `runner command became idle for ${Math.round(idleTimeoutMs / 1000)}s without a terminal event`
+            : returnCode !== 0
+              ? stderrText || `runner command failed with exit_code=${returnCode}`
+              : `runner stream ended before terminal event${suffix}`;
         const event = buildRunFailedEvent({
           sessionId: requiredString(payload, "session_id"),
           inputId: requiredString(payload, "input_id"),
@@ -1112,6 +1161,9 @@ export class NativeRunnerExecutor implements RunnerExecutorLike {
       if (heartbeat) {
         clearTimeout(heartbeat);
       }
+      // The consumer went away; the child is being killed, so the watchdogs
+      // have nothing left to guard.
+      clearWatchdogs();
       if (!child.killed) {
         killChildProcess(child, "SIGTERM");
       }

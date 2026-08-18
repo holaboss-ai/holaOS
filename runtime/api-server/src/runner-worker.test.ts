@@ -725,3 +725,31 @@ test("a custom runner template still inlines the base64 request (no file)", () =
     "template inlines the base64 request as before",
   );
 });
+
+test("native runner executor stream gives up on a wedged runner", async () => {
+  // Emits one real event and then hangs forever. Before the stream endpoint
+  // had watchdogs this produced `: ping` keepalives indefinitely — a
+  // healthy-looking stream that never reached a terminal event and never
+  // errored, so the caller waited on it for as long as the process lived.
+  setNodeRunnerTemplate([
+    "process.stdout.write(JSON.stringify({ session_id: 'session-1', input_id: 'input-1', sequence: 1, event_type: 'run_started', payload: { instruction_preview: 'hello' } }) + '\\n');",
+    "setInterval(() => {}, 1000);"
+  ]);
+  process.env.SANDBOX_AGENT_RUN_IDLE_TIMEOUT_S = "1";
+
+  const executor = new NativeRunnerExecutor();
+  const startedAt = Date.now();
+  const stream = await executor.stream(payload());
+  let body = "";
+  for await (const chunk of stream) {
+    body += typeof chunk === "string" ? chunk : chunk.toString("utf-8");
+  }
+  const elapsed = Date.now() - startedAt;
+
+  assert.match(body, /event: run_started/);
+  assert.match(body, /event: run_failed/);
+  // Named, not generic: "ended before terminal event" would not tell an
+  // operator that the runner stalled rather than exited.
+  assert.match(body, /became idle for 1s without a terminal event/);
+  assert.ok(elapsed < 30_000, `stream should end on its own deadline, took ${elapsed}ms`);
+});
