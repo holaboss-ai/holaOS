@@ -26063,6 +26063,22 @@ function createMainWindow() {
     }
     closeAllFilePreviewWatchSubscriptions();
     stopComposioKeepWarm();
+    // Session/chat SSE connections are opened with `timeout: 0` because they
+    // are long-lived by design. Their only consumer is the renderer that just
+    // died, and on macOS ⌘W leaves the app running — so without this each
+    // open/close cycle stranded a never-timing-out socket to the runtime plus
+    // its reader closure, and emitSessionStreamEvent just logged
+    // "no windows" for the rest of the process's life.
+    //
+    // Aborting loses nothing: the run continues server-side and its events are
+    // persisted, so a reopened window re-attaches from the store.
+    for (const [streamId] of [...sessionOutputStreams]) {
+      void closeSessionOutputStream(streamId, "main_window_closed");
+    }
+    for (const controller of [...employeeChatStreams.values()]) {
+      controller.abort();
+    }
+    employeeChatStreams.clear();
     mainWindow = null;
   });
 }
