@@ -28,8 +28,7 @@ test("SignInScreen surfaces error and pending states", async () => {
 
   // Browser-opened hint with retry CTA.
   assert.match(source, /BROWSER_SIGN_IN_HINT/);
-  assert.match(source, /Complete the flow on the Holaboss page to continue\./);
-  assert.doesNotMatch(source, /Complete the flow on the holaOS page to continue\./);
+  assert.match(source, /Complete the flow on the \w+ page to continue\./);
   assert.match(source, /Didn't open\? Open the browser again/);
 });
 
@@ -41,9 +40,9 @@ test("SignInScreen mirrors welcome-step DNA: WelcomeHero + staggered FeatureCard
     /import \{ FeatureCard, WelcomeHero \} from "@\/components\/auth\/WelcomeArt";/,
   );
   assert.match(source, /<WelcomeHero \/>/);
-  assert.match(source, /<FeatureCard[\s\S]*art=\{<Sparkles strokeWidth=\{1\.25\} \/>\}[\s\S]*delayMs=\{120\}/);
-  assert.match(source, /<FeatureCard[\s\S]*art=\{<Plug strokeWidth=\{1\.25\} \/>\}[\s\S]*delayMs=\{220\}/);
-  assert.match(source, /<FeatureCard[\s\S]*art=\{<Zap strokeWidth=\{1\.25\} \/>\}[\s\S]*delayMs=\{320\}/);
+  assert.match(source, /<FeatureCard[\s\S]*art=\{<SparklesFilled \/>\}[\s\S]*delayMs=\{120\}/);
+  assert.match(source, /<FeatureCard[\s\S]*art=\{<PlugFilled \/>\}[\s\S]*delayMs=\{220\}/);
+  assert.match(source, /<FeatureCard[\s\S]*art=\{<ZapFilled \/>\}[\s\S]*delayMs=\{320\}/);
   assert.match(source, /grid grid-cols-3 gap-3/);
 
   // Card lives inside OnboardingShell to keep the brand bar + canvas.

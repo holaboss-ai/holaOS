@@ -20,9 +20,9 @@ test("background tasks pane polls workspace background tasks and supports inline
   assert.match(source, /window\.addEventListener\("focus", refreshVisibleTasks\);/);
   assert.match(source, /document\.addEventListener\("visibilitychange", refreshVisibleTasks\);/);
   assert.match(source, /if \(variant === "inline"\) \{/);
-  assert.match(source, /function isInlineVisibleBackgroundTask\(task: BackgroundTaskRecordPayload\) \{\s*const status = task\.status\.trim\(\)\.toLowerCase\(\);\s*return status === "queued" \|\| status === "running";\s*\}/);
+  assert.match(source, /function isInlineVisibleBackgroundTask\(task: BackgroundTaskRecordPayload\) \{\s*const status = task\.status\.trim\(\)\.toLowerCase\(\);[\s\S]*?return status === "queued" \|\| status === "running" \|\| status === "waiting_on_user";\s*\}/);
   assert.match(source, /const inlineVisibleTasks = sortedTasks\.filter\(isInlineVisibleBackgroundTask\);/);
-  assert.match(source, /if \(inlineVisibleTasks\.length === 0\) \{\s*return null;\s*\}/);
+  assert.match(source, /if \(!activeWorkspaceId \|\| inlineVisibleTasks\.length === 0\) \{\s*return null;\s*\}/);
   assert.match(source, /case "running":\s*return goal \|\| "Working in the background\.";?/);
   assert.match(source, /case "queued":\s*return goal \|\| "Queued to run\.";?/);
   assert.match(source, /case "completed":/);

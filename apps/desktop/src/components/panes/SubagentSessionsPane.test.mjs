@@ -15,10 +15,13 @@ test("sessions pane keeps the inline session summary but limits the full view to
     source,
     /<FullSessionsView[\s\S]*sessions=\{cronjobSessions\}[\s\S]*onOpenSession=\{onOpenSession\}/,
   );
-  assert.match(source, /placeholder="Search scheduled runs…"/);
-  assert.match(source, /aria-label="Search scheduled runs"/);
-  assert.match(source, /\?\s*"No scheduled automation runs yet\."/);
-  assert.match(source, /sourceType === "workflow" && triggerKind === "cron"/);
+  assert.match(source, /placeholder="Search sessions…"/);
+  assert.match(source, /aria-label="Search sessions"/);
+  assert.match(source, /\?\s*"No cronjob runs yet\."/);
+  assert.match(
+    source,
+    /sourceType === "cronjob" \|\| Boolean\(\(session\.cronjob_id \?\? ""\)\.trim\(\)\)/,
+  );
   assert.doesNotMatch(source, /\["subagent", "Subagents"\]/);
   assert.doesNotMatch(source, /\["all", "All"\]/);
 });

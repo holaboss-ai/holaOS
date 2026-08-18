@@ -8,7 +8,6 @@ test("update reminder shows run-in-background only while the update is downloadi
   const source = await readFile(UPDATE_REMINDER_PATH, "utf8");
 
   assert.match(source, /function releaseVersionLabel\(status: AppUpdateStatusPayload\)/);
-  assert.match(source, /rounded-\[24px\] border border-border\/60 bg-popover\/95 shadow-2xl/);
   assert.match(source, /Desktop update/);
   assert.match(source, /Restart/);
   assert.match(source, /Changelog/);

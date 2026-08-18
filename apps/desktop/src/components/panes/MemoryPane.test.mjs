@@ -19,11 +19,11 @@ test("memory pane loads node detail and surfaces provenance plus related graph c
   assert.match(source, /const MEMORY_GRAPH_MAX_NODES = 320;/);
   assert.match(
     source,
-    /window\.electronAPI\.workspace\.readMemoryBrowserNodeDetail\([\s\S]*workspaceId,[\s\S]*nodeId: node\.id,[\s\S]*treeId: node\.tree_id,[\s\S]*\)/,
+    /remoteApi\.memory\.readNodeDetail\(\{[\s\S]*nodeId: node\.id,[\s\S]*treeId: node\.tree_id[\s\S]*\}\)/,
   );
   assert.match(
     source,
-    /window\.electronAPI\.workspace\.listMemoryBrowserGraph\([\s\S]*workspaceId,[\s\S]*forest: "workspace",[\s\S]*maxLayers: MEMORY_GRAPH_MAX_LAYERS,[\s\S]*maxNodes: MEMORY_GRAPH_MAX_NODES,[\s\S]*\)/,
+    /remoteApi\.memory\.browseGraph\(\{[\s\S]*forest: "workspace",[\s\S]*maxLayers: MEMORY_GRAPH_MAX_LAYERS,[\s\S]*maxNodes: MEMORY_GRAPH_MAX_NODES,[\s\S]*\}\)/,
   );
   assert.match(
     source,
@@ -57,7 +57,7 @@ test("memory pane loads node detail and surfaces provenance plus related graph c
     source,
     /setSelectedGraphNodeId\(matchedGraphNode\.id\);\s*void loadNodeDetail\(matchedGraphNode\);/,
   );
-  assert.match(source, /Evidence & provenance/);
+  assert.match(source, /selectedNodeDetail\.evidence_refs\.length > 0/);
   assert.match(source, /Connects to/);
   assert.match(source, /Referenced by/);
   assert.match(source, /relationResolutionBadgeClass/);
@@ -79,7 +79,7 @@ test("memory pane loads node detail and surfaces provenance plus related graph c
   );
   assert.match(
     source,
-    /relation\.target_label \?\? relation\.target_entity_key \?\? relation\.target_node_id/,
+    /relation\.target_label \?\?\s*relation\.target_entity_key \?\?\s*relation\.target_node_id/,
   );
   assert.match(
     source,
@@ -87,19 +87,19 @@ test("memory pane loads node detail and surfaces provenance plus related graph c
   );
   assert.match(
     source,
-    /relation\.source_label \?\? relation\.source_node_id/,
+    /relation\.source_label \?\?\s*relation\.source_node_id/,
   );
   assert.match(
     source,
-    /if \(!isNavigableMemoryRelationTarget\(relation\.target_resolution_kind\)\) \{\s*return \(\s*<div[\s\S]*relationContent[\s\S]*<\/div>\s*\);\s*\}/,
+    /if \(\s*!isNavigableMemoryRelationTarget\(\s*relation\.target_resolution_kind,?\s*\)\s*\) \{\s*return \(\s*<div[\s\S]*relationContent[\s\S]*<\/div>\s*\);\s*\}/,
   );
   assert.match(
     source,
-    /onClick=\{\(\) => handleSelectGraphNodeById\(relation\.target_node_id\)\}/,
+    /onClick=\{\(\) =>\s*handleSelectGraphNodeById\(\s*relation\.target_node_id,?\s*\)\s*\}/,
   );
   assert.match(
     source,
-    /onClick=\{\(\) => handleSelectGraphNodeById\(relation\.source_node_id\)\}/,
+    /onClick=\{\(\) =>\s*handleSelectGraphNodeById\(\s*relation\.source_node_id,?\s*\)\s*\}/,
   );
   assert.match(
     source,
@@ -107,7 +107,7 @@ test("memory pane loads node detail and surfaces provenance plus related graph c
   );
   assert.match(
     source,
-    /onClick=\{\(\) => handleSelectGraphNodeById\(entity\.nodeId\)\}|onClick=\{\(\) => handleSelectGraphNodeById\(relation\.nodeId\)\}/s,
+    /onClick=\{\(\) =>\s*handleSelectGraphNodeById\(entity\.nodeId\)\s*\}|onClick=\{\(\) =>\s*handleSelectGraphNodeById\(relation\.nodeId\)\s*\}/s,
   );
   assert.match(
     source,

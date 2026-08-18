@@ -25,7 +25,7 @@ test("submissions panel renders an explicit sign-in requirement instead of surfa
   assert.match(source, /<span>Sign-In Required<\/span>/);
   assert.match(
     source,
-    /Your template submissions are only available after you sign in\./,
+    /Your template submissions are only available after you\s+sign\s+in\./,
   );
   assert.match(source, /manage marketplace submissions\./);
   assert.match(

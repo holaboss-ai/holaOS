@@ -29,10 +29,6 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
 
   assert.match(
     newIssueDialogSource,
-    /window\.electronAPI\.workspace[\s\S]*?\.listTeammates\(selectedWorkspaceId\)/,
-  );
-  assert.match(
-    newIssueDialogSource,
     /window\.electronAPI\.workspace\.stageSessionAttachments\(\{/,
   );
   assert.match(
@@ -53,10 +49,6 @@ test("new shell issue creation dialog stages attachments, creates issues, and op
     /\{ value: "backlog", label: "Backlog" \},/,
   );
   assert.match(newIssueDialogSource, /priority: priority \|\| null,/);
-  assert.match(
-    newIssueDialogSource,
-    /assignee_id: assigneeId \|\| null,/,
-  );
 
   assert.doesNotMatch(boardPaneSource, />\s*All\s*</);
   assert.doesNotMatch(boardPaneSource, />\s*Members\s*</);

@@ -11,7 +11,7 @@ test("spreadsheet editor preserves link metadata and opens sheet links through t
   const source = await readFile(sourcePath, "utf8");
 
   assert.match(source, /import type \{ MouseEvent \} from "react";/);
-  assert.match(source, /import \{ ArrowUpRight, Plus \} from "@/components/ui/icons";/);
+  assert.match(source, /import \{ ArrowUpRight, Plus \} from "@\/components\/ui\/icons";/);
   assert.match(source, /onOpenLinkInBrowser\?: \(url: string\) => void;/);
   assert.match(source, /function normalizeSpreadsheetCellLinkTarget\(/);
   assert.match(source, /function cloneTablePreviewSheetLinks\(/);
