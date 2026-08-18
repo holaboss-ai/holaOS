@@ -3,7 +3,7 @@ FROM ${TOOLCHAIN_IMAGE}
 
 # Install bun (toolchain image ships node + npm but not bun; the runtime build
 # scripts use bun install since the monorepo migration to a single root bun.lock)
-RUN npm install -g bun
+RUN npm install -g bun@1.3.6
 
 WORKDIR /tmp/runtime-source
 
