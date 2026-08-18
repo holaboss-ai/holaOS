@@ -100,10 +100,13 @@ export async function writeJsonStateFileAtomically(
           .then(() => true)
           .catch(() => false);
         if (!restored) {
-          throw new Error(
+          // `cause` is assigned rather than passed to the constructor: this
+          // package's tsconfig lib predates the two-argument Error.
+          const failure = new Error(
             `Failed to write ${path.basename(filePath)}; its previous contents are preserved at ${backupPath}`,
-            { cause: error },
           );
+          (failure as { cause?: unknown }).cause = error;
+          throw failure;
         }
       }
       throw error;
