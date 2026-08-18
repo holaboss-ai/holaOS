@@ -214,6 +214,10 @@ import {
   normalizeErrorMessage,
   turnInputIdsFromHistoryMessages,
 } from "./helpers";
+import {
+  preserveCommittedAssistantTurns,
+  settleCommittedAssistantTurns,
+} from "./preserveCommittedAssistantTurns";
 import { HistoryRestoreSkeleton } from "./skeletons";
 import { ApiKeyInstallGate } from "./ApiKeyInstallGate";
 import { AttachmentList, formatAttachmentSize } from "./AttachmentList";
@@ -3800,6 +3804,9 @@ export function ChatPane({
 
   const [isPaneDragActive, setIsPaneDragActive] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  /** Assistant turns committed locally that the server has not returned yet.
+   *  The assistant-side counterpart of pendingOptimisticUserMessagesRef. */
+  const pendingCommittedAssistantTurnsRef = useRef<ChatMessage[]>([]);
   const [sessionOutputs, setSessionOutputs] = useState<
     WorkspaceOutputRecordPayload[]
   >([]);
@@ -4417,6 +4424,9 @@ export function ChatPane({
 
   function clearSessionView() {
     setMessages([]);
+    // Scoped to the session it was committed in — leaving it set would splice a
+    // turn from the previous conversation into the next one.
+    pendingCommittedAssistantTurnsRef.current = [];
     setSessionOutputs([]);
     setLoadedHistoryMessageCount(0);
     setTotalHistoryMessageCount(0);
@@ -4733,12 +4743,21 @@ export function ChatPane({
         { workspaceId, sessionId: nextSessionId, persistedInputIds },
       );
       updatePendingOptimisticUserMessagesState(reconciled);
+      // A turn the server has caught up on is no longer pending — its copy is
+      // authoritative from here.
+      pendingCommittedAssistantTurnsRef.current = settleCommittedAssistantTurns(
+        pendingCommittedAssistantTurnsRef.current,
+        renderedForDisplay,
+      );
       setMessages((prev) =>
         preserveDisplayedTurnOutputs(
-          mergePendingOptimisticUserMessages(renderedForDisplay, reconciled, {
-            workspaceId,
-            sessionId: nextSessionId,
-          }),
+          preserveCommittedAssistantTurns(
+            mergePendingOptimisticUserMessages(renderedForDisplay, reconciled, {
+              workspaceId,
+              sessionId: nextSessionId,
+            }),
+            pendingCommittedAssistantTurnsRef.current,
+          ),
           prev,
         ),
       );
@@ -5195,6 +5214,13 @@ export function ChatPane({
     }
 
     setMessages((prev) => [...prev, nextMessage]);
+    // Hold it against the refresh ladder below: the runtime persists this turn
+    // asynchronously, so the 150ms refresh usually cannot see it yet and would
+    // otherwise drop it until the 500ms one — the end-of-response flicker.
+    pendingCommittedAssistantTurnsRef.current = [
+      ...pendingCommittedAssistantTurnsRef.current,
+      nextMessage,
+    ];
     resetLiveTurn();
     return true;
   }
