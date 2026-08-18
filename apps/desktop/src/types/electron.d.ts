@@ -509,6 +509,18 @@ declare global {
 		done: boolean;
 	}
 
+	/**
+	 * What the runtime is doing while it starts. `ready: false` is not a failure
+	 * — it means "still working"; the splash distinguishes a busy runtime from a
+	 * hung one by whether `phase` advances.
+	 */
+	interface RuntimeBootStatusPayload {
+		ready: boolean;
+		phase: string;
+		phase_elapsed_ms: number;
+		total_elapsed_ms: number;
+	}
+
 	interface RuntimeConfigPayload {
 		configPath: string | null;
 		loadedFromFile: boolean;
@@ -2366,6 +2378,7 @@ declare global {
 		runtime: {
 			getStatus: () => Promise<RuntimeStatusPayload>;
 			getDbMaintenance: () => Promise<DbMaintenanceStatusPayload | null>;
+			getBootStatus: () => Promise<RuntimeBootStatusPayload | null>;
 			restart: () => Promise<RuntimeStatusPayload>;
 			getConfig: () => Promise<RuntimeConfigPayload>;
 			refreshModelCatalog: () => Promise<RuntimeConfigPayload>;

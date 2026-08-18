@@ -4482,6 +4482,13 @@ const RUNTIME_MIGRATION_STARTUP_MESSAGE = "Migrating database";
 const DEFAULT_RUNTIME_STARTUP_HEALTH_ATTEMPTS = 30;
 const MIGRATION_RUNTIME_STARTUP_HEALTH_ATTEMPTS = 900;
 const RUNTIME_STARTUP_HEALTH_DELAY_MS = 1000;
+/**
+ * How long a single boot phase may sit unchanged before it counts as stalled
+ * rather than working. Generous: a phase that is genuinely slow (a large
+ * migration, an integrity check) is exactly what we want to wait for — the
+ * thing worth giving up on is a phase that stops advancing entirely.
+ */
+const STALLED_BOOT_PHASE_ATTEMPTS = 300;
 
 function sqliteTableExists(
   database: Database.Database,
@@ -17317,14 +17324,46 @@ async function waitForRuntimeHealth(
   delayMs = RUNTIME_STARTUP_HEALTH_DELAY_MS,
   options: {
     abortWhen?: () => boolean;
+    /** Called when the runtime moves to a new boot phase, so the splash can say
+     *  what it is waiting for instead of showing a bare spinner. */
+    onPhase?: (status: RuntimeBootStatus) => void;
   } = {},
 ) {
+  // A fixed attempt count races an operation whose duration we do not control,
+  // and the runtime always loses: an integrity check on a large data.db ran ~80s
+  // against this 30s budget, so the desktop killed a runtime that was working,
+  // and the kill left the marker that started the check again. Forever.
+  //
+  // So the budget is no longer blind. While the runtime reports a boot phase
+  // that is CHANGING, it is making progress and gets more time; a phase that
+  // stops moving is the actual "hung" signal, and an unreachable port is the
+  // actual "dead" signal. Runtimes without the endpoint fall back to the plain
+  // attempt count, unchanged.
+  let lastPhase: string | null = null;
+  let attemptsSpentOnThisPhase = 0;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (await isRuntimeHealthy(url)) {
       return true;
     }
     if (options.abortWhen?.()) {
       return false;
+    }
+
+    const status = await fetchRuntimeBootStatus(url);
+    if (status && !status.ready) {
+      if (status.phase !== lastPhase) {
+        // Progress: a new phase resets the patience for it, so the total budget
+        // scales with how much work there is rather than with a guess.
+        lastPhase = status.phase;
+        attemptsSpentOnThisPhase = 0;
+        options.onPhase?.(status);
+      } else {
+        attemptsSpentOnThisPhase += 1;
+      }
+      if (attemptsSpentOnThisPhase < STALLED_BOOT_PHASE_ATTEMPTS) {
+        // Don't count this against the overall budget — it is working.
+        attempt -= 1;
+      }
     }
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -17360,6 +17399,63 @@ async function isRuntimeHealthy(url: string) {
       resolve(false);
     });
     request.on("error", () => resolve(false));
+    request.end();
+  });
+}
+
+/** What the runtime is doing while it starts. `null` = it did not answer. */
+interface RuntimeBootStatus {
+  ready: boolean;
+  phase: string;
+  phase_elapsed_ms: number;
+  total_elapsed_ms: number;
+}
+
+/**
+ * Read /runtime/boot-status. Absent (404) on runtimes older than the endpoint,
+ * which is why every caller treats `null` as "no information" and falls back to
+ * the plain /healthz probe rather than assuming the worst.
+ */
+function fetchRuntimeBootStatus(url: string): Promise<RuntimeBootStatus | null> {
+  return new Promise((resolve) => {
+    const target = new URL("/runtime/boot-status", url);
+    const request = httpRequest(
+      {
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: "GET",
+        timeout: 1500,
+      },
+      (response) => {
+        const status = response.statusCode ?? 0;
+        if (status < 200 || status >= 300) {
+          response.resume();
+          resolve(null);
+          return;
+        }
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => {
+          try {
+            const parsed = JSON.parse(body) as RuntimeBootStatus;
+            resolve(
+              typeof parsed?.phase === "string" ? parsed : null,
+            );
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    request.on("timeout", () => {
+      request.destroy();
+      resolve(null);
+    });
+    request.on("error", () => resolve(null));
     request.end();
   });
 }
@@ -27364,6 +27460,11 @@ app.whenReady().then(async () => {
   );
   handleTrustedIpc("runtime:getDbMaintenance", ["main"], () =>
     fetchDbMaintenanceStatus(),
+  );
+  // Boot phase, for the splash. Fail-open like the maintenance probe: a null
+  // resolves to "no information", never to "blocked".
+  handleTrustedIpc("runtime:getBootStatus", ["main"], () =>
+    fetchRuntimeBootStatus(runtimeBaseUrl()).catch(() => null),
   );
   handleTrustedIpc("runtime:restart", ["main"], async () => {
     await restartEmbeddedRuntimeSafely("manual_restart");

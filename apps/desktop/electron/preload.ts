@@ -377,6 +377,18 @@ interface DbMaintenanceStatusPayload {
 	done: boolean;
 }
 
+/**
+ * What the runtime is doing while it starts. `ready: false` means "still
+ * working", not "failed" — the splash tells busy from hung by whether `phase`
+ * advances.
+ */
+interface RuntimeBootStatusPayload {
+	ready: boolean;
+	phase: string;
+	phase_elapsed_ms: number;
+	total_elapsed_ms: number;
+}
+
 interface RuntimeConfigPayload {
 	configPath: string | null;
 	loadedFromFile: boolean;
@@ -1579,6 +1591,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
 			ipcRenderer.invoke(
 				"runtime:getDbMaintenance",
 			) as Promise<DbMaintenanceStatusPayload | null>,
+		getBootStatus: () =>
+			ipcRenderer.invoke(
+				"runtime:getBootStatus",
+			) as Promise<RuntimeBootStatusPayload | null>,
 		restart: () =>
 			ipcRenderer.invoke("runtime:restart") as Promise<RuntimeStatusPayload>,
 		getConfig: () =>

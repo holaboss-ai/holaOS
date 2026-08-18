@@ -20,6 +20,24 @@ const UNKNOWN_STATUS_GRACE_MS = 20_000;
  * glitch can never strand the user here. Entry is latched — once in, a later
  * runtime restart uses the in-shell status banner, not a re-blanked splash.
  */
+/**
+ * Phase names the runtime publishes, in words a user can act on. A boot that is
+ * slow is not a boot that has failed — but with a bare spinner those are the
+ * same picture, and force-quitting a working runtime is what left a corrupt
+ * marker behind and started the crash loop in the first place.
+ */
+const BOOT_PHASE_LABELS: Record<string, string> = {
+  starting: "Starting the runtime…",
+  terminal_sessions: "Restoring terminal sessions…",
+  durable_memory: "Loading memory…",
+  queue_worker: "Starting the task queue…",
+  cron_worker: "Scheduling automations…",
+  main_session_events: "Restoring sessions…",
+  recall_embeddings: "Preparing recall…",
+  channel_gateway: "Connecting channels…",
+  ready: "",
+};
+
 export function BootGate({ children }: { children: ReactNode }) {
   const { runtimeStatus } = useWorkspaceDesktop();
   const status = runtimeStatus?.status ?? null;
@@ -28,6 +46,8 @@ export function BootGate({ children }: { children: ReactNode }) {
   const [maintenance, setMaintenance] =
     useState<DbMaintenanceStatusPayload | null>(null);
   const [maintenanceChecked, setMaintenanceChecked] = useState(false);
+  const [bootStatus, setBootStatus] =
+    useState<RuntimeBootStatusPayload | null>(null);
   const [graceElapsed, setGraceElapsed] = useState(false);
 
   // Fail-open timer for a status that never resolves.
@@ -45,6 +65,7 @@ export function BootGate({ children }: { children: ReactNode }) {
     if (entered || status !== "running") {
       return;
     }
+    const getBootStatus = window.electronAPI?.runtime?.getBootStatus;
     const getDbMaintenance = window.electronAPI?.runtime?.getDbMaintenance;
     if (!getDbMaintenance) {
       // No IPC (web/dev shell) → never block on maintenance.
@@ -57,6 +78,14 @@ export function BootGate({ children }: { children: ReactNode }) {
         const next = await getDbMaintenance();
         if (alive) {
           setMaintenance(next);
+        }
+        // Best-effort and independent: an older runtime has no boot-status
+        // endpoint, and a missing phase must never hold the splash.
+        if (getBootStatus) {
+          const boot = await getBootStatus().catch(() => null);
+          if (alive) {
+            setBootStatus(boot);
+          }
         }
       } catch {
         if (alive) {
@@ -112,9 +141,15 @@ export function BootGate({ children }: { children: ReactNode }) {
     );
   }
 
+  // Prefer the runtime's own startup message (migrations already set one), then
+  // the boot phase, then nothing. Anything is better than a bare spinner.
+  const phaseLabel =
+    bootStatus && !bootStatus.ready
+      ? (BOOT_PHASE_LABELS[bootStatus.phase] ?? "Starting the runtime…")
+      : "";
   return (
     <BootSplash
-      message={runtimeStatus?.startupMessage?.trim() || ""}
+      message={runtimeStatus?.startupMessage?.trim() || phaseLabel}
     />
   );
 }

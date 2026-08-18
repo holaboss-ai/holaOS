@@ -77,9 +77,12 @@ test("desktop migration startup detection keys off the workspace legacy backfill
 test("desktop runtime health wait can abort early after the spawned runtime exits", async () => {
   const source = await readFile(mainSourcePath, "utf8");
 
+  // Pins that the abort hook EXISTS, not that it is the only option — the
+  // options object also carries onPhase now, and a guard that breaks whenever a
+  // sibling option is added is pinning formatting rather than behaviour.
   assert.match(
     source,
-    /async function waitForRuntimeHealth\([\s\S]*options:\s*\{\s*abortWhen\?: \(\) => boolean;\s*\}\s*=\s*\{\s*\}/,
+    /async function waitForRuntimeHealth\([\s\S]*?abortWhen\?: \(\) => boolean;/,
   );
   assert.match(
     source,
