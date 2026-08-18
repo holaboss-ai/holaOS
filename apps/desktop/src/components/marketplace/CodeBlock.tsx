@@ -162,7 +162,15 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
   const isLong = lineCount > LONG_BLOCK_LINE_THRESHOLD;
   const [expanded, setExpanded] = useState(!isLong);
   const [copied, setCopied] = useState(false);
-  const [highlighted, setHighlighted] = useState<string | null>(null);
+  // Carries the key it was produced for. Holding the HTML alone let a commit
+  // paint the PREVIOUS body's highlight: when the settle timer fires,
+  // `settledCode === trimmed` becomes true in the same commit that still holds
+  // the older HTML, so a streaming block flashed its earlier, shorter self
+  // before the effect could clear it.
+  const [highlighted, setHighlighted] = useState<{
+    key: string;
+    html: string;
+  } | null>(null);
   const [theme, setTheme] = useState(pickShikiTheme);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -225,10 +233,11 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
   useEffect(() => {
     const cached = highlightCache.get(cacheKey);
     if (cached) {
-      setHighlighted(cached);
+      setHighlighted({ key: cacheKey, html: cached });
       return;
     }
-    setHighlighted(null);
+    // No clear needed: the render gates on the stored key, so stale HTML is
+    // already invisible. Clearing here would only cost an extra render.
     if (!inView) return;
 
     let cancelled = false;
@@ -244,7 +253,7 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
           if (firstKey !== undefined) highlightCache.delete(firstKey);
         }
         highlightCache.set(cacheKey, html);
-        setHighlighted(html);
+        setHighlighted({ key: cacheKey, html });
       } catch {
         if (!cancelled) setHighlighted(null);
       }
@@ -286,13 +295,15 @@ export function CodeBlock({ language, code }: CodeBlockProps) {
         </button>
       </div>
       {/* Only show highlighted HTML when it corresponds to the text on screen.
-          While the body is still growing, settledCode lags `trimmed`, and
-          rendering the stale highlight would freeze a streaming block at an
-          earlier frame. The plain <pre> below stays live throughout. */}
-      {highlighted && settledCode === trimmed ? (
+          Two conditions, and both are load-bearing: the HTML must have been
+          produced for the CURRENT key (otherwise the commit in which
+          settledCode catches up paints the previous body), and settledCode
+          must have caught up at all (otherwise a still-growing block freezes
+          at an earlier frame). The plain <pre> below stays live throughout. */}
+      {highlighted?.key === cacheKey && settledCode === trimmed ? (
         <div
           className={`md-code-block-shiki ${expanded ? "" : "md-code-block-collapsed"}`.trim()}
-          dangerouslySetInnerHTML={{ __html: highlighted }}
+          dangerouslySetInnerHTML={{ __html: highlighted.html }}
         />
       ) : (
         <pre

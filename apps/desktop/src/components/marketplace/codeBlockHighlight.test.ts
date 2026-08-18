@@ -32,11 +32,18 @@ test("highlighting is keyed on settled text, not the live body", () => {
 });
 
 test("a streaming block never renders a stale highlight", () => {
-  // settledCode lags `trimmed` while the body grows, so using the highlighted
-  // HTML unconditionally would freeze a streaming block at an earlier frame.
+  // Two distinct staleness sources, and checking only one leaves a visible
+  // flash:
+  //
+  //   settledCode === trimmed   — the body has stopped growing. Without it a
+  //                               streaming block freezes at an earlier frame.
+  //   highlighted.key === cacheKey — the HTML belongs to THIS text. Without it
+  //                               the commit in which settledCode catches up
+  //                               paints the previous, shorter body, because
+  //                               the clearing effect has not run yet.
   assert.match(
     source,
-    /\{highlighted && settledCode === trimmed \? \(/,
+    /highlighted\?\.key === cacheKey && settledCode === trimmed \? \(/,
     "highlighted HTML is rendered without checking it matches the current text",
   );
 });
@@ -55,4 +62,23 @@ test("one theme observer is shared across code blocks", () => {
   );
   // …and it must be released when the last block unmounts.
   assert.match(source, /rootThemeObserver\?\.disconnect\(\)/);
+});
+
+test("cached and freshly computed highlights both carry their key", () => {
+  // Storing bare HTML is what allowed a commit to paint the previous body's
+  // highlight, so both writers have to record the key it was produced for.
+  assert.match(
+    source,
+    /setHighlighted\(\{ key: cacheKey, html: cached \}\)/,
+    "the cache hit path stores HTML without its key",
+  );
+  assert.match(
+    source,
+    /setHighlighted\(\{ key: cacheKey, html \}\)/,
+    "the freshly highlighted path stores HTML without its key",
+  );
+  assert.match(
+    source,
+    /dangerouslySetInnerHTML=\{\{ __html: highlighted\.html \}\}/,
+  );
 });
