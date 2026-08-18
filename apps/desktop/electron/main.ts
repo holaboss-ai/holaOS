@@ -18964,6 +18964,14 @@ async function prewarmWebHolaAppSurface(holaAppId: string): Promise<void> {
         }
       },
     );
+    // The opt-out above is for the LOAD, per its comment — but nothing ever put
+    // it back, so a detached, invisible page kept running its timers,
+    // animations and polling at full cadence for the rest of the app session.
+    // Restoring the default only affects the view while it is hidden or
+    // occluded; an attached, visible surface is not throttled by Chromium.
+    if (!view.webContents.isDestroyed()) {
+      view.webContents.setBackgroundThrottling(true);
+    }
   } catch (err) {
     console.warn(`[web-holaapp] prewarm ${holaAppId} failed:`, err);
   }

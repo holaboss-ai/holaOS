@@ -1,0 +1,39 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const mainSourcePath = path.join(__dirname, "main.ts");
+
+/**
+ * The prewarmed HolaEmployee surface is created detached and never shown until
+ * the user opens it. Background throttling is turned off so the prewarm LOAD
+ * runs at full speed — but leaving it off means an invisible page keeps its
+ * timers, animations and polling running at full cadence for the whole app
+ * session, whether or not the user ever opens that surface.
+ */
+
+test("prewarming restores background throttling once the load finishes", async () => {
+  const source = await readFile(mainSourcePath, "utf8");
+
+  const start = source.indexOf("async function prewarmWebHolaAppSurface");
+  assert.notEqual(start, -1, "prewarmWebHolaAppSurface was not found");
+  const fn = source.slice(start, source.indexOf("\n}\n", start));
+
+  const disableAt = fn.indexOf("setBackgroundThrottling(false)");
+  const restoreAt = fn.indexOf("setBackgroundThrottling(true)");
+
+  assert.notEqual(disableAt, -1, "the prewarm no longer opts out of throttling");
+  assert.notEqual(
+    restoreAt,
+    -1,
+    "the prewarm never restores background throttling — the detached surface runs at full cadence forever",
+  );
+  // Order matters: restoring before the load would defeat the opt-out.
+  assert.ok(
+    restoreAt > disableAt,
+    "throttling must be restored after the load, not before it",
+  );
+});
