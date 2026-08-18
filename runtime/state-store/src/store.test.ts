@@ -5254,3 +5254,131 @@ test("searchOutputs indexes title/body and honors producer + date filters", () =
 
   store.close();
 });
+
+test("an integrity check that was killed mid-run is not retried on the next boot", () => {
+  // The livelock this guards: quick_check is unbounded (it walks every page —
+  // ~80s on a 2GB data.db) while the desktop gives the runtime ~30s to answer
+  // /healthz before killing and respawning it. The kill leaves the dirty marker,
+  // which re-arms the check, which is killed again. The app never starts and
+  // nothing logs an error. Observed in the field on a 1.9GB data.db that was in
+  // fact healthy — quick_check returned "ok" when run to completion by hand.
+  const root = makeTempDir("hb-state-store-check-livelock-");
+  const opts = {
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  };
+
+  const store1 = new RuntimeStateStore(opts);
+  store1.enqueueInput({
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    payload: { text: "hello" },
+    idempotencyKey: "idem-1",
+  });
+  const dataDbPath = store1.rootRuntimeDbPath;
+  const markerPath = `${dataDbPath}.open`;
+  store1.close();
+
+  // The DB is intact — as it was in the field. Only the marker says a previous
+  // boot died while checking.
+  fs.writeFileSync(markerPath, "checking");
+
+  // A small healthy DB passes quick_check in milliseconds, so behaviour alone
+  // cannot distinguish "skipped" from "ran and passed" — and the bug is that it
+  // RUNS. Observe which path was taken.
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  let store2: RuntimeStateStore;
+  let recovered: ReturnType<RuntimeStateStore["enqueueInput"]>;
+  try {
+    store2 = new RuntimeStateStore(opts);
+    recovered = store2.enqueueInput({
+      workspaceId: "workspace-1",
+      sessionId: "session-main",
+      payload: { text: "after skipped check" },
+      idempotencyKey: "idem-2",
+    });
+  } finally {
+    console.warn = realWarn;
+  }
+  assert.ok(
+    warnings.some((line) => line.includes("skipping the integrity check")),
+    `expected the check to be skipped after a killed run, saw: ${JSON.stringify(warnings)}`,
+  );
+  assert.ok(
+    !warnings.some((line) => line.includes("verifying")),
+    "the check was re-run after having been killed once — that is the livelock",
+  );
+  assert.ok(recovered?.inputId, "the store boots instead of looping on the check");
+  assert.equal(
+    fs.readFileSync(markerPath, "utf8"),
+    "open",
+    "the marker resets to the open state so a later crash re-arms the check",
+  );
+  // Nothing was quarantined: a healthy DB must not be thrown away just because
+  // the check could not be completed in time.
+  assert.deepEqual(
+    fs.readdirSync(path.dirname(dataDbPath)).filter((f) => f.startsWith("data.db.corrupt-")),
+    [],
+    "a healthy DB must survive a skipped check",
+  );
+  store2.close();
+
+  // And the data is still there — this is the whole point of not resetting.
+  const store3 = new RuntimeStateStore(opts);
+  for (const key of ["idem-1", "idem-2"]) {
+    assert.ok(
+      store3.getInputByIdempotencyKey({ workspaceId: "workspace-1", idempotencyKey: key }),
+      `${key} survived the skipped check`,
+    );
+  }
+  store3.close();
+});
+
+test("a legacy empty marker still triggers the integrity check", () => {
+  // Markers written before the marker carried a state are empty strings. They
+  // must keep meaning "crashed while open", or an upgrade would silently drop
+  // the corruption guard for every user mid-crash.
+  const root = makeTempDir("hb-state-store-legacy-marker-");
+  const opts = {
+    dbPath: path.join(root, "runtime.db"),
+    workspaceRoot: path.join(root, "workspace"),
+  };
+  const store1 = new RuntimeStateStore(opts);
+  store1.enqueueInput({
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    payload: { text: "hello" },
+    idempotencyKey: "idem-1",
+  });
+  const dataDbPath = store1.rootRuntimeDbPath;
+  store1.close();
+
+  for (const suffix of ["-wal", "-shm"]) {
+    fs.rmSync(`${dataDbPath}${suffix}`, { force: true });
+  }
+  const size = fs.statSync(dataDbPath).size;
+  const fd = fs.openSync(dataDbPath, "r+");
+  try {
+    fs.writeSync(fd, Buffer.alloc(size - 4096, 0xff), 0, size - 4096, 4096);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.writeFileSync(`${dataDbPath}.open`, ""); // legacy format
+
+  const store2 = new RuntimeStateStore(opts);
+  store2.enqueueInput({
+    workspaceId: "workspace-1",
+    sessionId: "session-main",
+    payload: { text: "after reset" },
+    idempotencyKey: "idem-2",
+  });
+  const quarantined = fs
+    .readdirSync(path.dirname(dataDbPath))
+    .filter((f) => f.startsWith("data.db.corrupt-"));
+  assert.equal(quarantined.length, 1, "a legacy marker must still run the check");
+  store2.close();
+});

@@ -1134,6 +1134,15 @@ export const DEFAULT_OUTPUT_EVENT_RETENTION: OutputEventRetentionPolicy = {
 };
 
 /**
+ * States for the `data.db.open` marker. The distinction exists because the
+ * boot-time integrity check is unbounded and the desktop's startup probe is not:
+ * without a way to tell "died while open" from "died while checking", a check
+ * that outlives the probe re-arms itself on every boot and never completes.
+ */
+const ROOT_DB_MARKER_OPEN = "open";
+const ROOT_DB_MARKER_CHECKING = "checking";
+
+/**
  * Cap on how many over-the-limit events the WRITE path trims per run completion,
  * so a first-time trim of a huge legacy session can't block the hot path with a
  * 300k-row DELETE. The background sweep clears any remaining backlog.
@@ -13838,9 +13847,31 @@ export class RuntimeStateStore {
    * Its presence at open time means the previous run crashed — the only way a
    * SQLite DB can be left inconsistent — and thus the only time the integrity
    * check below is worth its cost. A clean launch never pays for it.
+   *
+   * Its CONTENTS distinguish how far the previous run got:
+   *   "open"     — the DB was open for normal use when the process died.
+   *   "checking" — the process died while running the integrity check itself.
+   *
+   * That distinction is load-bearing; see {@link ROOT_DB_MARKER_CHECKING}.
    */
   private rootDbDirtyMarkerPath(): string {
     return `${this.rootRuntimeDbPath}.open`;
+  }
+
+  private readRootDbMarker(): string | null {
+    try {
+      return fs.readFileSync(this.rootDbDirtyMarkerPath(), "utf8").trim();
+    } catch {
+      return null;
+    }
+  }
+
+  private writeRootDbMarker(state: string): void {
+    try {
+      fs.writeFileSync(this.rootDbDirtyMarkerPath(), state);
+    } catch {
+      // best-effort — a missing marker only costs an extra check next crash.
+    }
   }
 
   private openRootDbConnectionOnly(): Database.Database {
@@ -13920,19 +13951,41 @@ export class RuntimeStateStore {
    * cause. Gated on an unclean prior shutdown so healthy launches stay fast.
    */
   private openRootRuntimeDbConnection(): Database.Database {
-    const markerPath = this.rootDbDirtyMarkerPath();
-    const priorRunUnclean = fileExists(markerPath);
+    const priorMarker = this.readRootDbMarker();
+    const priorRunUnclean = priorMarker !== null;
+    // The previous run died DURING the check itself. Running it again would die
+    // the same way, forever: quick_check is unbounded (it walks every page — ~80s
+    // on a 2GB data.db) and the desktop gives the runtime ~30s to answer /healthz
+    // before killing and respawning it. Being killed leaves the marker, which
+    // re-arms the check. That livelock bricks the app with no error anywhere:
+    // the runtime never binds and the log only shows the boot line repeating.
+    //
+    // So the check gets exactly ONE attempt. If it did not survive that, boot
+    // without it and say so — a DB that is genuinely malformed still surfaces at
+    // migration time, which fails loudly, whereas the loop never surfaces at all.
+    const integrityCheckDiedLastBoot = priorMarker === ROOT_DB_MARKER_CHECKING;
     let db: Database.Database | null = null;
-    if (priorRunUnclean) {
+    if (priorRunUnclean && !integrityCheckDiedLastBoot) {
+      // Record that the check is underway BEFORE running it, so that if this
+      // process is killed mid-check the next boot can tell "crashed while open"
+      // from "crashed while checking".
+      this.writeRootDbMarker(ROOT_DB_MARKER_CHECKING);
+      console.warn(
+        `[state-store] previous run exited uncleanly — verifying ${path.basename(this.rootRuntimeDbPath)} integrity (this can take minutes on a large database)`,
+      );
       // The prior run crashed, so the DB may be malformed. Corruption can surface
       // either as a throw while opening/setting pragmas OR as a non-"ok"
       // quick_check — treat both the same: quarantine the bad file and start
       // fresh so a corrupt DB can't wedge migrations or the queue worker.
+      const startedAt = Date.now();
       try {
         db = this.openRootDbConnectionOnly();
         if (!this.rootDbPassesIntegrityCheck(db)) {
           throw new Error("root data.db failed quick_check");
         }
+        console.warn(
+          `[state-store] integrity check passed in ${Math.round((Date.now() - startedAt) / 1000)}s`,
+        );
       } catch {
         try {
           db?.close();
@@ -13942,16 +13995,16 @@ export class RuntimeStateStore {
         db = null;
         this.quarantineCorruptRootDb();
       }
+    } else if (integrityCheckDiedLastBoot) {
+      console.warn(
+        `[state-store] skipping the integrity check on ${path.basename(this.rootRuntimeDbPath)}: the previous boot was killed while running it. Booting without it — run "PRAGMA quick_check" by hand if you suspect corruption.`,
+      );
     }
     if (!db) {
       db = this.openRootDbConnectionOnly();
     }
     // Mark the session open; close() clears it on a clean exit.
-    try {
-      fs.writeFileSync(markerPath, "");
-    } catch {
-      // best-effort — a missing marker only costs an extra check next crash.
-    }
+    this.writeRootDbMarker(ROOT_DB_MARKER_OPEN);
     return db;
   }
 
