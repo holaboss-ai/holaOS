@@ -2046,3 +2046,45 @@ test("chat pane preserves optimistic user messages across history refresh until 
     /if \(!queueOntoActiveRun && optimisticUserMessageId\) \{[\s\S]*prev\.filter\(\(message\) => message\.id !== optimisticUserMessageId\)[\s\S]*item\.localMessageId !== optimisticUserMessageId/,
   );
 });
+
+test("a failed send restores the composer without overwriting a newer draft", async () => {
+  const source = await readFile(sourcePath, "utf8");
+
+  // The snapshot has to be taken before the optimistic clear, or there is
+  // nothing to put back.
+  assert.match(
+    source,
+    /const composerSnapshot = \{[\s\S]*text,[\s\S]*skillIds: quotedSkillIds,[\s\S]*capabilityIds: quotedCapabilityIds,[\s\S]*integrationSlugs: quotedIntegrationSlugs,[\s\S]*attachments: pendingAttachments,[\s\S]*\};/,
+  );
+
+  // Restoring is only correct while the composer is still empty. The failure
+  // can land seconds after the optimistic clear, so an unconditional restore
+  // overwrites whatever the user typed while waiting.
+  assert.match(
+    source,
+    /const composerStillEmpty =\s*composerEditorRef\.current\?\.isEmpty\(\) !== false;/,
+  );
+  assert.match(
+    source,
+    /if \(composerStillEmpty\) \{[\s\S]*setInput\(composerSnapshot\.text\);[\s\S]*composerEditorRef\.current\?\.setContent\(\{/,
+  );
+
+  // When the draft wins, the failed message still must not vanish: recording
+  // it is what makes the recall shortcut able to bring it back.
+  assert.match(
+    source,
+    /\} else \{\s*rememberSubmittedComposerInput\(\s*composerSnapshot\.text,\s*selectedWorkspace\.id,\s*\);\s*\}/,
+  );
+
+  // Attachments merge rather than overwrite — re-staging files cannot clobber
+  // typed text, but blindly assigning would drop newly dragged ones.
+  assert.match(
+    source,
+    /setPendingAttachments\(\(current\) =>\s*current\.length === 0 \? composerSnapshot\.attachments : current,\s*\);/,
+  );
+
+  // Past the queue the turn exists, so nothing may be put back.
+  assert.match(source, /let queueAccepted = false;/);
+  assert.match(source, /queueAccepted = true;/);
+  assert.match(source, /if \(!queueAccepted\) \{/);
+});

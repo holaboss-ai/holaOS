@@ -7702,16 +7702,36 @@ export function ChatPane({
       if (!queueAccepted) {
         // Nothing was queued, so put the user's message back rather than
         // making them retype it and re-attach their files.
-        setInput(composerSnapshot.text);
-        setQuotedSkillIds(composerSnapshot.skillIds);
-        setQuotedCapabilityIds(composerSnapshot.capabilityIds);
-        setQuotedIntegrationSlugs(composerSnapshot.integrationSlugs);
-        setPendingAttachments(composerSnapshot.attachments);
-        composerEditorRef.current?.setContent({
-          text: composerSnapshot.text,
-          skillIds: composerSnapshot.skillIds,
-          capabilityIds: composerSnapshot.capabilityIds,
-        });
+        //
+        // But the composer was cleared optimistically and this failure can
+        // land seconds later — long enough for someone watching a hung send
+        // to start typing again. Overwriting THAT is the same data loss in
+        // the other direction, so the live draft wins and the failed text
+        // becomes recallable (⌥↑) instead of being restored over it.
+        const composerStillEmpty =
+          composerEditorRef.current?.isEmpty() !== false;
+        if (composerStillEmpty) {
+          setInput(composerSnapshot.text);
+          setQuotedSkillIds(composerSnapshot.skillIds);
+          setQuotedCapabilityIds(composerSnapshot.capabilityIds);
+          setQuotedIntegrationSlugs(composerSnapshot.integrationSlugs);
+          composerEditorRef.current?.setContent({
+            text: composerSnapshot.text,
+            skillIds: composerSnapshot.skillIds,
+            capabilityIds: composerSnapshot.capabilityIds,
+          });
+        } else {
+          rememberSubmittedComposerInput(
+            composerSnapshot.text,
+            selectedWorkspace.id,
+          );
+        }
+        // Attachments restore independently of the text: re-staging files
+        // cannot overwrite anything typed, and dropping them would mean
+        // re-dragging every one.
+        setPendingAttachments((current) =>
+          current.length === 0 ? composerSnapshot.attachments : current,
+        );
       }
       // Only retract the optimistic bubble when nothing was queued. Past that
       // point the runtime has the input and the turn will run, so removing it
