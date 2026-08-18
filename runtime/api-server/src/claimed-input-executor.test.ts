@@ -36,6 +36,21 @@ import {
 } from "./workspace-attachment-memory.js";
 import { retrieveWorkspaceMemory } from "./workspace-memory.js";
 
+/**
+ * Backend relay POSTs are queued rather than awaited by the turn (so a slow
+ * backend cannot stall the stdout drain), which means they land shortly AFTER
+ * processClaimedInput resolves. Assertions on delivery have to wait for that.
+ */
+async function waitForRelayCount(
+  relayed: readonly unknown[],
+  expected: number,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (relayed.length < expected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 const tempDirs: string[] = [];
 const ORIGINAL_ENV = {
   SANDBOX_AGENT_RUNNER_COMMAND_TEMPLATE:
@@ -4936,6 +4951,7 @@ test("claimed input relays tool, output, and terminal run events for backend-own
     },
   });
 
+  await waitForRelayCount(relayedEvents, 4);
   assert.deepEqual(
     relayedEvents.map((event) => [event.sequence, event.eventType]),
     [
@@ -5128,6 +5144,7 @@ test("claimed input relays skill invocations, coalesced output, and waiting-user
     },
   });
 
+  await waitForRelayCount(relayedEvents, 7);
   assert.deepEqual(
     relayedEvents.map((event) => [event.sequence, event.eventType]),
     [
@@ -6351,5 +6368,98 @@ test("claimed input triggers durable-memory writeback after a completed turn", a
   );
   assert.equal(writebackCalls[0].inputId, queued.inputId);
   assert.equal(writebackCalls[0].assistantText, "Noted.");
+  store.close();
+});
+
+test("a slow backend does not sit on the turn's critical path", async () => {
+  const store = makeStore("hb-claimed-input-relay-nonblocking-");
+  const workspace = seedWorkspaceRecord(store, {
+    workspaceId: "workspace-1",
+    name: "Workspace 1",
+    harness: "pi",
+    status: "active",
+  });
+  const queued = store.enqueueInput({
+    workspaceId: workspace.id,
+    sessionId: "session-main",
+    payload: { text: "hello" },
+  });
+  const claimed = store.claimInputs({
+    limit: 1,
+    claimedBy: "sandbox-agent-ts-worker",
+    leaseSeconds: 300,
+  });
+
+  const RELAY_DELAY_MS = 120;
+  const relayedSequences: number[] = [];
+  const slow = async () => {
+    await new Promise((resolve) => setTimeout(resolve, RELAY_DELAY_MS));
+  };
+
+  const startedAt = Date.now();
+  await processClaimedInput({
+    store,
+    record: claimed[0],
+    claimedBy: "sandbox-agent-ts-worker",
+    // run-start used to be awaited before the runner was even spawned
+    registerRunStartedFn: slow,
+    relayRunEventFn: async (params) => {
+      relayedSequences.push(params.sequence);
+      await slow();
+    },
+    executeRunnerRequestFn: async (payload, options = {}) => {
+      for (let i = 0; i < 6; i += 1) {
+        await options.onEvent?.({
+          session_id: payload.session_id,
+          input_id: payload.input_id,
+          sequence: i + 1,
+          event_type: "tool_call",
+          payload: {
+            phase: "started",
+            tool_name: "read",
+            call_id: `call-${i}`,
+            tool_args: {},
+          },
+        });
+      }
+      await options.onEvent?.({
+        session_id: payload.session_id,
+        input_id: payload.input_id,
+        sequence: 7,
+        event_type: "run_completed",
+        payload: { status: "completed" },
+      });
+      return { events: [], skippedLines: [], stderr: "", returnCode: 0, sawTerminal: true };
+    },
+  });
+  const elapsed = Date.now() - startedAt;
+
+  // The turn must not pay for the relays AT ALL. Serialized, run-start plus 6
+  // tool calls plus the terminal relays cost ~8 x RELAY_DELAY_MS before the
+  // turn can finish; queued, the turn is independent of RELAY_DELAY_MS.
+  // The bar sits just above real execution and far below the cost of even a
+  // couple of serialized relays, so partially reverting either half trips it.
+  const budget = 2 * RELAY_DELAY_MS;
+  assert.ok(
+    elapsed < budget,
+    `turn took ${elapsed}ms; it must not wait on relay POSTs (budget ${budget}ms, serialized cost ~${8 * RELAY_DELAY_MS}ms)`,
+  );
+
+  // Queued, not dropped: they land after the turn returns. Wait for the chain
+  // to drain before asserting delivery — that asynchrony is the point.
+  const deadline = Date.now() + 5_000;
+  while (relayedSequences.length < 7 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(
+    relayedSequences.length >= 7,
+    `expected every relay to still be delivered, saw ${relayedSequences.length}`,
+  );
+
+  // Ordering still has to hold: sequences are assigned synchronously, so the
+  // backend sees them monotonically even though the POSTs are queued.
+  const sorted = [...relayedSequences].sort((a, b) => a - b);
+  assert.deepEqual(relayedSequences, sorted, "relayed sequences must stay ordered");
+
   store.close();
 });

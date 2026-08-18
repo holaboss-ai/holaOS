@@ -101,6 +101,15 @@ const PI_SESSION_MANAGER_MODULE_PATH = path.join(
   "session-manager.js",
 );
 const PI_SESSION_DIR_RELATIVE = path.join(".holaboss", "pi-sessions");
+/**
+ * Ceiling on relay POSTs queued but not yet sent. Each has its own 2s abort
+ * budget and they are serialized to preserve ordering, so an unreachable
+ * backend would otherwise let a long, chatty run accumulate an unbounded
+ * queue. Dropping is correct here: this is telemetry, and the run's own
+ * event log in the store is the source of truth.
+ */
+const BACKEND_RELAY_MAX_PENDING = 64;
+
 const PROVIDER_TERMINATION_RECOVERY_MIN_INPUT_TOKENS = 250_000;
 const PROVIDER_TERMINATION_RECOVERY_MIN_MODEL_TURNS = 24;
 const PROVIDER_TERMINATION_RECOVERY_MIN_TOOL_CALLS = 12;
@@ -4140,14 +4149,40 @@ export async function processClaimedInput(params: {
       params.registerRunStartedFn ?? registerWorkspaceAgentRunStarted;
     const relayRunEvent =
       params.relayRunEventFn ?? registerWorkspaceAgentRunEvent;
-    await registerRunStarted({
+    // Backend run telemetry is best-effort (postWorkspaceAgentRunRequest logs
+    // and returns; it never throws) and nothing here consumes its result -- but
+    // it was awaited, so every turn for a signed-in user paid up to its full 2s
+    // abort budget before the runner was even spawned.
+    //
+    // It becomes the head of a chain instead. Later relays queue behind it, so
+    // the backend still sees run-start before any event, while the turn stops
+    // waiting on it.
+    let backendRelayPending = 0;
+    let backendRelayDropped = 0;
+    let backendRelayChain: Promise<void> = registerRunStarted({
       workspaceId: record.workspaceId,
       sessionId: record.sessionId,
       inputId: record.inputId,
       runId,
       selectedModel,
       runtimeBinding,
-      });
+    }).catch(() => undefined);
+
+    /** Queue a relay POST behind the ones already in flight, without waiting. */
+    const enqueueBackendRelay = (send: () => Promise<void>): void => {
+      if (backendRelayPending >= BACKEND_RELAY_MAX_PENDING) {
+        // A dead backend must not grow an unbounded queue in a long run.
+        backendRelayDropped += 1;
+        return;
+      }
+      backendRelayPending += 1;
+      backendRelayChain = backendRelayChain
+        .then(send)
+        .catch(() => undefined)
+        .finally(() => {
+          backendRelayPending -= 1;
+        });
+    };
 
     const baseHarnessTimeoutSeconds =
       resolveRuntimeHarnessPlugin(harness)?.timeoutSeconds({
@@ -4269,17 +4304,25 @@ export async function processClaimedInput(params: {
         1,
       );
       lastRelayedRunEventSequence = relaySequence;
-      await relayRunEvent({
-        workspaceId: record.workspaceId,
-        sessionId: record.sessionId,
-        inputId: record.inputId,
-        runId,
-        sequence: relaySequence,
-        eventType: relayParams.eventType,
-        payload: relayParams.payload,
-        timestamp: relayParams.timestamp,
-        runtimeBinding,
-          });
+      // The sequence above is assigned synchronously, so relay ordering is
+      // fixed here even though the POST itself is queued rather than awaited.
+      // This function used to await the request while sitting inside the
+      // stdout drain loop, which meant nothing else was read from the harness
+      // -- and so nothing reached the store the desktop tails -- for up to 2s
+      // per tool call and per 1200 characters of output. That is the stutter.
+      enqueueBackendRelay(() =>
+        relayRunEvent({
+          workspaceId: record.workspaceId,
+          sessionId: record.sessionId,
+          inputId: record.inputId,
+          runId,
+          sequence: relaySequence,
+          eventType: relayParams.eventType,
+          payload: relayParams.payload,
+          timestamp: relayParams.timestamp,
+          runtimeBinding,
+        }),
+      );
     };
 
     const flushPendingOutputDelta = async (): Promise<void> => {
@@ -5379,6 +5422,17 @@ export async function processClaimedInput(params: {
           preferredSequence:
             Math.max(terminalEventToRelay.sequence, 1) + (runStatePayload ? 1 : 0),
         });
+      }
+      // Deliberately NOT awaited. The queued relays keep draining on their own
+      // in this long-lived process, and the store already holds the
+      // authoritative event log -- awaiting here would just move the cost from
+      // mid-stream to end-of-turn, delaying finalization and next-input pickup
+      // for a telemetry POST nobody is waiting on.
+      void backendRelayChain;
+      if (backendRelayDropped > 0) {
+        console.warn(
+          `[relay] dropped ${backendRelayDropped} backend run events for run ${runId} (queue over ${BACKEND_RELAY_MAX_PENDING})`,
+        );
       }
       maybeCreateMainSessionCompletionNotification({
         store,
