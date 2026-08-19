@@ -22,6 +22,25 @@ import type { ChatMessage } from "./types";
  * half of that symmetry: hold locally committed turns until the persisted turn
  * shows up, then let the server's copy win.
  */
+/**
+ * Does this turn carry the execution trace that renders its "Worked for Ns"
+ * anchor and Details disclosure?
+ *
+ * Mirrors the check the pane itself uses to decide a turn has execution
+ * content (index.tsx, hasExecutionOnlyContent). The trace lives in either
+ * shape: still-streaming turns accumulate `executionItems`, and a settled turn
+ * has them folded into an `execution` segment.
+ */
+function hasExecutionTrace(message: ChatMessage): boolean {
+  return (
+    (message.executionItems?.length ?? 0) > 0 ||
+    (message.segments?.some(
+      (segment) => segment.kind === "execution" && segment.items.length > 0,
+    ) ??
+      false)
+  );
+}
+
 export function preserveCommittedAssistantTurns(
   next: ChatMessage[],
   pending: ChatMessage[],
@@ -29,17 +48,41 @@ export function preserveCommittedAssistantTurns(
   if (pending.length === 0) {
     return next;
   }
+  const pendingById = new Map(pending.map((message) => [message.id, message]));
+  // A turn can come back from the server PRESENT BUT BARE. The history render
+  // rebuilds the execution trace from that turn's output events, and the
+  // conversation refresh does not wait for them — so the server's copy arrives
+  // carrying the text but no trace, and the "Worked for Ns" anchor and Details
+  // disclosure disappear for a beat before the next rung fills them in. That is
+  // the flicker at the end of a turn that survived preserving absent turns:
+  // this one was never absent.
+  //
+  // While the server's copy is still missing a trace the local one has, the
+  // local copy is the more complete record and keeps rendering. Substituted
+  // whole rather than merged, so the trace keeps its original position relative
+  // to the text — a turn that interleaves tools and prose would be reordered by
+  // grafting segments back on.
+  let substituted = false;
+  const reconciled = next.map((message) => {
+    const local = pendingById.get(message.id);
+    if (!local || !hasExecutionTrace(local) || hasExecutionTrace(message)) {
+      return message;
+    }
+    substituted = true;
+    return local;
+  });
+
   const present = new Set(next.map((message) => message.id));
   // Anything the server now returns is authoritative — its copy carries
   // outputs, provenance and ids the local one never had, so a still-pending
   // turn is only appended while genuinely absent.
   const missing = pending.filter((message) => !present.has(message.id));
   if (missing.length === 0) {
-    return next;
+    return substituted ? reconciled : next;
   }
   // Appended, not spliced: these are always the newest turn in the session, and
   // the refresh that dropped them is by definition missing the tail.
-  return [...next, ...missing];
+  return [...reconciled, ...missing];
 }
 
 /**
@@ -54,6 +97,16 @@ export function settleCommittedAssistantTurns(
   if (pending.length === 0) {
     return pending;
   }
-  const present = new Set(rendered.map((message) => message.id));
-  return pending.filter((message) => !present.has(message.id));
+  const renderedById = new Map(rendered.map((message) => [message.id, message]));
+  return pending.filter((message) => {
+    const server = renderedById.get(message.id);
+    if (!server) {
+      return true;
+    }
+    // Present is not the same as caught up. Settling on id alone is what let
+    // the trace blink out: the local copy was dropped while the server's still
+    // had no execution events, leaving nothing to render the turn's chrome
+    // from. Hold it until the server's copy actually carries the trace.
+    return hasExecutionTrace(message) && !hasExecutionTrace(server);
+  });
 }
