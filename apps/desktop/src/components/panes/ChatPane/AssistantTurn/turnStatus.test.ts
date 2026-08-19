@@ -60,9 +60,46 @@ test("live turn shows the active step, spinning, once", () => {
   });
 });
 
-test("live streaming of the final answer hides the top anchor", () => {
+test("live streaming of the final answer keeps the anchor but stops it spinning", () => {
+  // It used to return null here. That removed the row while the answer streamed
+  // and restored it as "Worked for Ns" on completion — inserting a line into a
+  // settled turn and shoving everything below it down the instant the agent
+  // stopped typing.
   const segments = [exec([step({ id: "a" })]), out("后台已开始拉")];
-  assert.equal(resolveTurnStatus(segments, { live: true }), null);
+  assert.deepEqual(resolveTurnStatus(segments, { live: true }), {
+    label: "Working",
+    spinning: false,
+    tone: "default",
+  });
+});
+
+test("the anchor does not appear or vanish between streaming and settled", () => {
+  // The actual regression guard: whether a turn shows an anchor must not change
+  // when `live` flips, or the layout shifts by one row at that exact moment.
+  const withTools = [exec([step({ id: "a" })]), out("done")];
+  const plainReply = [out("hi there")];
+
+  for (const [name, segments] of [
+    ["a turn that ran tools", withTools],
+    ["a plain text reply", plainReply],
+  ] as const) {
+    const streaming = resolveTurnStatus(segments, { live: true });
+    const settled = resolveTurnStatus(segments, { live: false, workedMs: 9000 });
+    assert.equal(
+      streaming === null,
+      settled === null,
+      `${name}: anchor presence changed when the turn settled`,
+    );
+  }
+});
+
+test("the settled anchor is the one the streaming anchor becomes", () => {
+  const segments = [exec([step({ id: "a" })]), out("done")];
+  assert.equal(resolveTurnStatus(segments, { live: true })?.label, "Working");
+  assert.equal(
+    resolveTurnStatus(segments, { live: false, workedMs: 9000 })?.label,
+    "Worked for 9s",
+  );
 });
 
 test("terminal error wins over duration", () => {

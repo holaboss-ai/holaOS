@@ -7685,6 +7685,14 @@ export function ChatPane({
       queueAccepted = true;
       rememberSubmittedComposerInput(text, selectedWorkspace.id);
       setActiveSession(queued.session_id);
+      // The sidebar hides sessions with no title — a titleless session is an
+      // empty placeholder there — and the title is derived server-side from
+      // this first user message, by the queue-input route we just called. So
+      // broadcasting at creation was a step too early: the reload came back
+      // with the session still untitled and the sidebar rightly filtered it
+      // out, leaving the row to wait for the next 5s poll anyway. This is the
+      // first moment the row can actually render.
+      notifyMainSessionsChanged();
       appendStreamTelemetry({
         streamId: "-",
         transportType: "client",

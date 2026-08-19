@@ -62,14 +62,29 @@ test("the broadcast carries no fabricated session row", () => {
   );
 });
 
-test("both session-creation paths in ChatPane broadcast", () => {
-  // Two places create a session: createWorkspaceSession (the composer's first
-  // send) and the app/main-session path. Missing either leaves the original
-  // 5s gap on that route.
+test("ChatPane broadcasts from every path that can make a session listable", () => {
+  // Three: the two creation paths, plus — critically — the point where the
+  // input is queued.
   const calls = chatPaneSource.match(/notifyMainSessionsChanged\(\)/g) ?? [];
   assert.equal(
     calls.length,
-    2,
-    `expected both creation paths to broadcast, found ${calls.length}`,
+    3,
+    `expected creation paths plus the queue-accepted path, found ${calls.length}`,
+  );
+});
+
+test("the queue-accepted broadcast is the one that makes the row appear", () => {
+  // The sidebar hides titleless sessions (they are empty placeholders there),
+  // and the title is derived server-side from the first user message by the
+  // queue-input route. Broadcasting only at creation reloads a list in which
+  // the session is still untitled and therefore still filtered out — the row
+  // waits for the next 5s poll regardless. The broadcast has to happen after
+  // the queue call returns.
+  const afterAccept = /queueAccepted = true;[\s\S]{0,1200}?notifyMainSessionsChanged\(\)/.test(
+    chatPaneSource,
+  );
+  assert.ok(
+    afterAccept,
+    "expected a broadcast shortly after queueAccepted = true",
   );
 });
