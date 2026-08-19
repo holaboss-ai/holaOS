@@ -787,11 +787,34 @@ export async function executeRunnerRequest(
   };
   options.signal?.addEventListener("abort", abortChild, { once: true });
 
+  // End-of-turn compaction failures are reported here, scraped from the stream
+  // as it arrives rather than from the buffered result.
+  //
+  // Compaction runs AFTER the terminal event and its failure does not fail the
+  // run, so pi's warning went to a stream that is "buffered by us and only
+  // surfaced on failure" (see above) — a signal written where nobody could read
+  // it. The consequence is not cosmetic: a failed compaction leaves the session
+  // uncompacted, so the next turn is larger and likelier to fail the same way,
+  // and the first anyone learns of it is a turn that blows the context window.
+  //
+  // Scraped rather than plumbed because the failure happens after the terminal
+  // event, by which point the event channel is closed and there is nothing left
+  // to attach it to.
+  let compactionFailure: string | null = null;
   const stderrPromise = (async () => {
     const chunks: Buffer[] = [];
     for await (const chunk of stderr) {
       resetIdleTimeout();
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      chunks.push(buffer);
+      if (compactionFailure === null) {
+        const match = /pi end-of-turn compaction failed[^\n]*/.exec(
+          buffer.toString("utf-8"),
+        );
+        if (match) {
+          compactionFailure = match[0].slice(0, 200);
+        }
+      }
     }
     return Buffer.concat(chunks).toString("utf-8").trim();
   })();
@@ -947,7 +970,10 @@ export async function executeRunnerRequest(
         (ttftInputTokens && ttftInputTokens > 0 && ttftCachedInputTokens !== null
           ? ` cache_hit=${Math.round((ttftCachedInputTokens / ttftInputTokens) * 100)}%`
           : "") +
-        (setupBreakdown ? ` setup=[${setupBreakdown}]` : ""),
+        (setupBreakdown ? ` setup=[${setupBreakdown}]` : "") +
+        // Only on failure: a compaction=ok on every line would be noise, and
+        // the absence of this is the normal case.
+        (compactionFailure ? ` compaction_failed=${JSON.stringify(compactionFailure)}` : ""),
     );
   }
 
