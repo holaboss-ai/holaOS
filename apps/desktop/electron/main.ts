@@ -16334,6 +16334,7 @@ async function createAgentSession(
           session_id: payload.session_id ?? undefined,
           kind: payload.kind ?? undefined,
           title: payload.title ?? undefined,
+          first_user_text: payload.first_user_text ?? undefined,
           parent_session_id: payload.parent_session_id ?? undefined,
           project_id: payload.project_id ?? undefined,
           created_by: payload.created_by ?? undefined,

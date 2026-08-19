@@ -246,6 +246,17 @@ export function ConversationTurns<Message extends ChatMessage>({
 
   if (liveAssistantTurn) {
     const liveTurnKey = liveAssistantTurn.id ?? "__live_assistant_turn__";
+    // Mirrors the spacing the committed turn will carry. Getting this wrong is
+    // a shift of exactly one `mt-2` (8px) at completion — the residual nudge
+    // left after the remount was fixed, because the live wrapper had no spacing
+    // and the committed one does.
+    const livePrevious = messages[messages.length - 1];
+    const liveIsFirstInAssistantGroup =
+      messages.length === 0 || livePrevious?.role === "user";
+    const liveIsGroupedContinuation =
+      livePrevious?.role === "assistant" && !liveIsFirstInAssistantGroup;
+    const liveSpacingClassName =
+      messages.length > 0 && !liveIsGroupedContinuation ? "mt-2" : "";
     renderedTurns.push(
       // Same key AND the same wrapper element the turn will carry once
       // committed, so React reconciles the live node into the committed one
@@ -262,11 +273,11 @@ export function ConversationTurns<Message extends ChatMessage>({
       <div
         key={liveTurnKey}
         data-message-id={liveAssistantTurn.id ?? undefined}
-        // No wrapper class: the live turn is not a full Message, and this
-        // decorator (search highlight and friends) only applies to committed
-        // ones. Reconciliation turns on element type and key, not className,
-        // so leaving it off costs nothing here.
-        className={undefined}
+        // Spacing only. The per-message decorator (search highlight and
+        // friends) needs a full Message and does not apply to a live turn, but
+        // the SPACING must match what the committed turn will have or the turn
+        // moves by 8px the moment it settles.
+        className={liveSpacingClassName || undefined}
       >
         <AssistantTurn
           label={assistantLabel}
@@ -282,10 +293,7 @@ export function ConversationTurns<Message extends ChatMessage>({
           onToggleTraceStep={onToggleTraceStep}
           onLinkClick={onLinkClick}
           onLocalLinkClick={onLocalLinkClick}
-          showAvatar={
-            messages.length === 0 ||
-            messages[messages.length - 1]?.role === "user"
-          }
+          showAvatar={liveIsFirstInAssistantGroup}
           workspaceId={workspaceId ?? null}
           harnessId={harnessId}
           assistantAvatar={assistantAvatar}

@@ -10657,7 +10657,23 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       kind:
         canonicalAgentSessionKind(optionalString(request.body.kind)) ??
         inferredSessionKind(workspace, sessionId),
-      title: nullableString(request.body.title) ?? null,
+      // An explicit title wins. Otherwise derive one from the message the
+      // caller is about to send, using the SAME function the queue route uses,
+      // so a session is listable from birth rather than from whenever its first
+      // input lands.
+      //
+      // The sidebar hides titleless sessions as empty placeholders, and the
+      // title used to be written only by the queue route — so the row for a
+      // session appeared not when it was created but whenever the send finished
+      // assembling and queueing, which was seconds later. Deriving it here
+      // rather than in the client keeps one implementation of the rules for
+      // attachments and image-only sends.
+      title:
+        nullableString(request.body.title) ??
+        sessionTitleFromFirstUserInput(
+          optionalString(request.body.first_user_text) ?? "",
+          [],
+        ),
       parentSessionId: nullableString(request.body.parent_session_id) ?? null,
       projectId: nullableString(request.body.project_id) ?? null,
       harnessId: resolvedHarnessId,

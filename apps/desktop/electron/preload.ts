@@ -599,6 +599,9 @@ interface CreateAgentSessionPayload {
 	session_id?: string | null;
 	kind?: string | null;
 	title?: string | null;
+	/** The message about to be sent. Lets the runtime title the session at
+	 *  creation, so the sidebar can list it immediately. */
+	first_user_text?: string | null;
 	parent_session_id?: string | null;
 	created_by?: string | null;
 	/** Owning HolaApp — stamps owning_app_id on the created session. */

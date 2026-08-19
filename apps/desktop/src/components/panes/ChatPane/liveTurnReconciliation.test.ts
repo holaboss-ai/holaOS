@@ -57,3 +57,31 @@ test("committed turns still key on the message id", () => {
     "committed turns must key on message.id for the live key to match",
   );
 });
+
+test("the live turn carries the spacing its committed form will have", () => {
+  // Reconciling the element was not enough on its own: committed turns get an
+  // `mt-2` spacing class and the live wrapper had none, so the turn still moved
+  // 8px the moment it settled. The live spacing has to be derived from the same
+  // grouping rules as the committed one.
+  assert.match(
+    source,
+    /const liveIsGroupedContinuation =\s*livePrevious\?\.role === "assistant" && !liveIsFirstInAssistantGroup;/,
+    "live grouping must mirror the committed isGroupedContinuation",
+  );
+  assert.match(
+    source,
+    /const liveSpacingClassName =\s*messages\.length > 0 && !liveIsGroupedContinuation \? "mt-2" : "";/,
+    "live spacing must mirror the committed spacingClassName",
+  );
+  assert.match(
+    source,
+    /className=\{liveSpacingClassName \|\| undefined\}/,
+    "the live wrapper must apply that spacing",
+  );
+});
+
+test("avatar and spacing agree on where the assistant group starts", () => {
+  // showAvatar and the spacing both hang off the same predicate. Computing them
+  // separately is how they drift apart.
+  assert.match(source, /showAvatar=\{liveIsFirstInAssistantGroup\}/);
+});

@@ -4950,6 +4950,7 @@ export function ChatPane({
     parentSessionId?: string | null,
     projectId?: string | null,
     owningAppId?: string | null,
+    firstUserText?: string | null,
   ): Promise<string | null> {
     const created = await window.electronAPI.workspace.createAgentSession({
       workspace_id: workspaceId,
@@ -4958,6 +4959,13 @@ export function ChatPane({
       project_id: projectId ?? null,
       created_by: "workspace_user",
       app_id: owningAppId ?? null,
+      // Titles the session at creation. The sidebar hides titleless sessions as
+      // empty placeholders, and the title used to be written only when the
+      // input was queued — so the row appeared not when the session was created
+      // but whenever the send finished assembling, seconds later. The runtime
+      // derives it, so the rules for attachments and image-only sends stay in
+      // one place.
+      first_user_text: firstUserText?.trim() || null,
     });
     const sessionId = created.session.session_id.trim();
     if (sessionId) {
@@ -7390,6 +7398,7 @@ export function ChatPane({
         draftParentSessionId,
         selectedChatProjectId,
         owningAppId,
+        text,
       );
       if (targetSessionId) {
         draftParentSessionIdRef.current = null;
