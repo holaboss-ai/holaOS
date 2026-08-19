@@ -406,7 +406,6 @@
         "@fastify/websocket": "^11.2.0",
         "@holaboss/remote-api": "workspace:*",
         "@holaboss/runtime-channel-gateway": "workspace:*",
-        "@holaboss/runtime-harness-host": "workspace:*",
         "@holaboss/runtime-state-store": "workspace:*",
         "@larksuiteoapi/node-sdk": "^1.67.0",
         "@modelcontextprotocol/sdk": "^1.28.0",

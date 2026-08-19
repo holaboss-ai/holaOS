@@ -1913,7 +1913,23 @@ const inProcessRunHarnessHost: TsRunnerExecutionDeps["runHarnessHost"] = async (
   installInProcessTerminationGuard(logger);
   inProcessTurnsActive += 1;
   try {
-    const { runPiInProcess } = await import("@holaboss/runtime-harness-host");
+    // Imported by PATH from the sibling harness-host build — the exact file the
+    // spawn path would have executed — rather than as a package dependency.
+    //
+    // Declaring the dependency made bun copy harness-host's whole tree into
+    // api-server/node_modules during runtime staging: a second 473MB / 14,734
+    // file copy of something already staged as a sibling. That bloated the app
+    // bundle and broke the signed macOS release with EMFILE, electron-builder
+    // running out of file descriptors while signing.
+    //
+    // Resolving by path also strengthens Blocker 0's guarantee instead of
+    // merely satisfying it: there is now provably ONE harness-host build, so
+    // the in-process path cannot drift from the spawned one or pick up an
+    // unpatched copy of pi.
+    const { entryPath } = harnessHostEntryPath();
+    const { runPiInProcess } = (await import(
+      pathToFileURL(entryPath).href
+    )) as HarnessHostInProcessModule;
     const result = await runPiInProcess({
       requestPayload: params.requestPayload,
       emitEvent: async (event) => {
@@ -1944,6 +1960,46 @@ const inProcessRunHarnessHost: TsRunnerExecutionDeps["runHarnessHost"] = async (
     inProcessTurnsActive = Math.max(0, inProcessTurnsActive - 1);
   }
 };
+
+/**
+ * The slice of harness-host's in-process entry point this module calls.
+ *
+ * Declared structurally rather than imported as
+ * `typeof import("@holaboss/runtime-harness-host")`, because that import is a
+ * real resolution even though it is type-only: it needs the package present in
+ * api-server's node_modules, which is exactly the duplication being removed
+ * above. The staged build catches this where the dev workspace does not — the
+ * workspace symlink makes it resolve locally, and it fails only in packaging.
+ *
+ * The duplication runs the same direction as `TERMINAL_EVENT_TYPES` in
+ * harness-host's in-process.ts: a small contract copied across the boundary
+ * rather than a dependency edge, because api-server must not depend on
+ * harness-host (the dependency runs the other way).
+ */
+interface HarnessHostInProcessModule {
+  runPiInProcess(params: {
+    requestPayload: unknown;
+    emitEvent: (event: {
+      session_id: string;
+      input_id: string;
+      sequence: number;
+      event_type: string;
+      timestamp: string;
+      payload: Record<string, unknown>;
+    }) => Promise<void>;
+    firstEventTimeoutMs?: number;
+    logger?: LoggerLike;
+  }): Promise<{
+    exitCode: number;
+    stderr: string;
+    sawEvent: boolean;
+    terminalEmitted: boolean;
+    lastSequence: number;
+    harnessSpawnToFirstEventMs?: number;
+    harnessSpawnToFirstTokenMs?: number;
+    postTerminalError?: string | null;
+  }>;
+}
 
 function harnessHostEntryPath(): { entryPath: string; argsPrefix: string[] } {
   const currentFile = fileURLToPath(import.meta.url);

@@ -162,10 +162,6 @@ const WORKSPACE_SIBLING_REWRITES = {
   "@holaboss/runtime-state-store": "file:../state-store",
   "@holaboss/remote-api": "file:../remote-api",
   "@holaboss/runtime-channel-gateway": "file:../channel-gateway",
-  // api-server calls into harness-host for the in-process pi path
-  // (HB_HARNESS_IN_PROCESS). harness-host is staged above api-server, so the
-  // sibling dir exists by the time api-server's install runs.
-  "@holaboss/runtime-harness-host": "file:../harness-host",
 };
 
 // Postinstall lifecycle scripts only run for packages listed here
