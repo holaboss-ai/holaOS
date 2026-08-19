@@ -25,9 +25,16 @@ export const claudeCodeHarnessDefinition: HarnessDefinition = {
       supportsMcpTools: true,
     },
     // Forwarded as `claude --model <id>` by the host runner. List +
-    // labels are a static fallback catalogue. `default: true` on Sonnet 4.6 marks the
-    // harness's preferred pick — the desktop picker uses this when
+    // labels are a static fallback catalogue. `default: true` on Sonnet 5 marks
+    // the harness's preferred pick — the desktop picker uses this when
     // there's no per-session override.
+    //
+    // Dropping a model here is safe for sessions already committed to it: the
+    // desktop only adopts a session's stored model when it is still a legal id
+    // for the harness, and otherwise lets the default-snap run (see the
+    // harnessModelSeeded effect in ChatPane and the equivalent in
+    // ProjectLanding). Such a session moves to the default rather than showing
+    // a model the picker cannot offer.
     //
     // "Fallback" overstates it here: unlike codex, this harness sets no
     // `dynamicModelDiscovery`, so there is no live catalogue to fall back FROM
@@ -41,14 +48,12 @@ export const claudeCodeHarnessDefinition: HarnessDefinition = {
     // that is all), so there is nothing for a discoverer to call. See
     // HARNESS_MODEL_DISCOVERERS in harness-host/src/model-discovery.ts.
     supportedModels: [
-      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", default: true },
+      { id: "claude-sonnet-5", label: "Claude Sonnet 5", provider: "anthropic", default: true },
       { id: "claude-opus-5", label: "Claude Opus 5", provider: "anthropic" },
-      { id: "claude-sonnet-5", label: "Claude Sonnet 5", provider: "anthropic" },
       { id: "claude-fable-5", label: "Claude Fable 5", provider: "anthropic" },
       { id: "claude-opus-4-8", label: "Claude Opus 4.8", provider: "anthropic" },
       { id: "claude-opus-4-7", label: "Claude Opus 4.7", provider: "anthropic" },
       { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", provider: "anthropic" },
-      { id: "claude-opus-4-6", label: "Claude Opus 4.6", provider: "anthropic" },
       { id: "claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "anthropic" },
     ],
     buildRunnerPrepPlan() {

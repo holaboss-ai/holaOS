@@ -53,6 +53,25 @@ test("the list still carries the current generation", () => {
   }
 });
 
+test("the default is a current-generation model", () => {
+  // A default left on a retired model is the failure this replaced: every new
+  // session silently started on it, and it stayed the picker's preselection
+  // long after newer models shipped.
+  const fallback = models.find((m) => m.default);
+  assert.equal(fallback?.id, "claude-sonnet-5");
+});
+
+test("the retired 4.6 series is gone", () => {
+  // Deprecated deliberately, not dropped by accident. Safe for sessions already
+  // on them: the desktop adopts a session's stored model only while it is still
+  // a legal id for the harness, and otherwise runs the default-snap — so those
+  // sessions move to the default rather than showing an unofferable model.
+  const ids = new Set(models.map((m) => m.id));
+  for (const id of ["claude-sonnet-4-6", "claude-opus-4-6"]) {
+    assert.ok(!ids.has(id), `${id} was deprecated and should not be listed`);
+  }
+});
+
 test("this harness has no live discovery, which is why the list must be maintained", () => {
   // If someone later adds dynamicModelDiscovery, the static list becomes a real
   // fallback and the floor above stops being load-bearing. Fail here so that
