@@ -159,40 +159,63 @@ jobs:
       # pi already accepts Debian's `fdfind` as a system name for fd, so no
       # symlink is needed here.
       - name: Install search tools (rg, fd)
-        # rg and fd are real test dependencies here: pi-search-tool.ts and
-        # pi-find-tool.ts shell out to them, and pi.test.ts covers both.
+        # rg and fd are real test dependencies: pi-search-tool.ts and
+        # pi-find-tool.ts resolve them via ensureTool("rg") / ensureTool("fd"),
+        # and pi.test.ts covers both. Neither ships in the runner image.
         #
-        # This step is what hung the job — twice, at 12+ minutes, never reaching
-        # the tests. It produced NO output before timing out, which rules out a
-        # slow mirror: apt was blocked before it made any request, waiting on
-        # the dpkg/apt lock that unattended-upgrades holds early in a runner's
-        # life. Acquire timeouts do not apply to a lock wait, which is why the
-        # first attempt at bounding this did not help.
+        # Installed from upstream release tarballs rather than apt, because apt
+        # is what kept breaking this job. Azure's Ubuntu mirror started
+        # returning Ign: for every index, and the fallback to archive.ubuntu.com
+        # stalled — twice as a silent 12-minute hang, then again as an 8-minute
+        # timeout on main. Acquire::*::Timeout did not bound it: apt kept the
+        # connection and simply made no progress.
         #
-        # DPkg::Lock::Timeout is the setting that does apply. -qq is gone
-        # deliberately: it suppressed the "waiting for lock" line that would
-        # have identified this immediately.
-        timeout-minutes: 8
+        # These are single static musl binaries from the same GitHub CDN the
+        # workflow already depends on for checkout, so this removes a
+        # third-party outage from the critical path rather than tolerating it.
+        # apt stays as a fallback, still bounded.
+        timeout-minutes: 6
+        env:
+          RG_VERSION: "14.1.1"
+          FD_VERSION: "10.2.0"
         run: |
-          set -u
-          if command -v rg >/dev/null && (command -v fd >/dev/null || command -v fdfind >/dev/null); then
+          set -euo pipefail
+          if command -v rg >/dev/null && command -v fd >/dev/null; then
             rg --version | head -1
+            fd --version
             exit 0
           fi
-          apt_opts="-o DPkg::Lock::Timeout=120 -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
-          for attempt in 1 2; do
-            echo "apt attempt ${attempt}"
-            if sudo apt-get ${apt_opts} update \
-               && sudo apt-get ${apt_opts} install -y ripgrep fd-find; then
-              break
+
+          tmp="$(mktemp -d)"
+          fetch() {
+            curl --fail --location --silent --show-error \
+                 --retry 3 --retry-delay 2 --retry-connrefused \
+                 --connect-timeout 15 --max-time 120 \
+                 --output "$2" "$1"
+          }
+
+          if fetch "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz" "$tmp/rg.tar.gz" \
+             && fetch "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-x86_64-unknown-linux-musl.tar.gz" "$tmp/fd.tar.gz"; then
+            tar -xzf "$tmp/rg.tar.gz" -C "$tmp"
+            tar -xzf "$tmp/fd.tar.gz" -C "$tmp"
+            # --strip-components is avoided: the two archives nest differently,
+            # so the binaries are located rather than assumed.
+            sudo install -m 0755 "$(find "$tmp" -type f -name rg -perm -u+x | head -1)" /usr/local/bin/rg
+            sudo install -m 0755 "$(find "$tmp" -type f -name fd -perm -u+x | head -1)" /usr/local/bin/fd
+          else
+            echo "release download failed; falling back to apt" >&2
+            apt_opts="-o DPkg::Lock::Timeout=60 -o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
+            sudo apt-get ${apt_opts} update
+            sudo apt-get ${apt_opts} install -y ripgrep fd-find
+            # Debian names the binary fdfind; the tools look for fd.
+            if ! command -v fd >/dev/null && command -v fdfind >/dev/null; then
+              sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
             fi
-            if [ "${attempt}" = "2" ]; then
-              echo "could not install search tools after 2 attempts" >&2
-              exit 1
-            fi
-            sleep 10
-          done
+          fi
+
+          rm -rf "$tmp"
           rg --version | head -1
+          fd --version
 
       # Covers every runtime package that isn't the api-server (which has its
       # own job). runtime-harnesses and runtime-channel-gateway both have test
