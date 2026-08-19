@@ -305,6 +305,8 @@ const mainSessionsChanged = new EventTarget();
 const MAIN_SESSIONS_CHANGED = "main-sessions-changed";
 
 export function notifyMainSessionsChanged(): void {
+  // eslint-disable-next-line no-console
+  console.info("[sessions] broadcast sent");
   mainSessionsChanged.dispatchEvent(new Event(MAIN_SESSIONS_CHANGED));
 }
 
@@ -326,13 +328,29 @@ export function useWorkspaceMainSessions(
       return;
     }
     let cancelled = false;
-    const load = async () => {
+    const load = async (reason: "poll" | "broadcast" = "poll") => {
       setIsLoading(true);
       try {
         const response = await window.electronAPI.workspace.listMainSessions(
           workspaceId,
           appId ?? null,
         );
+        // TEMPORARY diagnostic. A session created from the composer still takes
+        // ~5s to appear, which is equally consistent with "the broadcast never
+        // arrives" and with "it arrives but the session is still untitled and
+        // the sidebar filters it". Those have different fixes and reading the
+        // code has not separated them, so this prints what the server actually
+        // returned at the moment we asked. Remove once answered.
+        if (reason === "broadcast") {
+          // eslint-disable-next-line no-console
+          console.info(
+            "[sessions] broadcast reload ->",
+            (response.sessions ?? [])
+              .slice(0, 3)
+              .map((s) => `${s.session_id.slice(0, 8)}:${JSON.stringify(s.title)}`)
+              .join("  "),
+          );
+        }
         if (!cancelled) {
           setSessions((prev) =>
             reconcileMainSessions(prev, response.sessions ?? []),
@@ -361,12 +379,14 @@ export function useWorkspaceMainSessions(
     // 5s poll.
     const followUps: number[] = [];
     const onChanged = () => {
-      void load();
+      // eslint-disable-next-line no-console
+      console.info("[sessions] broadcast received");
+      void load("broadcast");
       for (const delay of [400, 1200]) {
         followUps.push(
           window.setTimeout(() => {
             if (!cancelled) {
-              void load();
+              void load("broadcast");
             }
           }, delay),
         );
