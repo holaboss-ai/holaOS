@@ -2807,6 +2807,78 @@ export function requestedPiThinkingConfig(
   return requestedHarnessThinkingConfig(request);
 }
 
+/** Why a compaction attempt did or did not happen. Returned rather than logged
+ *  so the decision is assertable: every one of these branches is a silent
+ *  no-op in production, and "compaction never ran" and "compaction ran and
+ *  failed" look identical from outside. */
+export type CompactionOutcome =
+  | { status: "compacted" }
+  | { status: "failed"; error: string }
+  | {
+      status: "skipped";
+      reason:
+        | "unsupported"
+        | "already-compacting"
+        | "usage-unavailable"
+        | "under-threshold";
+    };
+
+type CompactableSession = {
+  getContextUsage?: () => { tokens?: number | null; contextWindow?: number } | null;
+  compact?: (customInstructions?: string) => Promise<unknown>;
+  isCompacting?: boolean;
+};
+
+/**
+ * End-of-turn compaction: summarize the session once it crosses
+ * `PI_COMPACTION_USAGE_THRESHOLD_RATIO` of the model's context window.
+ *
+ * Extracted from `runPi` so it can be driven directly. In place it was a
+ * closure over a live `AgentSession`, reachable only by running a real model
+ * turn long enough to cross the threshold — which is why it had never been
+ * exercised except by hand, and why a failure here was invisible: the catch
+ * wrote to `console.warn`, and in-process that lands in ts-runner's stderr,
+ * which is buffered and surfaced only when a run FAILS. A compaction failure
+ * does not fail the run, so the warning was written to a stream nobody reads.
+ *
+ * The caller still logs; what changed is that the outcome is now a value, so
+ * both "did it run" and "did it work" can be asserted.
+ */
+export async function compactSessionOverThreshold(
+  rawSession: unknown,
+): Promise<CompactionOutcome> {
+  const session = rawSession as CompactableSession;
+  if (typeof session?.compact !== "function") {
+    return { status: "skipped", reason: "unsupported" };
+  }
+  if (session.isCompacting) {
+    return { status: "skipped", reason: "already-compacting" };
+  }
+  const usage = session.getContextUsage?.();
+  const tokens = typeof usage?.tokens === "number" ? usage.tokens : null;
+  const contextWindow =
+    typeof usage?.contextWindow === "number" ? usage.contextWindow : 0;
+  if (tokens === null || contextWindow <= 0) {
+    return { status: "skipped", reason: "usage-unavailable" };
+  }
+  if (tokens <= contextWindow - piCompactionReserveTokens(contextWindow)) {
+    return { status: "skipped", reason: "under-threshold" };
+  }
+  try {
+    // Compaction sends the full history to be summarized, so an image-bloated
+    // transcript would 413 the compaction request just like the turn did. Prune
+    // oversized inline images first so the summary request stays sendable.
+    capSessionImageContext(session);
+    await session.compact();
+    return { status: "compacted" };
+  } catch (error) {
+    return {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export function piCompactionReserveTokens(contextWindow: number): number {
   if (!Number.isFinite(contextWindow) || contextWindow <= 0) {
     return 0;
@@ -3981,33 +4053,10 @@ export async function runPi(request: HarnessHostPiRequest, deps: PiDeps = defaul
   // (`tokens > contextWindow - reserveTokens`). Best-effort: a compaction failure
   // must never fail the turn (pi emits its own compaction_end diagnostics).
   const maybeCompactSessionOverThreshold = async (): Promise<void> => {
-    const session = handle.session as AgentSession & {
-      getContextUsage?: () => { tokens?: number | null; contextWindow?: number } | null;
-      compact?: (customInstructions?: string) => Promise<unknown>;
-      isCompacting?: boolean;
-    };
-    if (typeof session.compact !== "function" || session.isCompacting) {
-      return;
-    }
-    const usage = session.getContextUsage?.();
-    const tokens = typeof usage?.tokens === "number" ? usage.tokens : null;
-    const contextWindow =
-      typeof usage?.contextWindow === "number" ? usage.contextWindow : 0;
-    if (tokens === null || contextWindow <= 0) {
-      return;
-    }
-    if (tokens <= contextWindow - piCompactionReserveTokens(contextWindow)) {
-      return;
-    }
-    try {
-      // Compaction sends the full history to be summarized, so an image-bloated
-      // transcript would 413 the compaction request just like the turn did. Prune
-      // oversized inline images first so the summary request stays sendable.
-      capSessionImageContext(session);
-      await session.compact();
-    } catch (error) {
+    const outcome = await compactSessionOverThreshold(handle.session);
+    if (outcome.status === "failed") {
       console.warn("pi end-of-turn compaction failed (non-fatal)", {
-        error: error instanceof Error ? error.message : String(error),
+        error: outcome.error,
       });
     }
   };

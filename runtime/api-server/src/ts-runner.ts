@@ -1826,6 +1826,32 @@ let inProcessTurnsActive = 0;
 let inProcessTerminationDeferred = false;
 let inProcessSignalGuardInstalled = false;
 
+/**
+ * Exported for tests. Signal disposition is process-global and cannot be
+ * observed from inside the process that owns it — asserting "this SIGTERM did
+ * not kill us" requires a real child receiving a real signal — so the seam has
+ * to be reachable from outside this module. `beginInProcessTurn` /
+ * `endInProcessTurn` are how the counter is maintained in production too, so
+ * tests drive the same path rather than a parallel one.
+ */
+export function beginInProcessTurn(logger: LoggerLike): void {
+  installInProcessTerminationGuard(logger);
+  inProcessTurnsActive += 1;
+}
+
+export function endInProcessTurn(_logger: LoggerLike): void {
+  inProcessTurnsActive = Math.max(0, inProcessTurnsActive - 1);
+  // Deliberately does NOT exit on the deferred signal, tempting as that looks.
+  // This runs in a `finally` inside the harness call, and the runner still has
+  // its own post-run work to do afterwards — exiting here would truncate the
+  // very persistence resume depends on, which is the failure the deferral
+  // exists to prevent in the first place.
+  //
+  // Once the turn settles the process exits by draining its event loop, which
+  // is both prompt and safe. The grace timer remains the backstop for the case
+  // where something keeps the loop alive.
+}
+
 function installInProcessTerminationGuard(logger: LoggerLike): void {
   if (inProcessSignalGuardInstalled) {
     return;
@@ -1910,8 +1936,7 @@ const inProcessRunHarnessHost: TsRunnerExecutionDeps["runHarnessHost"] = async (
   }
   logger.warn("harness in-process: running pi in ts-runner (no second spawn)");
   const startedAtMs = Date.now();
-  installInProcessTerminationGuard(logger);
-  inProcessTurnsActive += 1;
+  beginInProcessTurn(logger);
   try {
     // Imported by PATH from the sibling harness-host build — the exact file the
     // spawn path would have executed — rather than as a package dependency.
@@ -1957,7 +1982,7 @@ const inProcessRunHarnessHost: TsRunnerExecutionDeps["runHarnessHost"] = async (
     );
     return await defaultRunHarnessHost(params);
   } finally {
-    inProcessTurnsActive = Math.max(0, inProcessTurnsActive - 1);
+    endInProcessTurn(logger);
   }
 };
 
