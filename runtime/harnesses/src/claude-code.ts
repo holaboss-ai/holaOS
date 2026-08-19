@@ -28,8 +28,22 @@ export const claudeCodeHarnessDefinition: HarnessDefinition = {
     // labels are a static fallback catalogue. `default: true` on Sonnet 4.6 marks the
     // harness's preferred pick — the desktop picker uses this when
     // there's no per-session override.
+    //
+    // "Fallback" overstates it here: unlike codex, this harness sets no
+    // `dynamicModelDiscovery`, so there is no live catalogue to fall back FROM
+    // and this list is the only thing the picker ever shows. It therefore has
+    // to be updated by hand as models ship, and it had already drifted —
+    // Opus 5 and Sonnet 5 were missing while the CLI itself offered them, so
+    // the picker could not reach the newest models at all.
+    //
+    // Live discovery would be the real fix, but the claude CLI exposes no
+    // model-enumeration command (`--model` takes an alias or full name and
+    // that is all), so there is nothing for a discoverer to call. See
+    // HARNESS_MODEL_DISCOVERERS in harness-host/src/model-discovery.ts.
     supportedModels: [
       { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", default: true },
+      { id: "claude-opus-5", label: "Claude Opus 5", provider: "anthropic" },
+      { id: "claude-sonnet-5", label: "Claude Sonnet 5", provider: "anthropic" },
       { id: "claude-fable-5", label: "Claude Fable 5", provider: "anthropic" },
       { id: "claude-opus-4-8", label: "Claude Opus 4.8", provider: "anthropic" },
       { id: "claude-opus-4-7", label: "Claude Opus 4.7", provider: "anthropic" },
