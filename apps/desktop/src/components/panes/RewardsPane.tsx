@@ -30,10 +30,11 @@ import { useDesktopAuthSession } from "@/lib/auth/authClient";
 import { deriveAppBaseUrl } from "@/lib/billing/billing-links";
 import { cn } from "@/lib/utils";
 
-// Reward-engine payouts live server-side (packages/api rewards engine). Mirrored
-// here only for the "bring a friend" explainer copy.
-const REFERRER_REWARD_CREDITS = 1000;
-const REFEREE_REWARD_CREDITS = 500;
+// The server sets these, and can change them without a desktop release. Kept as a
+// fallback for a server that predates them in the response, so the explainer copy
+// never renders a blank amount.
+const FALLBACK_REFERRER_REWARD_CREDITS = 1000;
+const FALLBACK_REFEREE_REWARD_CREDITS = 500;
 const MS_PER_DAY = 86_400_000;
 
 interface QuestView {
@@ -56,6 +57,8 @@ interface ListQuestsResponse {
 interface MyReferralLink {
   code: string;
   path: string;
+  referrerCredits?: number;
+  refereeCredits?: number;
 }
 
 interface ReferralView {
@@ -95,7 +98,12 @@ function useReferralShareLink(enabled: boolean) {
         window.electronAPI.auth.getApiBaseUrl(),
       ]);
       const appBaseUrl = deriveAppBaseUrl(apiBaseUrl ?? "");
-      return new URL(link.path, appBaseUrl).toString();
+      return {
+        url: new URL(link.path, appBaseUrl).toString(),
+        referrerCredits:
+          link.referrerCredits ?? FALLBACK_REFERRER_REWARD_CREDITS,
+        refereeCredits: link.refereeCredits ?? FALLBACK_REFEREE_REWARD_CREDITS,
+      };
     },
   });
 }
@@ -325,7 +333,7 @@ function InviteTab({ enabled }: { enabled: boolean }) {
     if (!shareLink) {
       return;
     }
-    await navigator.clipboard.writeText(shareLink);
+    await navigator.clipboard.writeText(shareLink.url);
     setCopied(true);
     toast.success("Referral link copied");
     setTimeout(() => setCopied(false), 2000);
@@ -350,8 +358,14 @@ function InviteTab({ enabled }: { enabled: boolean }) {
           </span>
           <span className="text-muted-foreground text-sm">
             Share your link. When a friend publishes their first post, you get{" "}
-            {REFERRER_REWARD_CREDITS.toLocaleString()} and they get{" "}
-            {REFEREE_REWARD_CREDITS.toLocaleString()} reward credits.
+            {(
+              shareLink?.referrerCredits ?? FALLBACK_REFERRER_REWARD_CREDITS
+            ).toLocaleString()}{" "}
+            and they get{" "}
+            {(
+              shareLink?.refereeCredits ?? FALLBACK_REFEREE_REWARD_CREDITS
+            ).toLocaleString()}{" "}
+            reward credits.
           </span>
         </div>
 
@@ -360,7 +374,7 @@ function InviteTab({ enabled }: { enabled: boolean }) {
             aria-label="Your referral link"
             className="font-mono text-sm"
             readOnly
-            value={shareLink ?? ""}
+            value={shareLink?.url ?? ""}
           />
           <Button
             aria-label="Copy referral link"
