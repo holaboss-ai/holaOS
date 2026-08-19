@@ -305,8 +305,6 @@ const mainSessionsChanged = new EventTarget();
 const MAIN_SESSIONS_CHANGED = "main-sessions-changed";
 
 export function notifyMainSessionsChanged(): void {
-  // eslint-disable-next-line no-console
-  console.info("[sessions] broadcast sent");
   mainSessionsChanged.dispatchEvent(new Event(MAIN_SESSIONS_CHANGED));
 }
 
@@ -328,29 +326,13 @@ export function useWorkspaceMainSessions(
       return;
     }
     let cancelled = false;
-    const load = async (reason: "poll" | "broadcast" = "poll") => {
+    const load = async () => {
       setIsLoading(true);
       try {
         const response = await window.electronAPI.workspace.listMainSessions(
           workspaceId,
           appId ?? null,
         );
-        // TEMPORARY diagnostic. A session created from the composer still takes
-        // ~5s to appear, which is equally consistent with "the broadcast never
-        // arrives" and with "it arrives but the session is still untitled and
-        // the sidebar filters it". Those have different fixes and reading the
-        // code has not separated them, so this prints what the server actually
-        // returned at the moment we asked. Remove once answered.
-        if (reason === "broadcast") {
-          // eslint-disable-next-line no-console
-          console.info(
-            "[sessions] broadcast reload ->",
-            (response.sessions ?? [])
-              .slice(0, 3)
-              .map((s) => `${s.session_id.slice(0, 8)}:${JSON.stringify(s.title)}`)
-              .join("  "),
-          );
-        }
         if (!cancelled) {
           setSessions((prev) =>
             reconcileMainSessions(prev, response.sessions ?? []),
@@ -367,39 +349,18 @@ export function useWorkspaceMainSessions(
     void load();
     const timer = window.setInterval(load, POLL_INTERVAL_MS);
 
-    // Reload now, then twice more shortly after.
-    //
-    // A single shot has to assume the session is already listable at the moment
-    // we ask, and that assumption has been wrong once already: broadcasting at
-    // creation reloaded a list in which the session was still untitled, and the
-    // sidebar hides untitled sessions. The queue call is supposed to have set
-    // the title by the time it returns, but "supposed to" is what the last two
-    // attempts rested on. These follow-ups bound the worst case at ~1.2s
-    // whatever the real timing turns out to be, instead of falling back to the
-    // 5s poll.
-    const followUps: number[] = [];
+    // One reload is enough: the session is titled at creation now, so it is
+    // listable by the time this fires. The staggered follow-ups that used to be
+    // here were bounding a delay whose real cause was the missing title, and
+    // kept nine list calls per send alive for nothing once that was fixed.
     const onChanged = () => {
-      // eslint-disable-next-line no-console
-      console.info("[sessions] broadcast received");
-      void load("broadcast");
-      for (const delay of [400, 1200]) {
-        followUps.push(
-          window.setTimeout(() => {
-            if (!cancelled) {
-              void load("broadcast");
-            }
-          }, delay),
-        );
-      }
+      void load();
     };
     mainSessionsChanged.addEventListener(MAIN_SESSIONS_CHANGED, onChanged);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      for (const id of followUps) {
-        window.clearTimeout(id);
-      }
       mainSessionsChanged.removeEventListener(MAIN_SESSIONS_CHANGED, onChanged);
     };
   }, [workspaceId, appId, activeOrgId]);
