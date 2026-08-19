@@ -3804,6 +3804,10 @@ export function ChatPane({
   /** Assistant turns committed locally that the server has not returned yet.
    *  The assistant-side counterpart of pendingOptimisticUserMessagesRef. */
   const pendingCommittedAssistantTurnsRef = useRef<ChatMessage[]>([]);
+  // Set when a send has deferred blanking the canvas because it intends to
+  // replace the conversation with its own first message. Cleared by that swap,
+  // or by settlePendingSessionSwap if the send never gets that far.
+  const pendingSessionSwapRef = useRef(false);
   const [sessionOutputs, setSessionOutputs] = useState<
     WorkspaceOutputRecordPayload[]
   >([]);
@@ -4428,8 +4432,30 @@ export function ChatPane({
     );
   }
 
-  function clearSessionView() {
+  /**
+   * `keepMessages` leaves the visible list alone while resetting everything
+   * else. Used when we are about to REPLACE the conversation rather than merely
+   * leave it: blanking here and then awaiting session creation left the canvas
+   * empty across an IPC round trip, which is the flash when you send into a new
+   * session. The caller swaps the list in one step instead, once it has the
+   * first message to show.
+   *
+   * Every other caller still blanks, because they genuinely have nothing to put
+   * in its place (workspace switch, blank draft, session delete).
+   */
+  /** Blank a conversation that was held over for a swap that never happened. */
+  function settlePendingSessionSwap() {
+    if (!pendingSessionSwapRef.current) {
+      return;
+    }
+    pendingSessionSwapRef.current = false;
     setMessages([]);
+  }
+
+  function clearSessionView(options: { keepMessages?: boolean } = {}) {
+    if (!options.keepMessages) {
+      setMessages([]);
+    }
     // Scoped to the session it was committed in — leaving it set would splice a
     // turn from the previous conversation into the next one.
     pendingCommittedAssistantTurnsRef.current = [];
@@ -7259,7 +7285,12 @@ export function ChatPane({
 
     if (pendingSessionTarget) {
       consumeSessionOpenRequest(pendingSessionTarget.requestKey);
-      clearSessionView();
+      // Hold the outgoing conversation on screen until this send has its own
+      // first message to replace it with. Creating the session is an IPC round
+      // trip, and blanking before it leaves the canvas empty for the whole of
+      // it. The swap happens where the optimistic user message is appended.
+      pendingSessionSwapRef.current = true;
+      clearSessionView({ keepMessages: true });
       if (pendingSessionTarget.mode === "session") {
         setActiveSession(pendingSessionTarget.sessionId);
       } else {
@@ -7340,6 +7371,10 @@ export function ChatPane({
         }
       } catch (error) {
         setChatErrorMessage(normalizeErrorMessage(error));
+        // The swap never happened, so the held-over conversation belongs to a
+        // session we are no longer in. Blank it now rather than leave it under
+        // the wrong session.
+        settlePendingSessionSwap();
         return;
       }
     }
@@ -7388,6 +7423,7 @@ export function ChatPane({
     }
     if (!targetSessionId) {
       setChatErrorMessage("No active session found for this workspace.");
+      settlePendingSessionSwap();
       return;
     }
     blankDraftActiveRef.current = false;
@@ -7617,8 +7653,15 @@ export function ChatPane({
       };
 
       shouldAutoScrollRef.current = true;
+      // A pending swap means the list still holds the PREVIOUS session's
+      // conversation, kept there so the canvas never went blank. Consumed
+      // unconditionally: queueing onto an active run takes the branch below
+      // that adds no message, and a flag left set would make the NEXT send
+      // replace a conversation it should have appended to.
+      const swapping = pendingSessionSwapRef.current;
+      pendingSessionSwapRef.current = false;
       if (!queueOntoActiveRun) {
-        setMessages((prev) => [...prev, userMessage]);
+        setMessages((prev) => (swapping ? [userMessage] : [...prev, userMessage]));
         updatePendingOptimisticUserMessagesState((current) => [
           ...current.filter(
             (item) =>

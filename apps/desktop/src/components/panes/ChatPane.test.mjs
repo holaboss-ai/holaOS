@@ -1011,7 +1011,10 @@ test("chat pane routes immediate sends through the newer pending session request
   );
   assert.match(
     source,
-    /if \(pendingSessionTarget\) \{\s*consumeSessionOpenRequest\(pendingSessionTarget\.requestKey\);\s*clearSessionView\(\);[\s\S]*setActiveSession\(pendingSessionTarget\.sessionId\);[\s\S]*draftParentSessionIdRef\.current = pendingSessionTarget\.parentSessionId;\s*setActiveSession\(null\);/,
+    // clearSessionView now defers the blank here (keepMessages) so the canvas
+    // is not empty for the whole session-creation round trip; the conversation
+    // is swapped out when the send's own first message arrives.
+    /if \(pendingSessionTarget\) \{\s*consumeSessionOpenRequest\(pendingSessionTarget\.requestKey\);[\s\S]*clearSessionView\(\{ keepMessages: true \}\);[\s\S]*setActiveSession\(pendingSessionTarget\.sessionId\);[\s\S]*draftParentSessionIdRef\.current = pendingSessionTarget\.parentSessionId;\s*setActiveSession\(null\);/,
   );
   assert.match(
     source,
@@ -1496,9 +1499,12 @@ test("chat pane keeps the current stream attached while queueing a follow-up inp
     source,
     /const queueOntoActiveRun =[\s\S]*\(isResponding[\s\S]*Boolean\(activeStreamIdRef\.current\)[\s\S]*Boolean\(pendingInputIdRef\.current\)\)[\s\S]*targetSessionId === activeSessionIdRef\.current;/,
   );
+  // The optimistic user message now either appends or REPLACES: sending into a
+  // new session holds the outgoing conversation on screen (rather than blanking
+  // the canvas for the whole session-creation round trip) and swaps it out here.
   assert.match(
     source,
-    /if \(!queueOntoActiveRun\) \{[\s\S]*setMessages\(\(prev\) => \[\.\.\.prev, userMessage\]\);[\s\S]*\}/,
+    /if \(!queueOntoActiveRun\) \{[\s\S]*setMessages\(\(prev\) => \(swapping \? \[userMessage\] : \[\.\.\.prev, userMessage\]\)\);[\s\S]*\}/,
   );
   assert.doesNotMatch(source, /eventType: "stream_open_prequeue"/);
   assert.match(
