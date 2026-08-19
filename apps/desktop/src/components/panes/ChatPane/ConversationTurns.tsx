@@ -245,11 +245,29 @@ export function ConversationTurns<Message extends ChatMessage>({
   });
 
   if (liveAssistantTurn) {
+    const liveTurnKey = liveAssistantTurn.id ?? "__live_assistant_turn__";
     renderedTurns.push(
-      // Same key the turn will carry once committed, so React reconciles the
-      // live node into the committed one instead of unmount+remount (which
-      // replays the entrance animation — the completion "flicker").
-      <Fragment key={liveAssistantTurn.id ?? "__live_assistant_turn__"}>
+      // Same key AND the same wrapper element the turn will carry once
+      // committed, so React reconciles the live node into the committed one
+      // instead of unmount+remount.
+      //
+      // The key alone was not enough, which is why the completion flicker
+      // outlived the comment that used to sit here: a keyed Fragment and a
+      // keyed <div> are different element TYPES, and React tears down and
+      // rebuilds across a type change no matter what the key says. The remount
+      // replayed `animate-in fade-in-0 slide-in-from-bottom-1` on the turn —
+      // a fade and a slide, which is the "blink + nudge" at the end of a turn.
+      //
+      // Matching the wrapper is what makes the key do its job.
+      <div
+        key={liveTurnKey}
+        data-message-id={liveAssistantTurn.id ?? undefined}
+        // No wrapper class: the live turn is not a full Message, and this
+        // decorator (search highlight and friends) only applies to committed
+        // ones. Reconciliation turns on element type and key, not className,
+        // so leaving it off costs nothing here.
+        className={undefined}
+      >
         <AssistantTurn
           label={assistantLabel}
           mode={assistantMode}
@@ -277,7 +295,7 @@ export function ConversationTurns<Message extends ChatMessage>({
           status={liveAssistantTurn.status ?? ""}
           footerAccessory={liveAssistantTurn.footerAccessory ?? null}
         />
-      </Fragment>,
+      </div>,
     );
   }
 
