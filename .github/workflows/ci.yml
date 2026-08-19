@@ -159,34 +159,38 @@ jobs:
       # pi already accepts Debian's `fdfind` as a system name for fd, so no
       # symlink is needed here.
       - name: Install search tools (rg, fd)
-        # Bounded and retried because this step is the one that hangs: apt has
-        # no timeout of its own, so a slow Ubuntu mirror stalls here
-        # indefinitely. Observed twice in a row at 12+ minutes on a step that
-        # normally takes seconds, never reaching the tests at all.
-        timeout-minutes: 4
+        # rg and fd are real test dependencies here: pi-search-tool.ts and
+        # pi-find-tool.ts shell out to them, and pi.test.ts covers both.
+        #
+        # This step is what hung the job — twice, at 12+ minutes, never reaching
+        # the tests. It produced NO output before timing out, which rules out a
+        # slow mirror: apt was blocked before it made any request, waiting on
+        # the dpkg/apt lock that unattended-upgrades holds early in a runner's
+        # life. Acquire timeouts do not apply to a lock wait, which is why the
+        # first attempt at bounding this did not help.
+        #
+        # DPkg::Lock::Timeout is the setting that does apply. -qq is gone
+        # deliberately: it suppressed the "waiting for lock" line that would
+        # have identified this immediately.
+        timeout-minutes: 8
         run: |
           set -u
           if command -v rg >/dev/null && (command -v fd >/dev/null || command -v fdfind >/dev/null); then
             rg --version | head -1
             exit 0
           fi
+          apt_opts="-o DPkg::Lock::Timeout=120 -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
           for attempt in 1 2; do
-            # -o timeouts keep a wedged mirror from consuming the whole budget,
-            # leaving room for the second attempt to reach a different one.
-            if sudo apt-get -o Acquire::Retries=2 \
-                            -o Acquire::http::Timeout=20 \
-                            -o Acquire::https::Timeout=20 update -qq \
-               && sudo apt-get -o Acquire::Retries=2 \
-                               -o Acquire::http::Timeout=20 \
-                               -o Acquire::https::Timeout=20 install -y -qq ripgrep fd-find; then
+            echo "apt attempt ${attempt}"
+            if sudo apt-get ${apt_opts} update \
+               && sudo apt-get ${apt_opts} install -y ripgrep fd-find; then
               break
             fi
-            echo "apt attempt ${attempt} failed"
             if [ "${attempt}" = "2" ]; then
               echo "could not install search tools after 2 attempts" >&2
               exit 1
             fi
-            sleep 5
+            sleep 10
           done
           rg --version | head -1
 
