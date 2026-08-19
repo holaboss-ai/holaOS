@@ -281,6 +281,33 @@ function reconcileMainSessions(
 // `appId` scopes the list to one HolaApp's own sessions (the app session
 // dropdown). Omitted, the hook returns the workspace sidebar list, which the
 // runtime already strips of app-owned sessions.
+/**
+ * Immediate refresh signal for the main-session lists.
+ *
+ * The lists are poll-driven at POLL_INTERVAL_MS, which is fine for change that
+ * happens elsewhere but wrong for change this client just caused: creating a
+ * session from the composer left the sidebar without a row for it for up to a
+ * full poll interval, so the session the user had just started did not exist
+ * anywhere on screen.
+ *
+ * Four components call useWorkspaceMainSessions and each keeps its own state,
+ * so this is a broadcast rather than a shared cache: every subscriber reloads
+ * at once.
+ *
+ * It deliberately carries no payload. The creation call returns an
+ * AgentSessionRecordPayload, which is not a MainSessionRecordPayload — it has
+ * no is_active — and inventing that field to enable an optimistic insert would
+ * put a row on screen whose state was guessed rather than observed. A reload is
+ * one local IPC, so the row still appears immediately; it is simply the
+ * server's row rather than one we made up.
+ */
+const mainSessionsChanged = new EventTarget();
+const MAIN_SESSIONS_CHANGED = "main-sessions-changed";
+
+export function notifyMainSessionsChanged(): void {
+  mainSessionsChanged.dispatchEvent(new Event(MAIN_SESSIONS_CHANGED));
+}
+
 export function useWorkspaceMainSessions(
   workspaceId: string | null,
   appId?: string | null,
@@ -321,9 +348,16 @@ export function useWorkspaceMainSessions(
     };
     void load();
     const timer = window.setInterval(load, POLL_INTERVAL_MS);
+
+    const onChanged = () => {
+      void load();
+    };
+    mainSessionsChanged.addEventListener(MAIN_SESSIONS_CHANGED, onChanged);
+
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      mainSessionsChanged.removeEventListener(MAIN_SESSIONS_CHANGED, onChanged);
     };
   }, [workspaceId, appId, activeOrgId]);
 

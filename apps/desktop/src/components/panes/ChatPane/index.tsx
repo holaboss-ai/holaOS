@@ -276,7 +276,10 @@ import {
   parseModelError,
   type ParsedModelError,
 } from "./ModelErrorRecovery";
-import { useWorkspaceProjects } from "@/components/layout/shell/useWorkspaceLists";
+import {
+  notifyMainSessionsChanged,
+  useWorkspaceProjects,
+} from "@/components/layout/shell/useWorkspaceLists";
 import { useHolaAppCatalog } from "@/components/layout/shell/useHolaAppCatalog";
 import { useOpenIssueDetailTab } from "@/components/layout/shell/useOpenIssueDetailTab";
 import { AppLandingSuggestions } from "./AppLandingSuggestions";
@@ -4931,6 +4934,11 @@ export function ChatPane({
       app_id: owningAppId ?? null,
     });
     const sessionId = created.session.session_id.trim();
+    if (sessionId) {
+      // The sidebar lists poll every 5s. Without this the session the user just
+      // started has no row anywhere on screen until the next tick.
+      notifyMainSessionsChanged();
+    }
     return sessionId || null;
   }
 
@@ -7319,6 +7327,7 @@ export function ChatPane({
           if (!owningAppId) {
             setDesktopMainSession(created.session);
           }
+          notifyMainSessionsChanged();
           setActiveSession(targetSessionId);
           setSidebarSelectedSessionId(targetSessionId);
           setSelectedSessionForWorkspace(
