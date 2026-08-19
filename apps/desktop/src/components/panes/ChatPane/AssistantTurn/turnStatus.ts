@@ -96,23 +96,10 @@ export function resolveTurnStatus(
     segments.length > 0 ? segments[segments.length - 1] : null;
 
   if (live) {
-    // While the final answer streams, its text (with the live cursor) already
-    // carries the "still going" signal, so this anchor drops its spinner —
-    // a second one on top of the cursor just double-states it.
-    //
-    // It must not drop the LINE, though. Returning null here and then falling
-    // through to "Worked for Ns" once the turn settles inserts a row into an
-    // already-laid-out turn, pushing the answer, its timestamp and everything
-    // below it down the moment the agent stops typing — the drift at the end
-    // of every turn that ran tools.
-    //
-    // "Working" -> "Worked for Ns" swaps the text of one line instead. The
-    // `items.length` rule mirrors the settled path below, so a plain text reply
-    // still gets no anchor in either state and still has nothing to insert.
+    // While the final answer streams, its text (with the live cursor) carries
+    // the signal — a top spinner on top of it just double-states "still going".
     if (lastSegment?.kind === "output") {
-      return items.length > 0
-        ? { label: "Working", spinning: false, tone: "default" }
-        : null;
+      return null;
     }
     const activeStep = [...steps]
       .reverse()
@@ -155,6 +142,22 @@ export function resolveTurnStatus(
       spinning: false,
       tone: "default",
     };
+  }
+  // The same rule the live branch above uses: a turn that ends with its
+  // streamed answer gets no anchor.
+  //
+  // This is the fix for the end-of-turn drift, and it is a presence rule rather
+  // than a labelling one. The anchor was absent while the answer streamed and
+  // present once the turn settled, so a row appeared at the exact moment the
+  // agent stopped typing and pushed the answer, its timestamp and everything
+  // below it down. Anything that exists in only one of the two states moves the
+  // layout on the transition; the duration is not worth that, and the trace is
+  // still one click away under Details.
+  //
+  // A turn that ends on an execution segment keeps its anchor in BOTH states,
+  // so it does not move either.
+  if (lastSegment?.kind === "output") {
+    return null;
   }
   // Only turns that actually ran tools get a "Worked for" anchor; a plain text
   // reply shouldn't sprout a duration line it never had.
