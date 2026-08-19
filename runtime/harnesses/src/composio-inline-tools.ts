@@ -259,12 +259,28 @@ function buildComposioMetaTools(ctx: {
           typeof payload.detail === "string" && payload.detail.trim()
             ? payload.detail.trim()
             : `composio-search failed (status ${response.status})`;
+        // A 401 here is the RUNTIME's session, not the integration's.
+        //
+        // The cookie only identifies whose connections to scope results to; the
+        // Composio credential lives server-side, past the gateway. But the
+        // failure surfaced as a bare `401 {"error":"unauthorized"}` next to a
+        // toolkit slug, and a model reading that concluded "the composio search
+        // tools are unauthorized" — then went looking for a workaround for a
+        // problem that had nothing to do with the toolkit. Observed live on a
+        // Notion search.
+        //
+        // Saying which credential expired costs one line and stops the next
+        // reader — human or model — drawing the same wrong conclusion.
+        const sessionExpired = /\b401\b|unauthorized/i.test(detail);
+        const cause = sessionExpired
+          ? "\nThis is the runtime's own sign-in session, NOT the integration's authorization: the toolkit's connection is unaffected. Restarting the app re-establishes it. Do not suggest reconnecting the integration."
+          : "";
         const scope = toolkitSlug ? `:${toolkitSlug}` : "";
         return {
           content: [
             {
               type: "text" as const,
-              text: `[composio_error:search_failed${scope}] ${detail}\nThe search did NOT run — this is not "no matching tools". Retry, or list the toolkit's catalogue with only toolkit_slug.`,
+              text: `[composio_error:search_failed${scope}] ${detail}${cause}\nThe search did NOT run — this is not "no matching tools". Retry, or list the toolkit's catalogue with only toolkit_slug.`,
             },
           ],
           details: { tool_id: "composio_search_tools", ok: false },

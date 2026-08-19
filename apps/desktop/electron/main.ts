@@ -8429,6 +8429,26 @@ function setupDevRuntimeHotReload(): void {
   }
 }
 
+/**
+ * Forward a rotated session cookie to the running runtime.
+ *
+ * Best-effort and deliberately silent: the runtime may not be up yet (this can
+ * fire during startup, before the first spawn), and a failure here must never
+ * break the caller — authCookieHeader() is on the path of ordinary requests.
+ * A missed push self-corrects on the next rotation, and the spawn environment
+ * carries the current value for any runtime started afterwards.
+ */
+function pushAuthCookieToRuntime(cookie: string): Promise<void> {
+  return fetch(`${runtimeBaseUrl()}/api/v1/capabilities/auth-session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ cookie }),
+    signal: AbortSignal.timeout(5_000),
+  })
+    .then(() => undefined)
+    .catch(() => undefined);
+}
+
 function authCookieHeader() {
   if (!desktopAuthClient) {
     return "";
@@ -8466,6 +8486,13 @@ function authCookieHeader() {
     if (live !== cachedCookieHeader) {
       cachedCookieHeader = live;
       persistPlaintextAuthCache(live);
+      // The runtime holds its own copy, taken from HOLABOSS_AUTH_COOKIE at
+      // spawn. This function exists because that value rotates; the runtime had
+      // no way to hear about it, so its cookie-authenticated calls (Composio
+      // search / connections / proxy) eventually 401 while chat keeps working
+      // on the model-proxy key. Rotation is detected exactly here, so this is
+      // where it gets forwarded.
+      void pushAuthCookieToRuntime(live);
     }
     return live;
   }

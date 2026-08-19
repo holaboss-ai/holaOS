@@ -80,10 +80,50 @@ export interface ComposioConnectionSummary {
   createdAt: string;
 }
 
+/**
+ * Better Auth's Electron client returns the cookie header as `; name=value`
+ * (leading "; " — meant for splicing onto an existing Cookie header). Passed
+ * verbatim as a fresh `Cookie:` header, Hono on Cloudflare Workers sees a
+ * leading empty cookie pair and the session-auth middleware crashes → the
+ * Worker bubbles a generic 500 instead of a clean 401. Strip leading whitespace
+ * and semicolons so the header starts with a real `name=value` pair.
+ */
+function normalizeAuthCookie(raw: string): string {
+  return (raw ?? "").replace(/^[\s;]+/, "").trim();
+}
+
 export class ComposioService {
   readonly honoBaseUrl: string;
-  readonly authCookie: string;
+  private currentAuthCookie: string;
   private readonly fetchImpl: typeof fetch;
+
+  /**
+   * Read per request, never captured.
+   *
+   * The session cookie ROTATES: better-auth reissues it whenever the backend
+   * sends a fresh Set-Cookie, which happens silently on get-session and most
+   * auth-touching endpoints. The desktop already accounts for that — its
+   * authCookieHeader() deliberately stopped caching for exactly this reason —
+   * but it hands the runtime a value once, in the spawn environment, so the
+   * runtime kept presenting a pre-rotation cookie for as long as it lived.
+   *
+   * Every call went through `this.authCookie`, captured in the constructor, so
+   * there was nowhere to put a newer one even if we had it. Reading through a
+   * getter is what makes `setAuthCookie` possible at all.
+   */
+  get authCookie(): string {
+    return this.currentAuthCookie;
+  }
+
+  /** Adopt a rotated session cookie. Ignores empty values: an empty cookie is
+   *  "we don't know yet", not "sign the runtime out". */
+  setAuthCookie(next: string): void {
+    const normalized = normalizeAuthCookie(next);
+    if (!normalized || normalized === this.currentAuthCookie) {
+      return;
+    }
+    this.currentAuthCookie = normalized;
+  }
 
   constructor(config: ComposioServiceConfig) {
     this.honoBaseUrl = config.honoBaseUrl.replace(/\/+$/, "");
@@ -94,7 +134,7 @@ export class ComposioService {
     // → the Worker bubbles a generic 500 "Internal Server Error" instead of a
     // clean 401. Strip the leading `; ` (and any other leading whitespace /
     // semicolons) so the header starts with the first real `name=value` pair.
-    this.authCookie = config.authCookie.replace(/^[\s;]+/, "");
+    this.currentAuthCookie = normalizeAuthCookie(config.authCookie);
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 

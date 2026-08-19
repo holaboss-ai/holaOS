@@ -6190,6 +6190,37 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
     }
   });
 
+  // The desktop pushes a rotated session cookie here.
+  //
+  // HOLABOSS_AUTH_COOKIE is read once, from the spawn environment, so the
+  // runtime held whatever the session was when it started. Better-auth rotates
+  // that cookie silently (the backend reissues it on get-session and most
+  // auth-touching endpoints), and the desktop follows the rotation — its
+  // authCookieHeader() stopped caching for precisely this reason. The runtime
+  // did not, so every cookie-authenticated call eventually 401s: Composio
+  // search, connections and proxy all fail while chat keeps working, because
+  // chat authenticates with the model-proxy key instead.
+  //
+  // Nothing here is a new secret: it is the same session the desktop already
+  // holds, transported to the process that needs it.
+  app.post("/api/v1/capabilities/auth-session", async (request, reply) => {
+    if (!isRecord(request.body)) {
+      return sendError(reply, 400, "body must be an object");
+    }
+    const cookie =
+      typeof request.body.cookie === "string" ? request.body.cookie : "";
+    if (!cookie.trim()) {
+      return sendError(reply, 400, "cookie is required");
+    }
+    if (!composioService) {
+      // Not an error: the runtime can outlive a session it never had a service
+      // for, and the desktop should not have to know which services exist.
+      return { updated: false, reason: "composio service not configured" };
+    }
+    composioService.setAuthCookie(cookie);
+    return { updated: true };
+  });
+
   app.post("/api/v1/capabilities/composio-search", async (request, reply) => {
     try {
       if (!composioService) {
