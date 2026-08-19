@@ -134,7 +134,26 @@ test("manual CI workflow publishes desktop installers without standalone runtime
   assert.doesNotMatch(source, /RUNTIME_ASSET_NAME: holaOS-runtime-linux\.tar\.gz/);
   assert.doesNotMatch(source, /RUNTIME_ASSET_NAME: holaboss-runtime-macos\.tar\.gz/);
   assert.doesNotMatch(source, /RUNTIME_ASSET_NAME: holaboss-runtime-windows\.tar\.gz/);
-  assert.doesNotMatch(source, /gh release upload "\$\{RELEASE_TAG\}"/);
+  // `gh release upload` existed only to attach standalone runtime tarballs, so
+  // banning the command stood in for banning that behaviour. Publishing is
+  // idempotent now — a re-run re-attaches the SAME curated installer list
+  // instead of failing on an already-created release — so the command itself is
+  // legitimate and the invariant has to be stated directly: whatever it
+  // uploads is `upload_paths`, never a tarball. The RUNTIME_ASSET_NAME and
+  // HOLABOSS_RUNTIME_TARBALL assertions above still cover the rest, and this
+  // keeps the test honest to its own name rather than to one command.
+  for (const [invocation] of source.matchAll(/gh release upload[\s\S]{0,240}/g)) {
+    assert.match(
+      invocation,
+      /"\$\{upload_paths\[@\]\}"/,
+      "a release upload must publish the curated installer list, nothing else",
+    );
+    assert.doesNotMatch(
+      invocation,
+      /\.tar\.gz/,
+      "standalone runtime tarballs must not be attached to a desktop release",
+    );
+  }
   assert.match(source, /Build desktop code for macOS release/);
   assert.match(source, /- name: Install workspace dependencies \(covers desktop\)\n\s+env:\n\s+ELECTRON_SKIP_BINARY_DOWNLOAD: "1"\n\s+run: bun install --frozen-lockfile/);
   assert.match(source, /Build signed macOS app bundle/);
