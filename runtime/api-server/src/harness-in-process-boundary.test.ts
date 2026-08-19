@@ -70,15 +70,17 @@ test("harness-host still exports the in-process contract ts-runner casts to", as
   const module = (await import(entry)) as {
     runPiInProcess?: (params: Record<string, unknown>) => Promise<unknown>;
   };
+  const runPiInProcess = module.runPiInProcess;
   assert.equal(
-    typeof module.runPiInProcess,
+    typeof runPiInProcess,
     "function",
     "ts-runner destructures runPiInProcess from this module",
   );
+  assert.ok(runPiInProcess);
 
   // Drive it with a stubbed pi, then assert every field ts-runner reads off the
   // result is actually present — the fields, not just the function name.
-  const result = (await module.runPiInProcess({
+  const result = (await runPiInProcess({
     requestPayload: { session_id: "s", input_id: "i" },
     emitEvent: async () => {},
     deps: {
