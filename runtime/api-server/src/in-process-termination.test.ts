@@ -202,3 +202,26 @@ test("repeated signals during one turn do not stack grace timers", async () => {
     child.process.kill("SIGKILL");
   }
 });
+
+test("the deferral grace leaves real room for end-of-turn compaction", async () => {
+  // The grace timer's whole job is to outlast the slowest post-terminal work,
+  // and that is compaction. Because runner-worker signals ON the terminal
+  // event, compaction and this timer start together — the grace is the entire
+  // budget compaction gets.
+  //
+  // Measured on a real session (claude-sonnet-5, 1M context => 500k threshold):
+  // 13.2s to compact an 84k-token session, 26.1s for a 621k one. The old 30s
+  // default left under 4s of headroom on a session that had only just become
+  // eligible — and eligible sessions are the only ones that compact, so that
+  // margin applied to every real compaction there is.
+  //
+  // Pinned as a ratio rather than a literal so tightening the grace fails here
+  // instead of silently reintroducing the race.
+  const { IN_PROCESS_TERMINATION_GRACE_MS, MEASURED_MAX_COMPACTION_MS } =
+    await import("./ts-runner.js");
+
+  assert.ok(
+    IN_PROCESS_TERMINATION_GRACE_MS >= MEASURED_MAX_COMPACTION_MS * 3,
+    `grace ${IN_PROCESS_TERMINATION_GRACE_MS}ms leaves too little room for a ${MEASURED_MAX_COMPACTION_MS}ms compaction — a killed compaction leaves the session uncompacted, so the next turn is bigger and even likelier to be killed`,
+  );
+});

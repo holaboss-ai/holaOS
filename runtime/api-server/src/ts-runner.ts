@@ -1819,9 +1819,43 @@ function parseHarnessHostRunnerEvent(
  * signal indefinitely. With no turn in flight the signal behaves exactly as it
  * does today.
  */
-const IN_PROCESS_TERMINATION_GRACE_MS = Number(
+/**
+ * How long a deferred SIGTERM waits for the in-flight turn to settle.
+ *
+ * This has to cover END-OF-TURN COMPACTION, which is the slowest thing that
+ * runs after the terminal event — and the terminal event is exactly what makes
+ * runner-worker send the signal, so compaction and this timer start together.
+ *
+ * Measured against a real session (claude-sonnet-5, 1M context window, so the
+ * compaction threshold is 500k tokens):
+ *
+ *   84k-token session    13.2s
+ *   621k-token session   26.1s   <- a session that just crossed the threshold
+ *
+ * The previous 30s left under 4 seconds of margin on a compaction that had
+ * only just become eligible. Sessions above the threshold are the ONLY ones
+ * that compact, so that margin applied to every real compaction there is; a
+ * slightly larger session, or any upstream slowness, and the timer would kill
+ * the summarization mid-flight.
+ *
+ * The failure is self-reinforcing, which is what makes a tight bound expensive:
+ * a killed compaction leaves the session uncompacted, so the next turn is
+ * larger, takes longer to summarize, and is more likely to be killed again.
+ *
+ * Raising it costs little. The parent does not escalate to SIGKILL after the
+ * terminal event (runner-worker clears its watchdogs first), so this timer is
+ * the only bound — but it is a backstop, not the normal exit: the runner
+ * normally leaves by draining its event loop as soon as the turn settles. A
+ * longer grace delays nothing the user waits on, since the turn has already
+ * produced its result by the time the signal arrives.
+ */
+export const IN_PROCESS_TERMINATION_GRACE_MS = Number(
   process.env.HB_HARNESS_IN_PROCESS_GRACE_MS ?? "",
-) || 30_000;
+) || 120_000;
+
+/** Longest end-of-turn compaction measured on a real session, in ms. The grace
+ *  above must stay comfortably clear of this — see the note there. */
+export const MEASURED_MAX_COMPACTION_MS = 26_100;
 let inProcessTurnsActive = 0;
 let inProcessTerminationDeferred = false;
 let inProcessSignalGuardInstalled = false;
