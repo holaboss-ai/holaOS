@@ -349,14 +349,37 @@ export function useWorkspaceMainSessions(
     void load();
     const timer = window.setInterval(load, POLL_INTERVAL_MS);
 
+    // Reload now, then twice more shortly after.
+    //
+    // A single shot has to assume the session is already listable at the moment
+    // we ask, and that assumption has been wrong once already: broadcasting at
+    // creation reloaded a list in which the session was still untitled, and the
+    // sidebar hides untitled sessions. The queue call is supposed to have set
+    // the title by the time it returns, but "supposed to" is what the last two
+    // attempts rested on. These follow-ups bound the worst case at ~1.2s
+    // whatever the real timing turns out to be, instead of falling back to the
+    // 5s poll.
+    const followUps: number[] = [];
     const onChanged = () => {
       void load();
+      for (const delay of [400, 1200]) {
+        followUps.push(
+          window.setTimeout(() => {
+            if (!cancelled) {
+              void load();
+            }
+          }, delay),
+        );
+      }
     };
     mainSessionsChanged.addEventListener(MAIN_SESSIONS_CHANGED, onChanged);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      for (const id of followUps) {
+        window.clearTimeout(id);
+      }
       mainSessionsChanged.removeEventListener(MAIN_SESSIONS_CHANGED, onChanged);
     };
   }, [workspaceId, appId, activeOrgId]);

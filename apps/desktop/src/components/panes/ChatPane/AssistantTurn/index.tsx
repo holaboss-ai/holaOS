@@ -426,7 +426,19 @@ function AssistantTurnComponent({
         ) : null}
       </div>
 
-      {showActionsMenu || (showAvatar && timeLabel) ? (
+      {/* Reserved while the turn is live. `showActionsMenu` is
+          `hasAnyContent && !live` and the timestamp only exists once the turn
+          is committed, so this whole 28px row (mt-1 + h-6) used to APPEAR at
+          completion — growing the turn the instant the agent stopped typing and
+          nudging the conversation. The row now occupies its space for the
+          turn's whole life and merely fills in, so nothing moves.
+
+          The condition mirrors the settled one: reserve exactly when the
+          settled turn will render this row, or the reservation would itself
+          become a shift in the other direction. */}
+      {showActionsMenu ||
+      (showAvatar && timeLabel) ||
+      (live && hasAnyContent) ? (
         <div className="mt-1 flex h-6 items-center gap-2">
           {showAvatar && timeLabel ? (
             <span className="select-none text-xs leading-none text-muted-foreground tabular-nums">
