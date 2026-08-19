@@ -111,6 +111,69 @@ export function killChildProcess(
   }
 }
 
+/**
+ * Bound on how long the runner may keep working after its terminal event
+ * before it is force-killed. Mirrors IN_PROCESS_TERMINATION_GRACE_MS in
+ * ts-runner (duplicated rather than imported — the dependency would be a cycle,
+ * and this file must stay free of runner internals).
+ */
+const RUNNER_POST_TERMINAL_GRACE_MS = 120_000;
+
+/**
+ * Terminate the runner after its terminal event — without cutting off the work
+ * that runs *after* that event.
+ *
+ * End-of-turn compaction runs after the terminal event, and the terminal event
+ * is exactly what prompts this call. A 621k-token compaction was measured at
+ * 26.1s, so anything that kills the runner promptly here truncates it, leaving
+ * the session uncompacted; the next turn is then larger and likelier to be
+ * truncated again.
+ *
+ * The two platforms need opposite treatment, which is the bug this fixes:
+ *
+ *  - POSIX: SIGTERM is catchable, so the runner defers it until the turn
+ *    settles and then leaves by draining its event loop. Unchanged.
+ *
+ *  - Windows: there is NO catchable termination signal for a Node child.
+ *    `child.kill("SIGTERM")` is an abrupt TerminateProcess, which is why
+ *    killChildProcess falls back to `taskkill /t /f` — a hard kill no handler
+ *    can defer. Signalling at all on Windows therefore guarantees compaction is
+ *    killed, every turn. So we send nothing and let the runner exit on its own,
+ *    with a force-kill as the backstop the POSIX side gets from the runner's
+ *    own grace timer.
+ *
+ * The Windows path predates the in-process harness: the spawned harness-host
+ * sat inside the same `/t` process tree, so it was killed just the same.
+ */
+export function terminateRunnerAfterTerminalEvent(
+  child: ChildLike,
+  options: {
+    platform?: NodeJS.Platform;
+    forceAfterMs?: number;
+    kill?: (child: ChildLike, signal: NodeJS.Signals) => void;
+  } = {},
+): NodeJS.Timeout | null {
+  const platform = options.platform ?? process.platform;
+  const kill = options.kill ?? killChildProcess;
+
+  if (platform !== "win32") {
+    kill(child, "SIGTERM");
+    // No escalation: the runner's own grace timer is the bound on POSIX, and
+    // adding a second one here would cut compaction off at whichever fires
+    // first — reintroducing the race from the other side.
+    return null;
+  }
+
+  const forceAfterMs = options.forceAfterMs ?? RUNNER_POST_TERMINAL_GRACE_MS;
+  const timer = setTimeout(() => {
+    if (!child.killed) {
+      kill(child, "SIGKILL");
+    }
+  }, forceAfterMs);
+  timer.unref?.();
+  return timer;
+}
+
 export function buildPortListenerKillCommand(
   ports: number[],
   platform: NodeJS.Platform = process.platform,

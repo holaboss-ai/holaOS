@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   killChildProcess,
+  terminateRunnerAfterTerminalEvent,
   quoteShellValue,
   runtimeShellKind,
   shellPathDelimiter,
@@ -839,7 +840,7 @@ export async function executeRunnerRequest(
         }
         if (TERMINAL_EVENT_TYPES.has(parsed.event_type as string)) {
           sawTerminal = true;
-          killChildProcess(child, "SIGTERM");
+          terminateRunnerAfterTerminalEvent(child);
         }
       }
     }
@@ -869,7 +870,7 @@ export async function executeRunnerRequest(
         }
         if (TERMINAL_EVENT_TYPES.has(parsed.event_type as string)) {
           sawTerminal = true;
-          killChildProcess(child, "SIGTERM");
+          terminateRunnerAfterTerminalEvent(child);
         }
       } else {
         appendSkippedLine(skippedLines, trailingLine);
@@ -1112,7 +1113,7 @@ export class NativeRunnerExecutor implements RunnerExecutorLike {
             clearTimeout(heartbeat);
           }
           clearWatchdogs();
-          killChildProcess(child, "SIGTERM");
+          terminateRunnerAfterTerminalEvent(child);
         }
       }
     });
