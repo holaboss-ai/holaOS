@@ -47,6 +47,7 @@ env:
 jobs:
   desktop-typecheck:
     if: ${{ github.event_name != 'workflow_dispatch' }}
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -118,6 +119,7 @@ jobs:
 
   runtime-tests:
     if: ${{ github.event_name != 'workflow_dispatch' }}
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -157,11 +159,35 @@ jobs:
       # pi already accepts Debian's `fdfind` as a system name for fd, so no
       # symlink is needed here.
       - name: Install search tools (rg, fd)
+        # Bounded and retried because this step is the one that hangs: apt has
+        # no timeout of its own, so a slow Ubuntu mirror stalls here
+        # indefinitely. Observed twice in a row at 12+ minutes on a step that
+        # normally takes seconds, never reaching the tests at all.
+        timeout-minutes: 4
         run: |
-          if ! command -v rg >/dev/null || ! (command -v fd >/dev/null || command -v fdfind >/dev/null); then
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq ripgrep fd-find
+          set -u
+          if command -v rg >/dev/null && (command -v fd >/dev/null || command -v fdfind >/dev/null); then
+            rg --version | head -1
+            exit 0
           fi
+          for attempt in 1 2; do
+            # -o timeouts keep a wedged mirror from consuming the whole budget,
+            # leaving room for the second attempt to reach a different one.
+            if sudo apt-get -o Acquire::Retries=2 \
+                            -o Acquire::http::Timeout=20 \
+                            -o Acquire::https::Timeout=20 update -qq \
+               && sudo apt-get -o Acquire::Retries=2 \
+                               -o Acquire::http::Timeout=20 \
+                               -o Acquire::https::Timeout=20 install -y -qq ripgrep fd-find; then
+              break
+            fi
+            echo "apt attempt ${attempt} failed"
+            if [ "${attempt}" = "2" ]; then
+              echo "could not install search tools after 2 attempts" >&2
+              exit 1
+            fi
+            sleep 5
+          done
           rg --version | head -1
 
       # Covers every runtime package that isn't the api-server (which has its
@@ -188,6 +214,7 @@ jobs:
 
   sdk-app-sdk:
     if: ${{ github.event_name != 'workflow_dispatch' }}
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -218,6 +245,7 @@ jobs:
 
   runtime-api-server:
     if: ${{ github.event_name != 'workflow_dispatch' }}
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -250,6 +278,7 @@ jobs:
 
   packages:
     if: ${{ github.event_name != 'workflow_dispatch' }}
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
