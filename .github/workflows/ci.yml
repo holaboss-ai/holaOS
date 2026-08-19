@@ -1519,12 +1519,33 @@ jobs:
             prerelease_flag+=(--prerelease)
           fi
 
-          gh release create "${RELEASE_TAG}" \
-            --repo "${RELEASE_GH_REPO}" \
-            --title "${RELEASE_TITLE}" \
-            --notes-file "${notes_path}" \
-            "${prerelease_flag[@]}" \
-            "${upload_paths[@]}"
+          # Idempotent, so a re-run can finish a job that died AFTER this step.
+          #
+          # This step publishing and a later one failing (the R2 mirror hitting
+          # a 502, say) used to leave the job unrepeatable: re-running restarts
+          # from step 1, `gh release create` refuses because the release now
+          # exists, and the steps that actually still needed to run never get
+          # reached. The visible symptom is a re-run failing with a DIFFERENT
+          # error than the original — "release already exists" — which says
+          # nothing about what went wrong.
+          #
+          # A fresh dispatch with a taken tag is still rejected early by
+          # `ensure-release`, so clobbering here only ever applies to a re-run
+          # of the run that created the release.
+          if gh release view "${RELEASE_TAG}" --repo "${RELEASE_GH_REPO}" >/dev/null 2>&1; then
+            echo "release ${RELEASE_TAG} already exists — re-uploading assets and continuing"
+            gh release upload "${RELEASE_TAG}" \
+              --repo "${RELEASE_GH_REPO}" \
+              --clobber \
+              "${upload_paths[@]}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${RELEASE_GH_REPO}" \
+              --title "${RELEASE_TITLE}" \
+              --notes-file "${notes_path}" \
+              "${prerelease_flag[@]}" \
+              "${upload_paths[@]}"
+          fi
 
       # Mirror every binary the previous step pushed to holaOS-releases
       # up to a Cloudflare R2 bucket. GitHub Releases stay authoritative
@@ -1634,10 +1655,31 @@ jobs:
                 cache_control="public, max-age=31536000, immutable"
               fi
               echo "  → ${dest_key} (${cache_control})"
-              aws s3 cp "${asset}" "s3://${R2_BUCKET}/${dest_key}" \
-                --endpoint-url "${R2_ENDPOINT_URL}" \
-                --cache-control "${cache_control}" \
-                --only-show-errors
+              # Retried around the CLI's own retries. These are ~450MB
+              # multipart uploads and R2 returns a transient 502 on
+              # UploadPart often enough to have taken out a release: the CLI
+              # gave up after its default attempts, the step aborted on its
+              # FIRST file, and no asset reached the bucket — leaving the
+              # channel pointer serving the previous version while GitHub
+              # advertised the new one.
+              #
+              # AWS_MAX_ATTEMPTS raises the per-request budget; the loop
+              # covers a whole transfer dying midway, which no per-request
+              # setting can.
+              upload_attempt=1
+              until AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive \
+                aws s3 cp "${asset}" "s3://${R2_BUCKET}/${dest_key}" \
+                  --endpoint-url "${R2_ENDPOINT_URL}" \
+                  --cache-control "${cache_control}" \
+                  --only-show-errors; do
+                if [ "${upload_attempt}" -ge 3 ]; then
+                  echo "::error::failed to mirror ${name} to ${dest_key} after ${upload_attempt} attempts"
+                  exit 1
+                fi
+                echo "  retrying ${dest_key} (attempt $((upload_attempt + 1)))"
+                upload_attempt=$((upload_attempt + 1))
+                sleep $((upload_attempt * 10))
+              done
             done
           done
 
