@@ -2092,3 +2092,76 @@ test("projectAgentRuntimeConfig keeps direct OpenRouter providers on the provide
     "X-OpenRouter-Categories": "personal-agent,general-chat",
   });
 });
+
+test("projectAgentRuntimeConfig keeps direct OrcaRouter providers on the provider endpoint", () => {
+  const root = makeTempDir("hb-agent-runtime-config-");
+  process.env.HB_SANDBOX_ROOT = root;
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = writeRuntimeConfigDocument(root, {
+    runtime: {
+      sandbox_id: "sandbox-from-runtime",
+      default_provider: "orcarouter",
+    },
+    providers: {
+      holaboss_model_proxy: {
+        kind: "holaboss_proxy",
+        base_url: "https://proxy.example/api/v1/model-proxy",
+        api_key: "hb-token",
+      },
+      orcarouter: {
+        kind: "orcarouter",
+        base_url: "https://api.orcarouter.ai/v1",
+        api_key: "orca-key",
+      },
+    },
+    integrations: {
+      holaboss: {
+        enabled: true,
+        auth_token: "hb-token",
+        sandbox_id: "sandbox-from-binding",
+        user_id: "user-1",
+      },
+    },
+    models: {
+      "orcarouter/auto": {
+        provider_id: "orcarouter",
+        model_id: "orcarouter/auto",
+      },
+    },
+  });
+
+  const result = projectAgentRuntimeConfig({
+    session_id: "session-1",
+    workspace_id: "workspace-1",
+    input_id: "input-1",
+    session_kind: "main_session",
+    harness_id: "pi",
+    browser_tools_available: false,
+    browser_tool_ids: [],
+    runtime_tool_ids: [],
+    workspace_command_ids: [],
+    runtime_exec_model_proxy_api_key: "hb-runtime-token",
+    runtime_exec_sandbox_id: "sandbox-from-exec-context",
+    runtime_exec_run_id: "run-1",
+    selected_model: "orcarouter/auto",
+    default_provider_id: "holaboss_model_proxy",
+    session_mode: "code",
+    workspace_config_checksum: "checksum-1",
+    workspace_skill_ids: [],
+    default_tools: ["read"],
+    extra_tools: [],
+    resolved_mcp_tool_refs: [],
+    resolved_output_schemas: {},
+    agent: {
+      id: "workspace.general",
+      model: "gpt-5.2",
+      prompt: "You are concise.",
+    },
+  });
+
+  assert.equal(result.provider_id, "orcarouter");
+  assert.equal(result.model_client.api_key, "orca-key");
+  assert.equal(result.model_client.base_url, "https://api.orcarouter.ai/v1");
+  assert.equal(result.model_id, "orcarouter/auto");
+  assert.equal(result.model_client.model_proxy_provider, "openai_compatible");
+  assert.equal(result.model_client.default_headers, null);
+});

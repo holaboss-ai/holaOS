@@ -181,6 +181,7 @@ const PROVIDER_KIND_HOLABOSS_PROXY = "holaboss_proxy";
 const PROVIDER_KIND_OPENAI_COMPATIBLE = "openai_compatible";
 const PROVIDER_KIND_ANTHROPIC_NATIVE = "anthropic_native";
 const PROVIDER_KIND_OPENROUTER = "openrouter";
+const PROVIDER_KIND_ORCAROUTER = "orcarouter";
 const HOLABOSS_PROXY_PROVIDER_ID = "holaboss_model_proxy";
 const DEFAULT_RUNTIME_STRUCTURED_RETRY_COUNT = 2;
 const DIRECT_OPENAI_FALLBACK_FLAG =
@@ -191,8 +192,11 @@ const DIRECT_ANTHROPIC_API_KEY_ENV = "ANTHROPIC_API_KEY";
 const DIRECT_ANTHROPIC_BASE_URL_ENV = "ANTHROPIC_BASE_URL";
 const DIRECT_OPENROUTER_API_KEY_ENV = "OPENROUTER_API_KEY";
 const DIRECT_OPENROUTER_BASE_URL_ENV = "OPENROUTER_BASE_URL";
+const DIRECT_ORCAROUTER_API_KEY_ENV = "ORCAROUTER_API_KEY";
+const DIRECT_ORCAROUTER_BASE_URL_ENV = "ORCAROUTER_BASE_URL";
 const DEFAULT_DIRECT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_DIRECT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const DEFAULT_DIRECT_ORCAROUTER_BASE_URL = "https://api.orcarouter.ai/v1";
 const OPENROUTER_ATTRIBUTION_REFERER = "https://holaboss.ai";
 const OPENROUTER_ATTRIBUTION_TITLE = "holaOS";
 const OPENROUTER_ATTRIBUTION_CATEGORIES = "personal-agent,general-chat";
@@ -415,6 +419,12 @@ function normalizeProviderKind(
     normalizedProviderId.includes("openrouter")
   ) {
     return PROVIDER_KIND_OPENROUTER;
+  }
+  if (
+    normalizedKind === PROVIDER_KIND_ORCAROUTER ||
+    normalizedProviderId.includes("orcarouter")
+  ) {
+    return PROVIDER_KIND_ORCAROUTER;
   }
   if (
     normalizedKind === PROVIDER_KIND_ANTHROPIC_NATIVE ||
@@ -1225,6 +1235,19 @@ function configuredProviderFallbackCredentials(
       ).replace(/\/+$/, ""),
     };
   }
+  if (provider.kind === PROVIDER_KIND_ORCAROUTER) {
+    return {
+      apiKey: firstNonEmptyString(
+        provider.apiKey,
+        process.env[DIRECT_ORCAROUTER_API_KEY_ENV],
+      ),
+      baseRoot: firstNonEmptyString(
+        provider.baseUrl,
+        process.env[DIRECT_ORCAROUTER_BASE_URL_ENV],
+        DEFAULT_DIRECT_ORCAROUTER_BASE_URL,
+      ).replace(/\/+$/, ""),
+    };
+  }
   if (
     provider.kind === PROVIDER_KIND_ANTHROPIC_NATIVE ||
     normalizedModelProxyProvider === MODEL_PROXY_PROVIDER_ANTHROPIC_NATIVE
@@ -1278,6 +1301,9 @@ function configuredDirectProviderBaseUrl(
 ): string {
   const normalizedProvider = normalizeModelProxyProvider(modelProxyProvider);
   if (provider.kind === PROVIDER_KIND_OPENROUTER) {
+    return normalizeDirectProviderBaseUrl(baseRoot, normalizedProvider);
+  }
+  if (provider.kind === PROVIDER_KIND_ORCAROUTER) {
     return normalizeDirectProviderBaseUrl(baseRoot, normalizedProvider);
   }
   return baseUrlForProvider(baseRoot, normalizedProvider);
@@ -1469,7 +1495,9 @@ function resolveModelClientConfig(
             )
           : configuredProvider.kind === PROVIDER_KIND_OPENROUTER
             ? normalizeDirectProviderBaseUrl(credentials.baseRoot)
-            : baseUrlForProvider(credentials.baseRoot, normalizedProvider);
+            : configuredProvider.kind === PROVIDER_KIND_ORCAROUTER
+              ? normalizeDirectProviderBaseUrl(credentials.baseRoot)
+              : baseUrlForProvider(credentials.baseRoot, normalizedProvider);
       const configuredHeaders =
         Object.keys(configuredProvider.headers).length > 0
           ? { ...configuredProvider.headers }

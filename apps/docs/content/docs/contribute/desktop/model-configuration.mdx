@@ -25,6 +25,7 @@ The OSS runtime supports the following provider kinds:
 | `google_compatible` | Gemini via the Google OpenAI-compat path | Uses the Google compatibility surface instead of the generic OpenAI-compatible routing path. |
 | `anthropic_native` | Anthropic accounts and native workflows | Good when you want the provider's own integration path. |
 | `openrouter` | Model experimentation and broad access | Useful when you want to swap models without changing the rest of the setup. |
+| `orcarouter` | Unified gateway with smart routing | Use one API key for many upstream models behind the [OrcaRouter](https://www.orcarouter.ai) gateway; same OpenAI-compatible surface as `openai_compatible`. |
 
 Desktop currently exposes only holaOS Proxy in `Settings -> Model Providers`. The broader provider kinds below still describe lower-level runtime capabilities and legacy config shapes, but they are no longer first-class desktop provider choices.
 

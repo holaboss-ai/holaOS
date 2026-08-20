@@ -26,6 +26,14 @@ export const PROVIDER_FORM_PRESETS = [
     apiHost: "https://api.atlascloud.ai/v1",
     keyPlaceholder: "sk-…",
   },
+  {
+    id: "orcarouter",
+    label: "OrcaRouter",
+    displayName: "OrcaRouter",
+    providerType: "openai_compatible",
+    apiHost: "https://api.orcarouter.ai/v1",
+    keyPlaceholder: "sk-orca-…",
+  },
 ] as const satisfies readonly ProviderFormPreset[];
 
 export function providerFormPreset(presetId: string): ProviderFormPreset {
