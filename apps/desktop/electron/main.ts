@@ -11873,12 +11873,28 @@ async function composioDeleteUpstream(
   }
 }
 
+/**
+ * Post-connect / post-install hook: make newly available tools reachable.
+ *
+ * The composio-mcp host this used to start no longer exists. Composio tools are
+ * resolved inline now, and the runtime actively removes the legacy
+ * `holaboss_composio` registry entry — so `/api/v1/composio-mcp/ensure-running`
+ * has had no route for some time and every call here 404'd straight into the
+ * callers' `catch {}`.
+ *
+ * That silently removed the only step that made a just-connected integration's
+ * tools reachable: the runtime kept serving its cached tool listing (15 min TTL),
+ * so the agent reported the publish tool as "still loading" turn after turn and
+ * users abandoned the task.
+ *
+ * Refreshing is the live equivalent — it drops the workspace's MCP tool cache and
+ * the cached Composio listing, so the next turn re-resolves both. Kept under the
+ * original name so the three renderer call sites (chat connect proposal, add-app,
+ * marketplace install) keep working; the name is stale and worth retiring
+ * separately.
+ */
 async function composioMcpEnsureRunning(workspaceId: string): Promise<unknown> {
-  return requestRuntimeJson<unknown>({
-    method: "POST",
-    path: "/api/v1/composio-mcp/ensure-running",
-    payload: { workspace_id: workspaceId },
-  });
+  return refreshWorkspaceMcpTools(workspaceId);
 }
 
 /**
