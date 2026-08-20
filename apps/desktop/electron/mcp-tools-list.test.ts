@@ -1,0 +1,164 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  MAX_MCP_TOOLS_LIST_PAGES,
+  fetchAllMcpToolNames,
+  parseMcpToolsListPage,
+  parseMcpToolsListResponse,
+} from "./mcp-tools-list.js";
+
+/** A transport that answers each `tools/list` with the next scripted page. */
+function scriptedFetch(
+  pages: Array<{ tools: string[]; nextCursor?: string | null; status?: number }>,
+) {
+  const cursors: Array<string | undefined> = [];
+  let call = 0;
+  const impl = (async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      params?: { cursor?: string };
+    };
+    cursors.push(body.params?.cursor);
+    const page = pages[Math.min(call, pages.length - 1)];
+    call += 1;
+    if (page.status && page.status >= 400) {
+      return { ok: false, status: page.status, text: async () => "" } as Response;
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          jsonrpc: "2.0",
+          result: {
+            tools: page.tools.map((name) => ({ name })),
+            ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+          },
+        }),
+    } as Response;
+  }) as unknown as typeof fetch;
+  return { impl, cursors, calls: () => call };
+}
+
+const BASE = { url: "https://app.example/mcp", headers: {}, label: "[test]" };
+
+test("parseMcpToolsListPage carries nextCursor out of the body", () => {
+  const page = parseMcpToolsListPage(
+    JSON.stringify({ result: { tools: [{ name: "a" }], nextCursor: "c1" } }),
+  );
+  assert.deepEqual(page, { tools: ["a"], nextCursor: "c1" });
+});
+
+test("parseMcpToolsListPage reads an SSE-framed body", () => {
+  const page = parseMcpToolsListPage(
+    `event: message\ndata: ${JSON.stringify({ result: { tools: [{ name: "b" }], nextCursor: "c2" } })}\n\n`,
+  );
+  assert.deepEqual(page, { tools: ["b"], nextCursor: "c2" });
+});
+
+test("parseMcpToolsListPage treats a missing/empty cursor as the end", () => {
+  assert.equal(
+    parseMcpToolsListPage(JSON.stringify({ result: { tools: [] } })).nextCursor,
+    null,
+  );
+  assert.equal(
+    parseMcpToolsListPage(
+      JSON.stringify({ result: { tools: [], nextCursor: "" } }),
+    ).nextCursor,
+    null,
+  );
+});
+
+test("parseMcpToolsListResponse still returns just the names", () => {
+  assert.deepEqual(
+    parseMcpToolsListResponse(
+      JSON.stringify({ result: { tools: [{ name: "x" }, { name: "y" }] } }),
+    ),
+    ["x", "y"],
+  );
+});
+
+/**
+ * The regression: a server whose tools span two pages used to yield only page one,
+ * and the missing names were then filtered out of the agent's allowlist with no
+ * error anywhere — `upload_image` present, `create_post` simply absent.
+ */
+test("fetchAllMcpToolNames follows the cursor across pages", async () => {
+  const { impl, cursors } = scriptedFetch([
+    { tools: ["upload_image"], nextCursor: "page2" },
+    { tools: ["create_post"] },
+  ]);
+
+  const result = await fetchAllMcpToolNames({ ...BASE, fetchImpl: impl });
+
+  assert.deepEqual(result.tools, ["upload_image", "create_post"]);
+  assert.equal(result.complete, true);
+  // First request carries no cursor; the second echoes the server's.
+  assert.deepEqual(cursors, [undefined, "page2"]);
+});
+
+test("fetchAllMcpToolNames reports incomplete when a later page fails", async () => {
+  const { impl } = scriptedFetch([
+    { tools: ["first"], nextCursor: "page2" },
+    { tools: [], status: 500 },
+  ]);
+
+  const result = await fetchAllMcpToolNames({
+    ...BASE,
+    fetchImpl: impl,
+    log: () => {},
+  });
+
+  // The names we did get are still returned — but `complete` is false so the
+  // caller must not cache a truncated set.
+  assert.deepEqual(result.tools, ["first"]);
+  assert.equal(result.complete, false);
+});
+
+test("fetchAllMcpToolNames de-duplicates names repeated across pages", async () => {
+  const { impl } = scriptedFetch([
+    { tools: ["dup", "a"], nextCursor: "page2" },
+    { tools: ["dup", "b"] },
+  ]);
+
+  const result = await fetchAllMcpToolNames({ ...BASE, fetchImpl: impl });
+
+  assert.deepEqual(result.tools, ["dup", "a", "b"]);
+});
+
+test("fetchAllMcpToolNames stops if a server repeats its cursor", async () => {
+  // Same cursor forever would otherwise loop until the page cap.
+  const { impl, calls } = scriptedFetch([
+    { tools: ["a"], nextCursor: "same" },
+    { tools: ["b"], nextCursor: "same" },
+  ]);
+
+  const result = await fetchAllMcpToolNames({ ...BASE, fetchImpl: impl });
+
+  assert.equal(result.complete, true);
+  assert.equal(calls(), 2, "must not keep requesting the same cursor");
+});
+
+test("fetchAllMcpToolNames stops at the page cap and reports incomplete", async () => {
+  // Every page hands back a fresh cursor, so only the cap can end this.
+  let n = 0;
+  const impl = (async () => ({
+    ok: true,
+    status: 200,
+    text: async () => {
+      n += 1;
+      return JSON.stringify({
+        result: { tools: [{ name: `tool${n}` }], nextCursor: `cursor${n}` },
+      });
+    },
+  })) as unknown as typeof fetch;
+
+  const result = await fetchAllMcpToolNames({
+    ...BASE,
+    fetchImpl: impl,
+    log: () => {},
+  });
+
+  assert.equal(result.complete, false);
+  assert.equal(result.tools.length, MAX_MCP_TOOLS_LIST_PAGES);
+});

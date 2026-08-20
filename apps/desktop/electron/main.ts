@@ -225,6 +225,10 @@ import {
 } from "@holaboss/runtime-client";
 import { installBffFetchHandler } from "./bff-fetch.js";
 import {
+  fetchAllMcpToolNames,
+  parseMcpToolsListResponse,
+} from "./mcp-tools-list.js";
+import {
   createComposioEventsBridge,
   type ComposioEventsBridge,
 } from "./composio-events-bridge.js";
@@ -19243,39 +19247,8 @@ function asYamlRecord(value: unknown): Record<string, unknown> {
 // network round-trip on every per-turn re-attach; cleared on uninstall.
 const webHolaAppToolCache = new Map<string, string[]>();
 
-function parseMcpToolsListResponse(text: string): string[] {
-  const fromJson = (raw: string): string[] | null => {
-    try {
-      const obj = JSON.parse(raw) as {
-        result?: { tools?: Array<{ name?: unknown }> };
-      };
-      const tools = obj?.result?.tools;
-      if (Array.isArray(tools)) {
-        return tools
-          .map((tool) => tool?.name)
-          .filter((name): name is string => typeof name === "string");
-      }
-    } catch {
-      // not plain JSON — could be an SSE stream; fall through
-    }
-    return null;
-  };
-  const direct = fromJson(text);
-  if (direct) {
-    return direct;
-  }
-  // Streamable HTTP may answer with an SSE stream of `data:` events.
-  for (const line of text.split(/\r?\n/)) {
-    const match = line.match(/^data:\s*(.*)$/);
-    if (match) {
-      const parsed = fromJson(match[1]);
-      if (parsed) {
-        return parsed;
-      }
-    }
-  }
-  return [];
-}
+// `tools/list` enumeration (including pagination) lives in ./mcp-tools-list.ts so
+// it can be tested against a stubbed transport — see the import at the top.
 
 // Discover a web HolaApp's MCP tool names (cached) via the same initialize + tools/list the
 // runtime's MCP client does. Needed to enumerate the app's tools into the workspace.yaml
@@ -19313,17 +19286,16 @@ async function discoverWebHolaAppMcpTools(holaAppId: string): Promise<string[]> 
       }),
     }).catch(() => null);
     const sessionId = init?.headers.get("mcp-session-id") ?? undefined;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { ...headers, ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}) },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+    const { tools, complete } = await fetchAllMcpToolNames({
+      url,
+      headers,
+      sessionId,
+      label: `[web-holaapp] ${holaAppId}`,
     });
-    if (!resp.ok) {
-      console.warn(`[web-holaapp] tools/list for ${holaAppId} → ${resp.status}`);
-      return [];
-    }
-    const tools = parseMcpToolsListResponse(await resp.text());
-    if (tools.length > 0) {
+    // Only a COMPLETE list may be cached: this cache is cleared on uninstall, so
+    // caching a truncated one would hide the missing tools from the agent for the
+    // rest of the install.
+    if (tools.length > 0 && complete) {
       webHolaAppToolCache.set(holaAppId, tools);
     }
     return tools;
@@ -19689,17 +19661,14 @@ async function discoverMarketplaceMcpTools(
       }),
     }).catch(() => null);
     const sessionId = init?.headers.get("mcp-session-id") ?? undefined;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { ...headers, ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}) },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+    const { tools, complete } = await fetchAllMcpToolNames({
+      url,
+      headers,
+      sessionId,
+      label: `[mcp-marketplace] ${id}`,
     });
-    if (!resp.ok) {
-      console.warn(`[mcp-marketplace] tools/list for ${id} → ${resp.status}`);
-      return [];
-    }
-    const tools = parseMcpToolsListResponse(await resp.text());
-    if (tools.length > 0) {
+    // Same rule as the web-HolaApp cache: never pin a truncated tool set.
+    if (tools.length > 0 && complete) {
       marketplaceMcpToolCache.set(id, tools);
     }
     return tools;
