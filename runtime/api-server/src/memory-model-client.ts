@@ -483,6 +483,23 @@ export async function queryMemoryModelVisionJson(
   }
 }
 
+/**
+ * Embedding inputs are hard-capped by the model — text-embedding-3-small rejects
+ * the WHOLE request over 8192 tokens ("Invalid 'input': maximum context length is
+ * 8192 tokens") rather than truncating.
+ *
+ * Recall queries are raw user turns, so a long pasted instruction 400s and recall
+ * returns null. Nothing surfaces that: the agent simply answers the turn without
+ * its own memory and never mentions the gap. In production this fired for users
+ * across weeks, always silently.
+ *
+ * Clipping is safe because the STORED side is already bounded — memory-embedding-
+ * index clips excerpts to 480 chars — so a query far longer than that adds no
+ * recall signal to compare against. 6000 chars stays under the cap even for CJK
+ * text, where one character can cost a full token.
+ */
+const MAX_EMBEDDING_INPUT_CHARS = 6000;
+
 export async function queryMemoryModelEmbedding(
   config: MemoryModelClientConfig,
   query: MemoryModelEmbeddingQuery,
@@ -502,10 +519,16 @@ export async function queryMemoryModelEmbedding(
   if (!baseUrl || !modelId || apiStyle !== "openai_compatible") {
     return null;
   }
-  const normalizedInput = query.input.trim();
-  if (!normalizedInput) {
+  const trimmedInput = query.input.trim();
+  if (!trimmedInput) {
     return null;
   }
+  // Clip at the choke point, not per caller: seven call sites across five modules
+  // feed this, and every one of them passes text it does not bound itself.
+  const normalizedInput =
+    trimmedInput.length > MAX_EMBEDDING_INPUT_CHARS
+      ? trimmedInput.slice(0, MAX_EMBEDDING_INPUT_CHARS)
+      : trimmedInput;
   const headers: Record<string, string> = withAgentRoleHeader(
     {
       "Content-Type": "application/json",

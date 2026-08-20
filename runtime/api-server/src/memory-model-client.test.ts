@@ -338,3 +338,81 @@ test("queryMemoryModelEmbedding uses OpenAI-compatible embeddings", async () => 
     encoding_format: "float",
   });
 });
+
+/**
+ * The embedding model rejects the WHOLE request over its 8192-token cap instead
+ * of truncating, and recall queries are raw user turns. Unclipped, a long pasted
+ * instruction 400s and recall returns null — the agent then answers without its
+ * own memory and says nothing about it. Clip at this choke point so no caller can
+ * reintroduce it.
+ */
+test("queryMemoryModelEmbedding clips an oversized input instead of 400ing", async () => {
+  let call: RecordedCall | null = null;
+  globalThis.fetch = (async (_input, init) => {
+    call = {
+      url: String(_input),
+      headers: init?.headers,
+      body:
+        typeof init?.body === "string"
+          ? (JSON.parse(init.body) as Record<string, unknown>)
+          : null,
+    };
+    return new Response(JSON.stringify({ data: [{ embedding: [1] }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  // Comfortably past the 8192-token cap in any language.
+  const oversized = "宇".repeat(40_000);
+  const embedding = await queryMemoryModelEmbedding(
+    {
+      baseUrl: "https://runtime.example/api/v1/model-proxy/openai/v1",
+      apiKey: "token-embedding",
+      modelId: "text-embedding-3-small",
+      apiStyle: "openai_compatible",
+    },
+    { input: oversized },
+  );
+
+  assert.ok(embedding, "an oversized query must still return an embedding");
+  const sent = (call as unknown as RecordedCall).body?.input;
+  assert.equal(typeof sent, "string");
+  assert.ok(
+    (sent as string).length <= 6000,
+    `input was sent unclipped (${(sent as string).length} chars) and would 400`,
+  );
+});
+
+test("queryMemoryModelEmbedding leaves an ordinary input untouched", async () => {
+  let call: RecordedCall | null = null;
+  globalThis.fetch = (async (_input, init) => {
+    call = {
+      url: String(_input),
+      headers: init?.headers,
+      body:
+        typeof init?.body === "string"
+          ? (JSON.parse(init.body) as Record<string, unknown>)
+          : null,
+    };
+    return new Response(JSON.stringify({ data: [{ embedding: [1] }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await queryMemoryModelEmbedding(
+    {
+      baseUrl: "https://runtime.example/api/v1/model-proxy/openai/v1",
+      apiKey: "token-embedding",
+      modelId: "text-embedding-3-small",
+      apiStyle: "openai_compatible",
+    },
+    { input: "  what did we decide about the pricing page?  " },
+  );
+
+  assert.equal(
+    (call as unknown as RecordedCall).body?.input,
+    "what did we decide about the pricing page?",
+  );
+});
