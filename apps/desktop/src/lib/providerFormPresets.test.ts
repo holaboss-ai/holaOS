@@ -17,6 +17,17 @@ test("Atlas Cloud preset uses the OpenAI-compatible endpoint", () => {
   });
 });
 
+test("OrcaRouter preset uses the OrcaRouter OpenAI-compatible gateway endpoint", () => {
+  assert.deepEqual(providerFormPreset("orcarouter"), {
+    id: "orcarouter",
+    label: "OrcaRouter",
+    displayName: "OrcaRouter",
+    providerType: "openai_compatible",
+    apiHost: "https://api.orcarouter.ai/v1",
+    keyPlaceholder: "sk-orca-…",
+  });
+});
+
 test("unknown provider presets fall back to an empty custom form", () => {
   const preset = providerFormPreset("unknown");
 

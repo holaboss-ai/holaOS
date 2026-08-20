@@ -431,6 +431,7 @@ const RUNTIME_PROVIDER_KIND_HOLABOSS_PROXY = "holaboss_proxy";
 const RUNTIME_PROVIDER_KIND_OPENAI_COMPATIBLE = "openai_compatible";
 const RUNTIME_PROVIDER_KIND_ANTHROPIC_NATIVE = "anthropic_native";
 const RUNTIME_PROVIDER_KIND_OPENROUTER = "openrouter";
+const RUNTIME_PROVIDER_KIND_ORCAROUTER = "orcarouter";
 const RUNTIME_HOLABOSS_PROVIDER_ID = "holaboss_model_proxy";
 const RUNTIME_HOLABOSS_PROVIDER_ALIASES = [
   "holaboss",
@@ -5590,6 +5591,7 @@ const PROVIDER_DEFAULT_BASE_URL: Record<string, string> = {
   gemini_direct: "https://generativelanguage.googleapis.com/v1beta/openai",
   minimax: "https://api.minimaxi.chat",
   ollama_local: "http://localhost:11434",
+  orcarouter: "https://api.orcarouter.ai/v1",
 };
 
 function trimTrailingSlash(value: string): string {
@@ -6596,6 +6598,9 @@ function runtimeProviderLabel(providerId: string): string {
   if (normalized.includes("openrouter")) {
     return "OpenRouter";
   }
+  if (normalized.includes("orcarouter")) {
+    return "OrcaRouter";
+  }
   if (normalized.includes("gemini") || normalized.includes("google")) {
     return "Gemini";
   }
@@ -6645,6 +6650,12 @@ function normalizeRuntimeProviderKind(
     return RUNTIME_PROVIDER_KIND_OPENROUTER;
   }
   if (
+    normalizedKind === RUNTIME_PROVIDER_KIND_ORCAROUTER ||
+    normalizedProviderId.includes("orcarouter")
+  ) {
+    return RUNTIME_PROVIDER_KIND_ORCAROUTER;
+  }
+  if (
     normalizedKind === RUNTIME_PROVIDER_KIND_ANTHROPIC_NATIVE ||
     normalizedKind === "anthropic" ||
     normalizedProviderId.includes("anthropic")
@@ -6669,6 +6680,7 @@ function runtimeModelIdFromToken(token: string): string {
     normalizedPrefix.includes("anthropic") ||
     normalizedPrefix.includes("holaboss") ||
     normalizedPrefix.includes("openrouter") ||
+    normalizedPrefix.includes("orcarouter") ||
     normalizedPrefix.includes("gemini") ||
     normalizedPrefix.includes("google") ||
     normalizedPrefix.includes("ollama") ||

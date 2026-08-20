@@ -66,7 +66,7 @@ Context, preferences, and project history live in a single shared memory — sto
 
 ### 💸 Models your way — built in, or bring your own
 
-One account, every model — no keys, no setup, no switching between providers. The latest frontier models are **built in**: cost-efficient **Kimi K3** and **GLM 5.2** for everyday volume, plus top-tier **GPT 5.6**, **Claude Opus 5**, and **Fable 5** for the hard problems. Prefer your own provider? **Bring your own keys** for OpenAI, Anthropic, or any OpenAI- or Anthropic-compatible endpoint — those run on _your_ account, not your holaOS plan.
+One account, every model — no keys, no setup, no switching between providers. The latest frontier models are **built in**: cost-efficient **Kimi K3** and **GLM 5.2** for everyday volume, plus top-tier **GPT 5.6**, **Claude Opus 5**, and **Fable 5** for the hard problems. Prefer your own provider? **Bring your own keys** for OpenAI, Anthropic, [OrcaRouter](https://www.orcarouter.ai), or any OpenAI- or Anthropic-compatible endpoint — those run on _your_ account, not your holaOS plan.
 
 - **Zero-setup default** — one account, every SOTA model, no API keys to manage.
 - **BYOK when you want it** — your keys, your providers, your rates.
