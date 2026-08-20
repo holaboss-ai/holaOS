@@ -210,6 +210,10 @@ export interface PiSessionHandle {
   mcpToolMetadata: Map<string, PiMcpToolMetadata>;
   skillMetadataByAlias: Map<string, PiSkillMetadata>;
   unavailableMcpServers?: PiMcpServerUnavailableInfo[];
+  /** Toolkits whose inline Composio tools could not be resolved this turn. The
+   *  MCP path has surfaced its unavailable servers for a while; this is the
+   *  equivalent for integrations, which previously failed invisibly. */
+  unavailableComposioToolkits?: Array<{ toolkit_slug: string; reason: string }>;
   /** Per-step durations of the (currently serial) session-setup awaits —
    *  mcp_connect, composio_inline, runtime_tools, browser_tools, web_search,
    *  resource_reload, create_agent_session. Surfaced in run_started so the TTFT
@@ -3434,6 +3438,7 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
     mcpToolMetadata: mcpToolset.mcpToolMetadata,
     skillMetadataByAlias,
     unavailableMcpServers: mcpToolset.unavailableServers,
+    unavailableComposioToolkits: composioInline.unavailable,
     setupTimingsMs,
     dispose: async () => {
       try {
@@ -4141,6 +4146,19 @@ export async function runPi(request: HarnessHostPiRequest, deps: PiDeps = defaul
       reason: unavailable.reason,
       missing_tool_ids: unavailable.missingToolIds,
       auth_required: unavailable.authRequired ?? false,
+    });
+  }
+
+  // The integration equivalent of the loop above. resolveComposioInlineTools has
+  // always returned which toolkits it could not resolve, but nothing consumed it,
+  // so a failed toolkit was indistinguishable from one the user never connected:
+  // the tools were simply absent and no event, log or prompt line said why. That
+  // is how a connected integration ends up explained to the user as "still
+  // loading" — the agent had no signal and guessed.
+  for (const unavailable of handle.unavailableComposioToolkits ?? []) {
+    emitEvent(request, nextSequence(), "composio_toolkit_unavailable", {
+      toolkit_slug: unavailable.toolkit_slug,
+      reason: unavailable.reason,
     });
   }
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -308,4 +309,40 @@ test("decode workspace MCP sidecar request payloads", () => {
       catalog_json_base64: "eyJ0ZXN0Ijp0cnVlfQ==",
     }
   );
+});
+
+/**
+ * An event type that isn't in BOTH unions is dropped on the way to the client —
+ * silently, which is the worst way for a diagnostic signal to fail. The runner
+ * and the ts-runner relay each carry their own copy of the list, so they can
+ * drift; pin them together.
+ */
+test("composio_toolkit_unavailable is a registered runner event", () => {
+  const event = {
+    session_id: "session-1",
+    input_id: "input-1",
+    sequence: 1,
+    // Fails typecheck if the type is missing from KnownRunnerEventType.
+    event_type: "composio_toolkit_unavailable",
+    payload: { toolkit_slug: "twitter", reason: "schema fetch failed" },
+  } satisfies RunnerOutputEvent;
+
+  assert.equal(event.event_type, "composio_toolkit_unavailable");
+});
+
+test("the ts-runner relay lists the same unavailable-event types as the runner", () => {
+  const relaySource = readFileSync(
+    new URL("../../api-server/src/ts-runner-contracts.ts", import.meta.url),
+    "utf8",
+  );
+
+  for (const eventType of [
+    "mcp_server_unavailable",
+    "composio_toolkit_unavailable",
+  ]) {
+    assert.ok(
+      relaySource.includes(`"${eventType}"`),
+      `${eventType} is emitted by the runner but not accepted by the ts-runner relay, so it never reaches the client`,
+    );
+  }
 });
