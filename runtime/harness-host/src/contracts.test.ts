@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -307,5 +308,61 @@ test("decode workspace MCP sidecar request payloads", () => {
       readiness_timeout_s: 10.5,
       catalog_json_base64: "eyJ0ZXN0Ijp0cnVlfQ==",
     }
+  );
+});
+
+/**
+ * Both unions must list every event the runner emits.
+ *
+ * The first version of this test read only the RELAY source and compared it to a
+ * hardcoded array in the test body — so deleting the type from the runner union
+ * still passed, a comment counted as a match, and a future third type would be
+ * invisible. Parse both unions out of source and compare them as sets instead.
+ */
+function unionMembers(file: string, typeName: string): Set<string> {
+  const source = readFileSync(new URL(file, import.meta.url), "utf8");
+  const start = source.indexOf(`export type ${typeName} =`);
+  if (start === -1) throw new Error(`${typeName} not found in ${file}`);
+  const body = source.slice(start, source.indexOf(";", start));
+  // Strip comments so a mention in prose never counts as membership.
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  return new Set([...code.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]));
+}
+
+/**
+ * Pre-existing drift, deliberately allowed rather than silently blessed:
+ * `auto_retry_start` is declared by the runner and absent from the relay. It is
+ * not this change's to fix, but a NEW type landing in only one union should
+ * still fail here.
+ */
+const KNOWN_UNION_DRIFT = new Set(["auto_retry_start"]);
+
+test("composio_toolkit_unavailable is declared by both the runner and the relay", () => {
+  const runner = unionMembers("./contracts.ts", "KnownRunnerEventType");
+  const relay = unionMembers(
+    "../../api-server/src/ts-runner-contracts.ts",
+    "TsRunnerEventType",
+  );
+
+  // Load-bearing: without this, pi.ts's emit does not compile.
+  assert.ok(
+    runner.has("composio_toolkit_unavailable"),
+    "the runner union lost composio_toolkit_unavailable",
+  );
+  // Contract hygiene: the relay declares what it forwards.
+  assert.ok(
+    relay.has("composio_toolkit_unavailable"),
+    "the relay union lost composio_toolkit_unavailable",
+  );
+
+  assert.deepEqual(
+    [...runner].filter((t) => !relay.has(t) && !KNOWN_UNION_DRIFT.has(t)).sort(),
+    [],
+    "a runner event type is missing from the relay union",
+  );
+  assert.deepEqual(
+    [...relay].filter((t) => !runner.has(t)).sort(),
+    [],
+    "the relay declares an event type the runner cannot emit",
   );
 });

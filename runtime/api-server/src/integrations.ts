@@ -279,6 +279,14 @@ export class RuntimeIntegrationService {
       connectionId,
       isDefault
     });
+    // A workspace_default binding is what the composio toolkit resolver reads to
+    // choose an account, so writing one changes the listed tool set. The listing
+    // also binds connected_account_id into each tool's execute body, so serving a
+    // stale one makes the agent act as the PREVIOUS account. App bindings don't
+    // feed that listing, so they don't need the churn.
+    if (targetType === "workspace_default") {
+      invalidateComposioInlineToolCache(this.store);
+    }
 
     if (!existing) {
       try {
@@ -312,6 +320,11 @@ export class RuntimeIntegrationService {
     const deleted = this.store.deleteIntegrationBinding(normalizedBindingId);
     if (!deleted) {
       throw new IntegrationServiceError(404, "binding not found");
+    }
+    // Dropping the workspace default falls resolution back to another account,
+    // so the cached listing (and the account bound into it) is now wrong.
+    if (binding.targetType === "workspace_default") {
+      invalidateComposioInlineToolCache(this.store);
     }
     return { deleted: true };
   }

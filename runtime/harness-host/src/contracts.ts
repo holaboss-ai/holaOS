@@ -16,6 +16,7 @@ export type KnownRunnerEventType =
   | "auto_compaction_end"
   | "auto_retry_start"
   | "mcp_server_unavailable"
+  | "composio_toolkit_unavailable"
   | "run_completed"
   | "run_failed";
 

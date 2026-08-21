@@ -8437,7 +8437,11 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         return {
           provider_id: requiredString(body.provider_id, "provider_id").toLowerCase(),
           connection_id: result.connection_id,
-          note: "Workspace default updated. The composio-mcp host has restarted; the new account's tools become available to the agent starting from the next user turn.",
+          // This note is a TOOL RESULT — it lands in the transcript on every call
+          // and the model repeats it to the user, so it has to be true. There is
+          // no composio-mcp host to restart (Composio is resolved inline); what
+          // actually happens is the cached listing is dropped, above.
+          note: "Workspace default updated. The cached integration tool listing was dropped; the new account's tools resolve from your next turn.",
         };
       } catch (error) {
         return sendError(
