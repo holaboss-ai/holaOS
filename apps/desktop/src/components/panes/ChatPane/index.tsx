@@ -220,7 +220,7 @@ import {
   turnInputIdsFromHistoryMessages,
 } from "./helpers";
 import { bareRuntimeToolName, effectiveToolName } from "./toolNames";
-import { humanizeRunFailure } from "./runFailureText";
+import { walletBlockMessage } from "./runFailureText";
 import {
   preserveCommittedAssistantTurns,
   settleCommittedAssistantTurns,
@@ -1371,17 +1371,23 @@ export function runFailedDetail(payload: Record<string, unknown>): string {
       : typeof payload.message === "string"
         ? payload.message.trim()
         : "";
-  const humanized = detail ? humanizeRunFailure(detail) : detail;
+  // A wallet block is not a condition of the model that was running, so it is
+  // returned without the provider/model prefix — which also keeps the actionable
+  // half inside the caller's 120-char truncation.
+  const walletBlock = detail ? walletBlockMessage(detail) : null;
+  if (walletBlock) {
+    return walletBlock;
+  }
   const contextLabel = runFailedContextLabel(payload);
   if (!contextLabel) {
-    return humanized || "The run failed.";
+    return detail || "The run failed.";
   }
-  if (!humanized) {
+  if (!detail) {
     return `${contextLabel} failed.`;
   }
-  return humanized.startsWith(contextLabel)
-    ? humanized
-    : `${contextLabel}: ${humanized}`;
+  return detail.startsWith(contextLabel)
+    ? detail
+    : `${contextLabel}: ${detail}`;
 }
 
 function assistantMetaLabel(
