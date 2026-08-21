@@ -58,13 +58,22 @@ test("parseMcpToolsListPage reads an SSE-framed body", () => {
 
 test("parseMcpToolsListPage treats a missing/empty cursor as the end", () => {
   assert.equal(
-    parseMcpToolsListPage(JSON.stringify({ result: { tools: [] } })).nextCursor,
+    parseMcpToolsListPage(JSON.stringify({ result: { tools: [] } }))?.nextCursor,
     null,
   );
   assert.equal(
     parseMcpToolsListPage(
       JSON.stringify({ result: { tools: [], nextCursor: "" } }),
-    ).nextCursor,
+    )?.nextCursor,
+    null,
+  );
+});
+
+test("parseMcpToolsListPage returns null when there is no tools array to read", () => {
+  // Distinct from a page that legitimately has zero tools — see the callers.
+  assert.equal(parseMcpToolsListPage("not json at all"), null);
+  assert.equal(
+    parseMcpToolsListPage(JSON.stringify({ error: { code: -32601 } })),
     null,
   );
 });
@@ -126,17 +135,74 @@ test("fetchAllMcpToolNames de-duplicates names repeated across pages", async () 
   assert.deepEqual(result.tools, ["dup", "a", "b"]);
 });
 
-test("fetchAllMcpToolNames stops if a server repeats its cursor", async () => {
-  // Same cursor forever would otherwise loop until the page cap.
+test("a repeated cursor stops the loop AND reports incomplete", async () => {
+  // A server reusing a cursor is looping. Stopping is right; calling it complete
+  // is not — the remaining pages were never read, and a "complete" partial list
+  // gets cached until uninstall, which is the bug this module exists to prevent.
   const { impl, calls } = scriptedFetch([
     { tools: ["a"], nextCursor: "same" },
     { tools: ["b"], nextCursor: "same" },
   ]);
+  const warnings: string[] = [];
 
-  const result = await fetchAllMcpToolNames({ ...BASE, fetchImpl: impl });
+  const result = await fetchAllMcpToolNames({
+    ...BASE,
+    fetchImpl: impl,
+    log: (m) => warnings.push(m),
+  });
 
-  assert.equal(result.complete, true);
+  assert.equal(result.complete, false, "a truncated read must not be cacheable");
   assert.equal(calls(), 2, "must not keep requesting the same cursor");
+  assert.match(warnings.join("\n"), /repeated cursor/);
+});
+
+test("a thrown transport on page 2 keeps page 1 instead of losing everything", async () => {
+  // Regression guard: propagating would hit the caller's catch and yield NO
+  // tools — strictly worse than the single-page behaviour this replaced.
+  let call = 0;
+  const impl = (async () => {
+    call += 1;
+    if (call === 1) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            result: { tools: [{ name: "p1" }], nextCursor: "page2" },
+          }),
+      } as Response;
+    }
+    throw new Error("ECONNRESET");
+  }) as unknown as typeof fetch;
+
+  const result = await fetchAllMcpToolNames({
+    ...BASE,
+    fetchImpl: impl,
+    log: () => {},
+  });
+
+  assert.deepEqual(result.tools, ["p1"]);
+  assert.equal(result.complete, false);
+});
+
+test("an unparseable body is incomplete, not an empty complete list", async () => {
+  // A JSON-RPC error body parses as JSON but carries no tools array. Treating
+  // that as "complete with zero tools" would cache a wrong answer.
+  const impl = (async () => ({
+    ok: true,
+    status: 200,
+    text: async () =>
+      JSON.stringify({ jsonrpc: "2.0", error: { code: -32601, message: "no" } }),
+  })) as unknown as typeof fetch;
+
+  const result = await fetchAllMcpToolNames({
+    ...BASE,
+    fetchImpl: impl,
+    log: () => {},
+  });
+
+  assert.deepEqual(result.tools, []);
+  assert.equal(result.complete, false);
 });
 
 test("fetchAllMcpToolNames stops at the page cap and reports incomplete", async () => {

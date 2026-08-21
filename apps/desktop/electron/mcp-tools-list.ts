@@ -28,7 +28,7 @@ export const MAX_MCP_TOOLS_LIST_PAGES = 20;
  * Handles both a plain JSON-RPC body and the Streamable-HTTP variant, where the
  * server answers with an SSE stream of `data:` events.
  */
-export function parseMcpToolsListPage(text: string): McpToolsListPage {
+export function parseMcpToolsListPage(text: string): McpToolsListPage | null {
   const fromJson = (raw: string): McpToolsListPage | null => {
     try {
       const obj = JSON.parse(raw) as {
@@ -64,12 +64,16 @@ export function parseMcpToolsListPage(text: string): McpToolsListPage {
       }
     }
   }
-  return { tools: [], nextCursor: null };
+  // Nothing that looks like a tools/list result — an error body, a truncated
+  // stream, HTML from a proxy. NOT the same as "a page with no tools", and the
+  // difference matters: an empty page is a complete answer, an unparseable one
+  // means we never learned what this server exposes.
+  return null;
 }
 
 /** Tool names from a single response, for callers that don't paginate. */
 export function parseMcpToolsListResponse(text: string): string[] {
-  return parseMcpToolsListPage(text).tools;
+  return parseMcpToolsListPage(text)?.tools ?? [];
 }
 
 export type FetchAllMcpToolNamesParams = {
@@ -97,38 +101,71 @@ export async function fetchAllMcpToolNames(
   const warn = params.log ?? ((message: string) => console.warn(message));
   const names: string[] = [];
   const seen = new Set<string>();
+  const seenCursors = new Set<string>();
   let cursor: string | null = null;
 
   for (let page = 0; page < MAX_MCP_TOOLS_LIST_PAGES; page += 1) {
-    const resp = await doFetch(params.url, {
-      method: "POST",
-      headers: {
-        ...params.headers,
-        ...(params.sessionId ? { "Mcp-Session-Id": params.sessionId } : {}),
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 2 + page,
-        method: "tools/list",
-        params: cursor ? { cursor } : {},
-      }),
-    });
-    if (!resp.ok) {
-      warn(`${params.label} tools/list → ${resp.status}`);
+    // Every early exit below keeps the names gathered so far and reports
+    // complete:false. Returning what we have beats returning nothing — but it
+    // must never be mistaken for the whole list, or a caller caches a truncated
+    // set (these caches only clear on uninstall) and the missing tools stay
+    // invisible to the agent for the rest of the install.
+    let body: string;
+    try {
+      const resp = await doFetch(params.url, {
+        method: "POST",
+        headers: {
+          ...params.headers,
+          ...(params.sessionId ? { "Mcp-Session-Id": params.sessionId } : {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2 + page,
+          method: "tools/list",
+          params: cursor ? { cursor } : {},
+        }),
+      });
+      if (!resp.ok) {
+        warn(`${params.label} tools/list → ${resp.status}`);
+        return { tools: names, complete: false };
+      }
+      body = await resp.text();
+    } catch (err) {
+      // A rejected fetch (DNS/TLS/ECONNRESET/abort) on page 2+ must not discard
+      // page 1 by propagating — the caller's catch would turn a partial list
+      // into no tools at all, which is worse than the single-page behaviour
+      // this function replaced.
+      warn(`${params.label} tools/list request failed: ${String(err)}`);
       return { tools: names, complete: false };
     }
-    const { tools, nextCursor } = parseMcpToolsListPage(await resp.text());
-    for (const name of tools) {
+
+    const parsed = parseMcpToolsListPage(body);
+    if (!parsed) {
+      warn(`${params.label} tools/list returned an unparseable body`);
+      return { tools: names, complete: false };
+    }
+    for (const name of parsed.tools) {
       if (!seen.has(name)) {
         seen.add(name);
         names.push(name);
       }
     }
-    // A server repeating its cursor would loop forever; treat it as the end.
-    if (!nextCursor || nextCursor === cursor) {
+
+    // No cursor is the only signal that means "you have everything".
+    if (!parsed.nextCursor) {
       return { tools: names, complete: true };
     }
-    cursor = nextCursor;
+    // A cursor we've already followed means the server is looping (the spec asks
+    // for stable cursors, so this is a server bug, not an exotic case). Stop —
+    // but as INCOMPLETE, because the remaining pages were never read.
+    if (seenCursors.has(parsed.nextCursor)) {
+      warn(
+        `${params.label} tools/list repeated cursor '${parsed.nextCursor}' — stopping, tool list may be truncated`,
+      );
+      return { tools: names, complete: false };
+    }
+    seenCursors.add(parsed.nextCursor);
+    cursor = parsed.nextCursor;
   }
 
   warn(`${params.label} tools/list stopped at the ${MAX_MCP_TOOLS_LIST_PAGES}-page cap`);

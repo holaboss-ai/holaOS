@@ -19254,13 +19254,16 @@ const webHolaAppToolCache = new Map<string, string[]>();
 // runtime's MCP client does. Needed to enumerate the app's tools into the workspace.yaml
 // allowlist (see attachWebHolaAppMcp): the pi ("Hola") harness builds its tool allowlist
 // from those refs, so un-enumerated tools are silently filtered out of the agent.
-async function discoverWebHolaAppMcpTools(holaAppId: string): Promise<string[]> {
+async function discoverWebHolaAppMcpTools(
+  holaAppId: string,
+): Promise<{ tools: string[]; complete: boolean }> {
   const cached = webHolaAppToolCache.get(holaAppId);
   if (cached) {
-    return cached;
+    // Only complete lists are ever cached (below), so a hit is complete.
+    return { tools: cached, complete: true };
   }
   if (!WEB_HOLAAPP_MCP_BASE_URL) {
-    return [];
+    return { tools: [], complete: false };
   }
   const url = `${WEB_HOLAAPP_MCP_BASE_URL}/mcp/${encodeURIComponent(holaAppId)}/mcp`;
   const bearer = authBearerToken();
@@ -19298,10 +19301,10 @@ async function discoverWebHolaAppMcpTools(holaAppId: string): Promise<string[]> 
     if (tools.length > 0 && complete) {
       webHolaAppToolCache.set(holaAppId, tools);
     }
-    return tools;
+    return { tools, complete };
   } catch (err) {
     console.warn(`[web-holaapp] tools/list failed for ${holaAppId}:`, err);
-    return [];
+    return { tools: [], complete: false };
   }
 }
 
@@ -19338,7 +19341,8 @@ async function attachWebHolaAppMcp(
     // — its tools come from a connected Composio account, not a hosted MCP)
     // yields zero tools: skip attaching entirely rather than write a dead server
     // entry the pi harness would just filter out (and re-probe every turn).
-    const appToolNames = await discoverWebHolaAppMcpTools(holaAppId);
+    const { tools: appToolNames, complete: appToolsComplete } =
+      await discoverWebHolaAppMcpTools(holaAppId);
     if (appToolNames.length === 0) {
       return;
     }
@@ -19379,6 +19383,13 @@ async function attachWebHolaAppMcp(
       : [];
     const next = [
       ...existing.filter((id) => !id.startsWith(`${holaAppId}.`)),
+      // On a COMPLETE discovery this rewrite is authoritative — dropping the old
+      // entries is how a removed tool leaves the allowlist. On a PARTIAL one it
+      // would evict tools we simply failed to re-read, filtering them out of the
+      // agent, so keep what we already knew and union the new names in.
+      ...(appToolsComplete
+        ? []
+        : existing.filter((id) => id.startsWith(`${holaAppId}.`))),
       ...Object.keys(asYamlRecord(registry.catalog)),
       ...appToolNames.map((tool) => `${holaAppId}.${tool}`),
     ];
@@ -19635,10 +19646,11 @@ async function discoverMarketplaceMcpTools(
   id: string,
   url: string,
   authHeaders: Record<string, string>,
-): Promise<string[]> {
+): Promise<{ tools: string[]; complete: boolean }> {
   const cached = marketplaceMcpToolCache.get(id);
   if (cached) {
-    return cached;
+    // Only complete lists are cached (below), so a hit is complete.
+    return { tools: cached, complete: true };
   }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -19671,10 +19683,10 @@ async function discoverMarketplaceMcpTools(
     if (tools.length > 0 && complete) {
       marketplaceMcpToolCache.set(id, tools);
     }
-    return tools;
+    return { tools, complete };
   } catch (err) {
     console.warn(`[mcp-marketplace] tools/list failed for ${id}:`, err);
-    return [];
+    return { tools: [], complete: false };
   }
 }
 
@@ -19708,10 +19720,14 @@ async function attachHostedMcpServer(
     const headers = resolveMarketplaceMcpHeaders(config);
     // Prefer catalog-provided tool names; else probe the live server with the resolved
     // headers. Either way the allowlist must carry them or the pi harness filters them out.
-    const toolNames =
+    // A configured tool list is authoritative by definition; a discovered one is
+    // only authoritative when pagination completed.
+    const discovered =
       config.tools.length > 0
-        ? config.tools
+        ? { tools: config.tools, complete: true }
         : await discoverMarketplaceMcpTools(config.id, url, headers);
+    const toolNames = discovered.tools;
+    const toolsComplete = discovered.complete;
 
     const data = asYamlRecord(parseYaml(await fs.readFile(yamlPath, "utf-8")));
     const registry = asYamlRecord(data.mcp_registry);
@@ -19750,6 +19766,12 @@ async function attachHostedMcpServer(
       allowlist.tool_ids = [
         ...new Set([
           ...existing.filter((toolId) => !toolId.startsWith(`${config.id}.`)),
+          // The comment above guards the zero case; a PARTIAL list is the same
+          // hazard in slower motion — it evicts tools we merely failed to re-read.
+          // Authoritative only when pagination completed; otherwise union.
+          ...(toolsComplete
+            ? []
+            : existing.filter((toolId) => toolId.startsWith(`${config.id}.`))),
           ...Object.keys(asYamlRecord(registry.catalog)),
           ...toolNames.map((tool) => `${config.id}.${tool}`),
         ]),
