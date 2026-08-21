@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
 import {
+  MAX_EMBEDDING_QUERY_TOKENS,
   clipToEmbeddingBudget,
   estimateEmbeddingTokens,
   queryMemoryModelEmbedding,
@@ -377,17 +378,59 @@ test("a query is clipped to a token budget, not a character count", async () => 
   );
 
   const sent = (call as unknown as RecordedCall).body?.input as string;
+  // Assert CHARACTERS, not the estimator's own opinion. Checking the clip with
+  // the same function that performed it is a tautology — an earlier version of
+  // this test passed with the constants set 300x too low. Since every character
+  // now costs at least one token, a character bound is a real upper bound on
+  // tokens and is independent of the estimator.
   assert.ok(
-    estimateEmbeddingTokens(sent) <= 8192,
-    `sent ~${estimateEmbeddingTokens(sent)} est. tokens — over the model cap`,
+    sent.length <= MAX_EMBEDDING_QUERY_TOKENS,
+    `sent ${sent.length} chars — over the ${MAX_EMBEDDING_QUERY_TOKENS} budget`,
   );
 });
 
-test("an ordinary English query keeps its length", () => {
-  // A blunt character cap safe for CJK (~2730) would gut these; the estimator
-  // charges ASCII at ~4 chars/token so they pass through untouched.
-  const english = "what did we decide about the pricing page? ".repeat(200);
+/**
+ * The estimate must be an UPPER bound, so the per-character costs are measured
+ * ceilings rather than averages. These are the input classes that broke the
+ * previous "~4 chars per token" assumption — measured against cl100k_base, base64
+ * reached 2.45x the model cap, minified JS 1.44x, lockfile-shaped JSON 1.33x.
+ *
+ * Character-count assertions on purpose: independent of the estimator.
+ */
+test("dense inputs are clipped to the budget, not just prose", () => {
+  const cases: Array<[string, string]> = [
+    ["base64", "TWFuIGlzIGRpc3Rpbmd1aXNoZWQ".repeat(40_000)],
+    ["hex", "deadbeef0123456789abcdef".repeat(40_000)],
+    ["minified js", "function a(b,c){return b<c?b:c}".repeat(30_000)],
+    ["json", '{"name":"x","version":"1.0.0","resolved":"https://r"},'.repeat(20_000)],
+    ["random identifiers", "aX3kZ9qWm2 ".repeat(80_000)],
+    ["astral", "𐐀".repeat(60_000)],
+    ["cjk", "宇宙飛行士".repeat(40_000)],
+  ];
+  for (const [label, input] of cases) {
+    const clipped = clipToEmbeddingBudget(input);
+    assert.ok(
+      clipped.length <= MAX_EMBEDDING_QUERY_TOKENS,
+      `${label}: clipped to ${clipped.length} chars, over the ${MAX_EMBEDDING_QUERY_TOKENS} budget`,
+    );
+  }
+});
+
+test("an ordinary English query passes through untouched", () => {
+  // Comfortably inside the budget, so identity holds here. Note the budget is a
+  // CHARACTER-equivalent bound now: a query longer than ~7000 chars IS clipped,
+  // which an earlier test forbade. That requirement was wrong — it cannot coexist
+  // with a safe static bound, and a recall query is compared against 480-char
+  // excerpts, so trimming a very long one costs no real signal.
+  const english = "what did we decide about the pricing page? ".repeat(100);
+  assert.ok(english.length < MAX_EMBEDDING_QUERY_TOKENS);
   assert.equal(clipToEmbeddingBudget(english), english);
+});
+
+test("the estimator never under-counts a mixed-script string", () => {
+  // Spot-check the ceiling property itself: ASCII >= 1/char, non-ASCII >= 1/char.
+  const mixed = "abc宇𐐀";
+  assert.ok(estimateEmbeddingTokens(mixed) >= mixed.length);
 });
 
 test("clipping never splits a surrogate pair", () => {
@@ -473,4 +516,45 @@ test("queryMemoryModelEmbedding leaves an ordinary input untouched", async () =>
     (call as unknown as RecordedCall).body?.input,
     "what did we decide about the pricing page?",
   );
+});
+
+/**
+ * The non-OK path is this change's stated payload — "stops failing silently" —
+ * and every other stubbed response in this file is a 200, so it was untested.
+ * An oversized DOCUMENT is deliberately not clipped, so it still 400s; the log is
+ * the only signal that the entry went unindexed.
+ */
+test("a rejected embedding returns null and says so", async () => {
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        error: { message: "Invalid 'input': maximum context length is 8192 tokens." },
+      }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+
+  try {
+    const embedding = await queryMemoryModelEmbedding(
+      {
+        baseUrl: "https://runtime.example/api/v1/model-proxy/openai/v1",
+        apiKey: "token-embedding",
+        modelId: "text-embedding-3-small",
+        apiStyle: "openai_compatible",
+      },
+      { input: "宇".repeat(40_000), purpose: "document" },
+    );
+    assert.equal(embedding, null);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1, "a rejected embedding must not be silent");
+  assert.match(warnings[0], /400/);
+  assert.match(warnings[0], /document/);
+  assert.match(warnings[0], /maximum context length/);
 });

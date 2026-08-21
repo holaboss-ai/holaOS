@@ -514,18 +514,34 @@ export async function queryMemoryModelVisionJson(
 export type MemoryEmbeddingPurpose = "query" | "document";
 
 /**
- * Conservative token budget, with headroom under the model's 8192.
+ * Token budget, with headroom under the model's 8192.
  *
- * A blunt character cap cannot be both safe and useful: one token per character
- * is NOT the ceiling — `宇` costs 2 and some scripts (Ethiopic, Braille, Yi) cost
- * ~3 — so a cap safe for those (~2730 chars) would needlessly gut ordinary
- * English queries, which run ~4 chars per token. Estimate instead, charging
- * non-ASCII at a pessimistic rate, so English keeps its length and CJK is still
- * bounded.
+ * The per-character costs below are measured CEILINGS from cl100k_base (the
+ * encoding text-embedding-3-small uses), not averages — the whole point is that
+ * the estimate must be an UPPER bound, or the clip does not actually guarantee
+ * anything.
+ *
+ * An earlier version used 0.25 tokens per ASCII char ("~4 chars per token"),
+ * which is true of English prose and hand-written code and false of everything
+ * denser. Measured against a real tokenizer, that let 13 of 22 realistic input
+ * classes through over the cap: base64 reached 20,109 tokens (2.45x), minified
+ * JS 11,756, a lockfile-shaped JSON 10,933, stack traces 12,173. The failing
+ * inputs in production were pasted files, so the bug survived the "fix" for
+ * anything that wasn't prose.
+ *
+ * ASCII: scanning all 128 code points, the worst single character costs exactly
+ * 1 token (rare punctuation; dense text like base64/hex/minified JS approaches
+ * it). NON-ASCII: the BMP maxes at 3 (<=3 UTF-8 bytes), but astral planes reach
+ * 4 (4 bytes -> 4 byte-fallback tokens) — Deseret, Cuneiform, Tangut, CJK ext-G,
+ * plane-15/16 PUA, variation selectors.
+ *
+ * A consequence worth stating: since every character now costs at least one
+ * token, the clipped string can never be longer than the budget in CHARACTERS
+ * either. The tests assert that, which is a check independent of this estimator.
  */
-const MAX_EMBEDDING_QUERY_TOKENS = 7000;
-const TOKENS_PER_ASCII_CHAR = 0.25;
-const TOKENS_PER_NON_ASCII_CHAR = 3;
+export const MAX_EMBEDDING_QUERY_TOKENS = 7000;
+const TOKENS_PER_ASCII_CHAR = 1;
+const TOKENS_PER_NON_ASCII_CHAR = 4;
 
 /** Upper-bound token estimate. Deliberately pessimistic — over-clipping a query
  *  is cheap, a rejected request is not. */
