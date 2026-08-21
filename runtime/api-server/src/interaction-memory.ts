@@ -3873,6 +3873,7 @@ async function syncNodeEmbedding(params: {
     return;
   }
   const embedding = await queryMemoryModelEmbedding(params.embeddingClient, {
+    purpose: "document",
     input: embeddingText,
     timeoutMs: 7000,
     agentRole: "memory-embedding",
@@ -4363,6 +4364,7 @@ async function queryEmbeddingVector(params: {
     return null;
   }
   const embedding = await queryMemoryModelEmbedding(client, {
+    purpose: "query",
     input: params.query,
     timeoutMs: 7000,
     agentRole: "memory-embedding",

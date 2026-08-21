@@ -486,6 +486,7 @@ async function planRecallFromVectorIndex(params: {
     return null;
   }
   const queryEmbedding = await queryMemoryModelEmbedding(params.embeddingClient, {
+    purpose: "query",
     input: params.query,
     timeoutMs: 5000,
   });

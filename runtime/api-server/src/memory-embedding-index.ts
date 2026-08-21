@@ -141,6 +141,7 @@ export async function syncDurableMemoryEmbedding(params: {
     return "skipped_unchanged";
   }
   const embedding = await queryMemoryModelEmbedding(params.embeddingClient, {
+    purpose: "document",
     input: buildMemoryEmbeddingText({
       title: params.entry.title,
       summary: params.entry.summary,

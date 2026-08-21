@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
 import {
+  clipToEmbeddingBudget,
+  estimateEmbeddingTokens,
   queryMemoryModelEmbedding,
   queryMemoryModelJson,
   queryMemoryModelVisionJson,
@@ -317,6 +319,7 @@ test("queryMemoryModelEmbedding uses OpenAI-compatible embeddings", async () => 
     },
     {
       input: "Remember this workspace fact.",
+      purpose: "document",
     },
   );
 
@@ -340,13 +343,12 @@ test("queryMemoryModelEmbedding uses OpenAI-compatible embeddings", async () => 
 });
 
 /**
- * The embedding model rejects the WHOLE request over its 8192-token cap instead
- * of truncating, and recall queries are raw user turns. Unclipped, a long pasted
- * instruction 400s and recall returns null — the agent then answers without its
- * own memory and says nothing about it. Clip at this choke point so no caller can
- * reintroduce it.
+ * The cap is a TOKEN bound, so assert tokens. The first version of this test
+ * asserted `chars <= 6000` and passed on an input of 12,000 tokens — the shipped
+ * constant was safe for English and 2x too generous for CJK, and the assertion
+ * could not see the difference. `宇` costs 2 tokens; some scripts cost ~3.
  */
-test("queryMemoryModelEmbedding clips an oversized input instead of 400ing", async () => {
+test("a query is clipped to a token budget, not a character count", async () => {
   let call: RecordedCall | null = null;
   globalThis.fetch = (async (_input, init) => {
     call = {
@@ -363,24 +365,80 @@ test("queryMemoryModelEmbedding clips an oversized input instead of 400ing", asy
     });
   }) as typeof fetch;
 
-  // Comfortably past the 8192-token cap in any language.
-  const oversized = "宇".repeat(40_000);
-  const embedding = await queryMemoryModelEmbedding(
+  // 40k CJK characters — the case the previous constant let through.
+  await queryMemoryModelEmbedding(
     {
       baseUrl: "https://runtime.example/api/v1/model-proxy/openai/v1",
       apiKey: "token-embedding",
       modelId: "text-embedding-3-small",
       apiStyle: "openai_compatible",
     },
-    { input: oversized },
+    { input: "宇".repeat(40_000), purpose: "query" },
   );
 
-  assert.ok(embedding, "an oversized query must still return an embedding");
-  const sent = (call as unknown as RecordedCall).body?.input;
-  assert.equal(typeof sent, "string");
+  const sent = (call as unknown as RecordedCall).body?.input as string;
   assert.ok(
-    (sent as string).length <= 6000,
-    `input was sent unclipped (${(sent as string).length} chars) and would 400`,
+    estimateEmbeddingTokens(sent) <= 8192,
+    `sent ~${estimateEmbeddingTokens(sent)} est. tokens — over the model cap`,
+  );
+});
+
+test("an ordinary English query keeps its length", () => {
+  // A blunt character cap safe for CJK (~2730) would gut these; the estimator
+  // charges ASCII at ~4 chars/token so they pass through untouched.
+  const english = "what did we decide about the pricing page? ".repeat(200);
+  assert.equal(clipToEmbeddingBudget(english), english);
+});
+
+test("clipping never splits a surrogate pair", () => {
+  // Iterating by code point (for..of) makes a mid-pair cut structurally
+  // impossible; `.slice()` on code UNITS does not. A lone surrogate would show up
+  // here as a code point in the D800-DFFF range.
+  const clipped = clipToEmbeddingBudget("𠀀".repeat(20_000));
+  const lone = [...clipped].some((ch) => {
+    const cp = ch.codePointAt(0) ?? 0;
+    return cp >= 0xd800 && cp <= 0xdfff;
+  });
+  assert.equal(lone, false, "clip produced a lone surrogate");
+});
+
+/**
+ * The asymmetry that makes `purpose` necessary: a persisted vector must not be
+ * silently truncated, because a content fingerprint suppresses recomputation —
+ * a bad vector written once stays wrong until the source content changes.
+ */
+test("a document is NEVER clipped, so a truncated vector cannot be persisted", async () => {
+  let call: RecordedCall | null = null;
+  globalThis.fetch = (async (_input, init) => {
+    call = {
+      url: String(_input),
+      headers: init?.headers,
+      body:
+        typeof init?.body === "string"
+          ? (JSON.parse(init.body) as Record<string, unknown>)
+          : null,
+    };
+    return new Response(JSON.stringify({ data: [{ embedding: [1] }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const huge = "宇".repeat(40_000);
+  await queryMemoryModelEmbedding(
+    {
+      baseUrl: "https://runtime.example/api/v1/model-proxy/openai/v1",
+      apiKey: "token-embedding",
+      modelId: "text-embedding-3-small",
+      apiStyle: "openai_compatible",
+    },
+    { input: huge, purpose: "document" },
+  );
+
+  assert.equal(
+    (call as unknown as RecordedCall).body?.input,
+    huge,
+    "a document was clipped — it would be stored as a truncated vector and never recomputed",
   );
 });
 
@@ -408,7 +466,7 @@ test("queryMemoryModelEmbedding leaves an ordinary input untouched", async () =>
       modelId: "text-embedding-3-small",
       apiStyle: "openai_compatible",
     },
-    { input: "  what did we decide about the pricing page?  " },
+    { input: "  what did we decide about the pricing page?  ", purpose: "query" },
   );
 
   assert.equal(

@@ -27,6 +27,13 @@ export interface MemoryModelVisionJsonQuery extends MemoryModelJsonQuery {
 
 export interface MemoryModelEmbeddingQuery {
   input: string;
+  /**
+   * Whether this vector is a transient search key or gets persisted. Required —
+   * the two want opposite handling when the input exceeds the model's cap, and
+   * the default that "felt safe" (clip everything) silently corrupts the index.
+   * See MemoryEmbeddingPurpose.
+   */
+  purpose: MemoryEmbeddingPurpose;
   timeoutMs?: number;
   agentRole?: string | null;
 }
@@ -488,17 +495,69 @@ export async function queryMemoryModelVisionJson(
  * the WHOLE request over 8192 tokens ("Invalid 'input': maximum context length is
  * 8192 tokens") rather than truncating.
  *
- * Recall queries are raw user turns, so a long pasted instruction 400s and recall
- * returns null. Nothing surfaces that: the agent simply answers the turn without
- * its own memory and never mentions the gap. In production this fired for users
- * across weeks, always silently.
+ * The two callers of this function want OPPOSITE things when that happens, and it
+ * cannot tell them apart on its own — which is why `purpose` is required:
  *
- * Clipping is safe because the STORED side is already bounded — memory-embedding-
- * index clips excerpts to 480 chars — so a query far longer than that adds no
- * recall signal to compare against. 6000 chars stays under the cap even for CJK
- * text, where one character can cost a full token.
+ *  - "query"    a transient search vector. Narrowing it costs a little recall
+ *               precision and nothing else, so clip and carry on. Failing here
+ *               means recall silently returns nothing and the agent answers
+ *               without its own memory.
+ *  - "document" a vector that gets PERSISTED, keyed by a content fingerprint that
+ *               suppresses recomputation. A truncated one is stored as if it were
+ *               the real thing and never revisited, so it must NOT be silently
+ *               clipped — better to fail loudly and leave the entry unindexed.
+ *
+ * Getting this backwards is not hypothetical: clipping at this choke point turned
+ * "an inline image is not indexed" into "an inline image is indexed as 6000 chars
+ * of base64, indistinguishable from every other image, permanently".
  */
-const MAX_EMBEDDING_INPUT_CHARS = 6000;
+export type MemoryEmbeddingPurpose = "query" | "document";
+
+/**
+ * Conservative token budget, with headroom under the model's 8192.
+ *
+ * A blunt character cap cannot be both safe and useful: one token per character
+ * is NOT the ceiling — `宇` costs 2 and some scripts (Ethiopic, Braille, Yi) cost
+ * ~3 — so a cap safe for those (~2730 chars) would needlessly gut ordinary
+ * English queries, which run ~4 chars per token. Estimate instead, charging
+ * non-ASCII at a pessimistic rate, so English keeps its length and CJK is still
+ * bounded.
+ */
+const MAX_EMBEDDING_QUERY_TOKENS = 7000;
+const TOKENS_PER_ASCII_CHAR = 0.25;
+const TOKENS_PER_NON_ASCII_CHAR = 3;
+
+/** Upper-bound token estimate. Deliberately pessimistic — over-clipping a query
+ *  is cheap, a rejected request is not. */
+export function estimateEmbeddingTokens(text: string): number {
+  let tokens = 0;
+  for (const char of text) {
+    tokens +=
+      char.codePointAt(0)! < 128
+        ? TOKENS_PER_ASCII_CHAR
+        : TOKENS_PER_NON_ASCII_CHAR;
+  }
+  return Math.ceil(tokens);
+}
+
+/** Clip to the token budget, cutting on a code-point boundary so the result can
+ *  never end in a lone surrogate. */
+export function clipToEmbeddingBudget(text: string): string {
+  if (estimateEmbeddingTokens(text) <= MAX_EMBEDDING_QUERY_TOKENS) {
+    return text;
+  }
+  let tokens = 0;
+  let out = "";
+  for (const char of text) {
+    tokens +=
+      char.codePointAt(0)! < 128
+        ? TOKENS_PER_ASCII_CHAR
+        : TOKENS_PER_NON_ASCII_CHAR;
+    if (tokens > MAX_EMBEDDING_QUERY_TOKENS) break;
+    out += char;
+  }
+  return out;
+}
 
 export async function queryMemoryModelEmbedding(
   config: MemoryModelClientConfig,
@@ -523,12 +582,10 @@ export async function queryMemoryModelEmbedding(
   if (!trimmedInput) {
     return null;
   }
-  // Clip at the choke point, not per caller: seven call sites across five modules
-  // feed this, and every one of them passes text it does not bound itself.
+  // Only a query may be narrowed; a document must reach the model whole or not
+  // at all (see MemoryEmbeddingPurpose).
   const normalizedInput =
-    trimmedInput.length > MAX_EMBEDDING_INPUT_CHARS
-      ? trimmedInput.slice(0, MAX_EMBEDDING_INPUT_CHARS)
-      : trimmedInput;
+    query.purpose === "query" ? clipToEmbeddingBudget(trimmedInput) : trimmedInput;
   const headers: Record<string, string> = withAgentRoleHeader(
     {
       "Content-Type": "application/json",
@@ -557,6 +614,14 @@ export async function queryMemoryModelEmbedding(
     });
     const responseText = await response.text().catch(() => "");
     if (!response.ok) {
+      // Previously this returned null with no trace anywhere in the file, so a
+      // rejected embedding was indistinguishable from "no matches": recall came
+      // back empty, the agent answered without its memory, and nothing said so.
+      // An oversized DOCUMENT still lands here by design (it is not clipped), so
+      // this is the only signal that an entry went unindexed.
+      console.warn(
+        `[memory-embedding] ${response.status} for a ${query.purpose} of ~${estimateEmbeddingTokens(normalizedInput)} est. tokens (${normalizedInput.length} chars): ${responseText.slice(0, 200)}`,
+      );
       return null;
     }
     const payload = parseJsonValueCandidate(responseText);

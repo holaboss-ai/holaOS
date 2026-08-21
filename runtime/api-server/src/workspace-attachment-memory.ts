@@ -2242,6 +2242,7 @@ async function syncAttachmentNodeEmbedding(params: {
     return;
   }
   const embedding = await queryMemoryModelEmbedding(params.embeddingClient, {
+    purpose: "document",
     input: embeddingText,
     timeoutMs: 7000,
     agentRole: "memory-embedding",
@@ -2334,6 +2335,7 @@ async function syncToolResultNodeEmbedding(params: {
     return;
   }
   const embedding = await queryMemoryModelEmbedding(params.embeddingClient, {
+    purpose: "document",
     input: embeddingText,
     timeoutMs: 7000,
     agentRole: "memory-embedding",
@@ -2388,6 +2390,7 @@ async function syncImageUrlNodeEmbedding(params: {
     return;
   }
   const embedding = await queryMemoryModelEmbedding(params.embeddingClient, {
+    purpose: "document",
     input: embeddingText,
     timeoutMs: 7000,
     agentRole: "memory-embedding",
@@ -2461,6 +2464,7 @@ async function syncOutputNodeEmbedding(params: {
     return;
   }
   const embedding = await queryMemoryModelEmbedding(params.embeddingClient, {
+    purpose: "document",
     input: embeddingText,
     timeoutMs: 7000,
     agentRole: "memory-embedding",
