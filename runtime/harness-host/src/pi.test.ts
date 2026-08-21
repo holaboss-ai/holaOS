@@ -2710,7 +2710,11 @@ test("buildPiProviderConfig uses Anthropic Messages API for managed Holaboss Cla
     "X-Holaboss-User-Id": "user-1",
   });
   assert.equal(providerConfig.models[0]?.contextWindow, 1_000_000);
-  assert.equal(providerConfig.models[0]?.maxTokens, 128_000);
+  // pi-ai's generated catalogue is the upstream spec, and Anthropic caps this
+  // model's output at 64k — it 400s on a larger max_tokens. This asserted
+  // 128_000 while the uniform completion budget overrode the catalogue, i.e. it
+  // pinned a value the provider rejects.
+  assert.equal(providerConfig.models[0]?.maxTokens, 64_000);
 });
 
 test("requestedPiThinkingLevel maps provider-native values into Pi thinking levels", () => {
@@ -2788,7 +2792,9 @@ test("buildPiProviderConfig uses pi-ai native Google provider for direct Gemini 
   assert.equal(providerConfig.authHeader, false);
   assert.equal(providerConfig.models[0]?.api, "google-generative-ai");
   assert.equal(providerConfig.models[0]?.contextWindow, 1_048_576);
-  assert.equal(providerConfig.models[0]?.maxTokens, 128_000);
+  // Gemini's published output cap, per pi-ai's catalogue. Same story as the
+  // Claude case above.
+  assert.equal(providerConfig.models[0]?.maxTokens, 65_536);
   assert.equal(providerConfig.models[0]?.compat, undefined);
 });
 
