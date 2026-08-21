@@ -804,11 +804,17 @@ export function resolveHarnessModelBudget(
       maxTokens: DEFAULT_FALLBACK_MAX_TOKENS,
     };
 
+  // A uniform completion budget keeps provider registration predictable, but it
+  // is a CEILING, not a floor: asking a model for more output than it can
+  // produce is not ambitious, it is a 400. Seven of the catalogue's models cap
+  // output below this (32k and 64k families), and every request to them carried
+  // a max_tokens their own API rejects.
+  //
+  // Only ever lower. Models that advertise at or above the uniform budget keep
+  // it unchanged, so this cannot shorten an output that works today.
   return {
     ...budget,
-    // Keep provider registration on a uniform completion budget even when
-    // catalog entries advertise smaller per-model output caps.
-    maxTokens: UNIFORM_MODEL_MAX_TOKENS,
+    maxTokens: Math.min(UNIFORM_MODEL_MAX_TOKENS, budget.maxTokens),
   };
 }
 
