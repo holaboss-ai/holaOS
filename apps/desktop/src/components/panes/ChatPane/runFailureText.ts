@@ -19,18 +19,20 @@
  * is built by `extractDeepProviderMessage`, which descends `detail` → `message`
  * and returns only the human sentence, dropping `code`.
  *
- * That distinction decides whether this works at all. Which message shape the
- * SDK produces depends on the wire, and the wire depends on the model:
+ * That distinction decides whether this works at all. Which message shape you get
+ * depends on the wire (`harnesses/src/model-routing.ts` picks one of four), and
+ * the OpenAI-family wires destroy the code:
  *
- *   openai-completions / -responses  reads `body.error` → our `{"detail":…}`
- *                                    body yields "402 status code (no body)"
- *   anthropic-messages               reads the whole body → the JSON survives
+ *   openai-responses / openai-completions  read `body.error`; our `{"detail":…}`
+ *                                          body has none, so the SDK reports
+ *                                          "402 status code (no body)"
+ *   anthropic-messages                     reads the whole body → JSON survives
  *
- * `agent-runtime-config.ts` routes `claude*`/`anthropic/*` to the native wire and
- * EVERYTHING ELSE to the openai-compatible one, and the desktop default model is
- * `openai/gpt-5.4`. So a text matcher would miss the default model entirely — it
- * would only ever fire for users who had switched to Claude. The structured
- * field is present on both wires.
+ * The desktop's effective default model comes from the control-plane binding
+ * (`runtimeConfig?.defaultModel`), falling back to `openai/gpt-5.4` — an
+ * OpenAI-family model either way, so it takes `openai-responses` and the code is
+ * destroyed. A text matcher would therefore only ever have fired for users who
+ * had switched to Claude. The captured response is present on every wire.
  *
  * ## Why not match "402", or the code as a bare substring
  *
@@ -49,11 +51,12 @@
  *  - one false positive erased the string `parseModelError` matches on, killing
  *    the "switch model and retry" card.
  *
- * A bare `includes(code)` over free text is not enough either: `run_failed`'s
- * message falls back to the assistant's own prose when no error string exists,
- * so an agent that merely DISCUSSES the error code would have its answer
- * replaced by "you're out of credits". Hence the anchored `detail`-nested form
- * below for the surfaces that have no structured capture.
+ * Free-text matching is the whole false-positive surface, so it is used ONLY
+ * when no capture exists, and even then the WHOLE string must be a wire error.
+ * `run_failed`'s message falls back to the assistant's own prose when there is
+ * no error string, so an agent explaining this very error — quoting the gate's
+ * body, which is the natural way to explain it — would otherwise have its answer
+ * replaced by "you're out of credits".
  */
 
 /**
@@ -72,27 +75,38 @@ const WALLET_BLOCK_MESSAGES = {
 
 type WalletBlockCode = keyof typeof WALLET_BLOCK_MESSAGES;
 
-/**
- * The gate's body is `{"detail":{"code":…}}`. Anchoring on that nesting is what
- * separates a real wire body from prose that happens to quote a code — the
- * latter would have to reproduce the whole structure to match.
- */
-const NESTED_WALLET_CODE =
-  /"detail"\s*:\s*\{[^{}]*"code"\s*:\s*"(model_proxy_insufficient_quota|model_proxy_call_exceeds_balance)"/;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isWalletBlockCode(value: unknown): value is WalletBlockCode {
-  return typeof value === "string" && value in WALLET_BLOCK_MESSAGES;
+  // hasOwnProperty, not `in`: `in` walks the prototype chain, so an upstream
+  // body with `"code":"toString"` would return Object.prototype.toString — a
+  // FUNCTION out of a `: string` signature, into a React child. `detail.code`
+  // is untrusted 4xx content, including a user's own BYO provider's.
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(WALLET_BLOCK_MESSAGES, value)
+  );
+}
+
+/** The gate's body is `{"detail":{"code":…}}`. */
+function walletCodeFromBody(body: unknown): WalletBlockCode | null {
+  if (!isRecord(body)) {
+    return null;
+  }
+  // FastAPI also emits a string `detail` for plain HTTPExceptions.
+  const detail = body.detail;
+  if (!isRecord(detail)) {
+    return null;
+  }
+  return isWalletBlockCode(detail.code) ? detail.code : null;
 }
 
 /**
  * Read the gate's code out of the raw upstream response the harness captured.
- * This is the authoritative source: it survives both wires, and it carries
- * exactly one code, so there is no precedence question between two codes that a
- * concatenated message could otherwise present.
+ * This is the authoritative source: it survives every wire, and it is the actual
+ * response to the actual failed request rather than a string something built.
  */
 export function walletBlockFromPayload(
   payload: Record<string, unknown>,
@@ -101,37 +115,51 @@ export function walletBlockFromPayload(
   if (!isRecord(providerHttp)) {
     return null;
   }
-  const parsedBody = providerHttp.parsed_body;
-  if (!isRecord(parsedBody)) {
-    return null;
-  }
-  // FastAPI also emits a string `detail` for plain HTTPExceptions.
-  const detail = parsedBody.detail;
-  if (!isRecord(detail)) {
-    return null;
-  }
-  const code = detail.code;
-  return isWalletBlockCode(code) ? WALLET_BLOCK_MESSAGES[code] : null;
+  const code = walletCodeFromBody(providerHttp.parsed_body);
+  return code ? WALLET_BLOCK_MESSAGES[code] : null;
 }
 
 /**
- * Last resort for surfaces that carry no captured response — the runtime's
- * `last_error` is `{message}` only, written from a thrown executor error. Kept
- * anchored to the gate's nested body shape (see NESTED_WALLET_CODE).
+ * Last resort for surfaces that carry no captured response.
+ *
+ * PARSED, not pattern-matched. The SDK builds its message as exactly
+ * `${status} ${JSON.stringify(body)}` (APIError.makeMessage), so requiring the
+ * whole string to be that shape is what separates a real wire error from prose
+ * quoting one — an explanation has words around the JSON, and they break the
+ * anchors. Parsing also makes key order irrelevant: a regex reaching for "code"
+ * inside "detail" silently stops matching the moment another key sorts ahead of
+ * it, and the gate's own body already nests a "quota" object alongside.
  */
 export function walletBlockFromText(text: string): string | null {
-  const match = NESTED_WALLET_CODE.exec(text);
-  const code = match?.[1];
-  return isWalletBlockCode(code) ? WALLET_BLOCK_MESSAGES[code] : null;
+  const match = /^\d{3} (\{[\s\S]*\})$/.exec(text.trim());
+  if (!match) {
+    return null;
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+  const code = walletCodeFromBody(body);
+  return code ? WALLET_BLOCK_MESSAGES[code] : null;
 }
 
 function walletBlock(
   payload: Record<string, unknown>,
   detail: string,
 ): string | null {
-  return (
-    walletBlockFromPayload(payload) ?? (detail ? walletBlockFromText(detail) : null)
-  );
+  const structured = walletBlockFromPayload(payload);
+  if (structured) {
+    return structured;
+  }
+  // A capture exists and it is NOT a wallet block: that is an answer, not a
+  // gap. Falling through to the text would let a stale code quoted in a
+  // concatenated message override the response the request actually got.
+  if (isRecord(payload.provider_http)) {
+    return null;
+  }
+  return detail ? walletBlockFromText(detail) : null;
 }
 
 export function runFailedContextLabel(payload: Record<string, unknown>): string {

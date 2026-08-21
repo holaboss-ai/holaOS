@@ -91,7 +91,7 @@ test("the poller's path into the same transcript gets the same treatment", () =>
 // ------------------------------------------------------------------ negatives
 
 test("another model_proxy_* code is not a wallet block", () => {
-  // Eight other model_proxy_* codes exist; a `startsWith("model_proxy_")` or a
+  // Seven other model_proxy_* codes exist; a `startsWith("model_proxy_")` or a
   // bare includes("model_proxy_") would tell a user with a misconfigured proxy
   // to go buy credits.
   const detail = runFailedDetail({
@@ -169,7 +169,8 @@ test("a string-valued FastAPI detail does not match or crash", () => {
 
 test("a wallet block carries no provider/model label", () => {
   // The label reads as a fault of that model, so the user tries switching, which
-  // cannot work; it also pushes "Top up…" past a caller's 120-char truncation.
+  // cannot work. (It also costs room against the 120-char truncation one caller
+  // applies — enough to cut the longer of the two messages past its verb.)
   const detail = runFailedDetail({
     message: "402 status code (no body)",
     provider: "anthropic",
@@ -216,6 +217,89 @@ test("the captured code wins over a stale code quoted in the message", () => {
       message:
         '402 {"detail":{"code":"model_proxy_call_exceeds_balance","balanceCredits":1}}: User does not have sufficient quota',
       provider_http: walletCapture("model_proxy_insufficient_quota"),
+    }),
+    CREDITS,
+  );
+});
+
+// ------------------------------------------------- round-3 regressions
+
+test("an agent QUOTING the gate's body verbatim keeps its own words", () => {
+  // The natural way to explain this error is to paste the body, so an anchor
+  // that merely looks for the nested shape ANYWHERE is defeated by the very
+  // conversation the feature invites. Reachable: run_failed's message falls back
+  // to the assistant's prose, and on `aborted` (the user pressing Stop) no
+  // capture is attached at all, so the text path is the only matcher.
+  const prose = [
+    "That 402 is the wallet gate. The body it returns is",
+    '402 {"detail":{"code":"model_proxy_insufficient_quota","message":"User does not have sufficient quota for model proxy requests"}}',
+    "and I have added a regression test for it.",
+  ].join("\n");
+  assert.equal(runFailedDetail({ message: prose }), prose);
+});
+
+test("a docs payload echoed by a tool result is not a wallet block", () => {
+  const raw =
+    'MCP tool "billing_docs" returned: {"detail":{"code":"model_proxy_insufficient_quota"},"note":"example payload from our docs"}';
+  assert.equal(runFailedDetail({ message: raw }), raw);
+});
+
+test("a capture that is NOT a wallet block overrides a stale code in the text", () => {
+  // The mirror of the precedence test above. The capture is the response the
+  // request actually got; when it says "not a wallet block" that is an answer,
+  // not a gap to fill from a concatenated message.
+  // The message is a well-formed wire error carrying a wallet code, so the text
+  // matcher WOULD accept it — only the capture stops it. Reachable whenever the
+  // two disagree: the harness picks the capture by recency over a 5-minute
+  // window, and a message built on an earlier attempt outlives its own response.
+  const detail = runFailedDetail({
+    message: '402 {"detail":{"code":"model_proxy_insufficient_quota"}}',
+    provider_http: {
+      status: 503,
+      parsed_body: { detail: { code: "model_proxy_not_configured" } },
+    },
+  });
+  assert.doesNotMatch(detail, /credits|balance/i);
+});
+
+test("a prototype-chain key in an untrusted body cannot escape the string type", () => {
+  // `"code" in MESSAGES` is true for "toString" and returns a FUNCTION out of a
+  // `: string` signature — into a React child, which throws for an object.
+  // detail.code is untrusted upstream 4xx content.
+  for (const code of ["toString", "__proto__", "constructor", "valueOf"]) {
+    const detail = runFailedDetail({
+      message: "500 upstream said something odd",
+      provider_http: { status: 500, parsed_body: { detail: { code } } },
+    });
+    assert.equal(typeof detail, "string", `${code} produced a ${typeof detail}`);
+    assert.doesNotMatch(detail, /native code|object Object/);
+  }
+});
+
+test("a null or non-object detail in the captured body does not throw", () => {
+  // `detail` is null on plenty of upstream bodies; reading `.code` off it is a
+  // TypeError that takes down the whole failure render, so the run shows nothing
+  // at all rather than an error.
+  for (const detail of [null, "something broke", 42, ["a"]]) {
+    assert.doesNotThrow(
+      () =>
+        runFailedDetail({
+          message: "500 Internal Server Error",
+          provider_http: { status: 500, parsed_body: { detail } },
+        }),
+      `detail=${JSON.stringify(detail)}`,
+    );
+  }
+});
+
+test("key order inside the gate's body does not matter", () => {
+  // The real insufficient_quota body nests a "quota" object next to "code"; a
+  // regex reaching for "code" inside "detail" dies the moment another key sorts
+  // ahead of it, with nothing to catch it.
+  assert.equal(
+    runFailedDetail({
+      message:
+        '402 {"detail":{"quota":{"balance":-89,"totalAllocated":6000},"code":"model_proxy_insufficient_quota","message":"User does not have sufficient quota"}}',
     }),
     CREDITS,
   );

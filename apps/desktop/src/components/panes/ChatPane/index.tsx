@@ -221,7 +221,6 @@ import {
 } from "./helpers";
 import { bareRuntimeToolName, effectiveToolName } from "./toolNames";
 import {
-  runFailedContextLabel,
   runFailedDetail,
   runtimeStateErrorDetail,
 } from "./runFailureText";
