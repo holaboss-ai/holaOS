@@ -800,21 +800,17 @@ test("chat pane filters managed catalog entries that are not chat-capable", asyn
   assert.match(source, /if \(!runtimeModelHasChatCapability\(model\)\) \{\s*return false;\s*\}/);
 });
 
-test("chat pane prefixes run failures with provider and model context", async () => {
+test("chat pane routes run failures through the shared failure-text module", async () => {
   const source = await readFile(sourcePath, "utf8");
 
-  assert.match(source, /function runFailedContextLabel\(payload: Record<string, unknown>\): string/);
-  assert.match(source, /function runFailedDetail\(payload: Record<string, unknown>\): string/);
-  assert.match(
-    source,
-    /return detail\.startsWith\(contextLabel\)\s*\?\s*detail\s*:\s*`\$\{contextLabel\}: \$\{detail\}`;/,
-  );
-  // A wallet block takes an earlier exit and is deliberately NOT prefixed — it
-  // is a condition of the account, not of the model that happened to be running.
-  // runFailurePrefix.test.mjs guards that ordering.
-  assert.match(source, /walletBlockMessage\(detail\)/);
+  // The functions themselves moved to runFailureText.ts so they could be tested
+  // behaviourally (ChatPane's module graph cannot be imported by a test).
+  // runFailureText.test.ts owns the prefixing and wallet-block behaviour; this
+  // only pins that the pane still uses them at both entry points.
+  assert.match(source, /from "\.\/runFailureText"/);
   assert.match(source, /const errorText = runFailedDetail\(payload\);/);
   assert.match(source, /const detail = runFailedDetail\(eventPayload\);/);
+  assert.match(source, /runtimeStateErrorDetail\(currentState\.last_error\)/);
 });
 
 test("chat pane stops rebuilding assistant history after the first terminal output event", async () => {

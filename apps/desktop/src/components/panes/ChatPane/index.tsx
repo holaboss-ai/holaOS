@@ -220,7 +220,11 @@ import {
   turnInputIdsFromHistoryMessages,
 } from "./helpers";
 import { bareRuntimeToolName, effectiveToolName } from "./toolNames";
-import { walletBlockMessage } from "./runFailureText";
+import {
+  runFailedContextLabel,
+  runFailedDetail,
+  runtimeStateErrorDetail,
+} from "./runFailureText";
 import {
   preserveCommittedAssistantTurns,
   settleCommittedAssistantTurns,
@@ -291,6 +295,7 @@ export type {
   ChatComposerMentionItem,
 };
 export {
+  runFailedDetail,
   inputIdFromMessageId,
   historyMessagesInDisplayOrder,
   turnInputIdsFromHistoryMessages,
@@ -1254,24 +1259,6 @@ function inspectableSessionLabel(
   return "Session";
 }
 
-function runtimeStateErrorDetail(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value && typeof value === "object") {
-    const payload = value as Record<string, unknown>;
-    const message = payload.message;
-    if (typeof message === "string" && message.trim()) {
-      return message;
-    }
-    const error = payload.error;
-    if (typeof error === "string" && error.trim()) {
-      return error;
-    }
-  }
-  return "The run failed.";
-}
-
 function startCase(value: string) {
   const normalized = value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 
@@ -1352,42 +1339,6 @@ function summarizeUnknown(value: unknown, maxLength = 140): string {
     return "";
   }
   return String(value);
-}
-
-function runFailedContextLabel(payload: Record<string, unknown>): string {
-  const provider =
-    typeof payload.provider === "string" ? payload.provider.trim() : "";
-  const model = typeof payload.model === "string" ? payload.model.trim() : "";
-  if (provider && model) {
-    return `${provider}/${model}`;
-  }
-  return provider || model;
-}
-
-export function runFailedDetail(payload: Record<string, unknown>): string {
-  const detail =
-    typeof payload.error === "string"
-      ? payload.error.trim()
-      : typeof payload.message === "string"
-        ? payload.message.trim()
-        : "";
-  // A wallet block is not a condition of the model that was running, so it is
-  // returned without the provider/model prefix — which also keeps the actionable
-  // half inside the caller's 120-char truncation.
-  const walletBlock = detail ? walletBlockMessage(detail) : null;
-  if (walletBlock) {
-    return walletBlock;
-  }
-  const contextLabel = runFailedContextLabel(payload);
-  if (!contextLabel) {
-    return detail || "The run failed.";
-  }
-  if (!detail) {
-    return `${contextLabel} failed.`;
-  }
-  return detail.startsWith(contextLabel)
-    ? detail
-    : `${contextLabel}: ${detail}`;
 }
 
 function assistantMetaLabel(
