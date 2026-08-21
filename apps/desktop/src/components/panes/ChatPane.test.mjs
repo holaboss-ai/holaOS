@@ -805,10 +805,15 @@ test("chat pane prefixes run failures with provider and model context", async ()
 
   assert.match(source, /function runFailedContextLabel\(payload: Record<string, unknown>\): string/);
   assert.match(source, /function runFailedDetail\(payload: Record<string, unknown>\): string/);
+  // The prefixing now applies to the HUMANIZED detail (see runFailureText.ts):
+  // a credits failure reaches the transcript as a raw wire payload, so it is
+  // rewritten before the provider/model prefix is attached. The behaviour this
+  // test guards — prefix unless already prefixed — is unchanged.
   assert.match(
     source,
-    /return detail\.startsWith\(contextLabel\)\s*\?\s*detail\s*:\s*`\$\{contextLabel\}: \$\{detail\}`;/,
+    /return humanized\.startsWith\(contextLabel\)\s*\?\s*humanized\s*:\s*`\$\{contextLabel\}: \$\{humanized\}`;/,
   );
+  assert.match(source, /humanizeRunFailure\(detail\)/);
   assert.match(source, /const errorText = runFailedDetail\(payload\);/);
   assert.match(source, /const detail = runFailedDetail\(eventPayload\);/);
 });

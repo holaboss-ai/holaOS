@@ -220,6 +220,7 @@ import {
   turnInputIdsFromHistoryMessages,
 } from "./helpers";
 import { bareRuntimeToolName, effectiveToolName } from "./toolNames";
+import { humanizeRunFailure } from "./runFailureText";
 import {
   preserveCommittedAssistantTurns,
   settleCommittedAssistantTurns,
@@ -1370,16 +1371,17 @@ export function runFailedDetail(payload: Record<string, unknown>): string {
       : typeof payload.message === "string"
         ? payload.message.trim()
         : "";
+  const humanized = detail ? humanizeRunFailure(detail) : detail;
   const contextLabel = runFailedContextLabel(payload);
   if (!contextLabel) {
-    return detail || "The run failed.";
+    return humanized || "The run failed.";
   }
-  if (!detail) {
+  if (!humanized) {
     return `${contextLabel} failed.`;
   }
-  return detail.startsWith(contextLabel)
-    ? detail
-    : `${contextLabel}: ${detail}`;
+  return humanized.startsWith(contextLabel)
+    ? humanized
+    : `${contextLabel}: ${humanized}`;
 }
 
 function assistantMetaLabel(
