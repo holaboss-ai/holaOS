@@ -7,6 +7,7 @@ import { afterEach, test } from "node:test";
 
 import { composioInlineCachePath } from "../../harnesses/src/composio-inline-cache.js";
 import { invalidateComposioInlineToolCache } from "./composio-cache-invalidation.js";
+import { WorkspaceIntegrationsService } from "./workspace-integrations.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tempDirs: string[] = [];
@@ -218,4 +219,77 @@ test("every integration-connection write invalidates the cache", () => {
     [],
     `these connection writes leave a stale inline tool listing behind:\n${offenders.join("\n")}`,
   );
+});
+
+/**
+ * BEHAVIOURAL, because the structural guards above cannot see polarity: flipping
+ * a gate to `targetType === "app"` leaves the token in the body and passes them
+ * while defeating the fix entirely. This drives the real service.
+ */
+function serviceOverFakeStore(store: ReturnType<typeof fakeStore>) {
+  const bindings = new Map<string, { bindingId: string; targetType: string }>();
+  return new WorkspaceIntegrationsService({
+    listWorkspaces: store.listWorkspaces,
+    workspaceDir: store.workspaceDir,
+    getIntegrationConnection: () => ({
+      connectionId: "c1",
+      providerId: "gmail",
+      status: "active",
+    }),
+    getIntegrationBindingByTarget: (p: { integrationKey: string }) =>
+      bindings.get(p.integrationKey) ?? null,
+    upsertIntegrationBinding: (b: { bindingId: string; integrationKey: string; targetType: string }) => {
+      bindings.set(b.integrationKey, { bindingId: b.bindingId, targetType: b.targetType });
+      return b;
+    },
+    deleteIntegrationBinding: () => true,
+  } as never);
+}
+
+test("setWorkspaceDefaultAccount really drops the cached listing", async () => {
+  const store = fakeStore(["root"]);
+  const cacheFile = seedCache(store.workspaceDir("root"));
+
+  await serviceOverFakeStore(store).setWorkspaceDefaultAccount({
+    workspaceId: "root",
+    providerId: "gmail",
+    connectionId: "c1",
+  });
+
+  assert.equal(
+    fs.existsSync(cacheFile),
+    false,
+    "the previous account's tool listing survived a default-account change",
+  );
+});
+
+test("clearWorkspaceDefaultAccount really drops the cached listing", async () => {
+  const store = fakeStore(["root"]);
+  const service = serviceOverFakeStore(store);
+  await service.setWorkspaceDefaultAccount({
+    workspaceId: "root",
+    providerId: "gmail",
+    connectionId: "c1",
+  });
+  const cacheFile = seedCache(store.workspaceDir("root"));
+
+  service.clearWorkspaceDefaultAccount({ workspaceId: "root", providerId: "gmail" });
+
+  assert.equal(fs.existsSync(cacheFile), false);
+});
+
+/**
+ * Polarity guard for the generic binding routes, which are costlier to drive:
+ * pin that the invalidation is gated on workspace_default and not its inverse.
+ */
+test("the generic binding routes gate on workspace_default, not its inverse", () => {
+  for (const method of ["upsertBinding", "deleteBinding"]) {
+    const body = methodBody("integrations.ts", method);
+    assert.ok(body, `${method} not found`);
+    assert.match(
+      body,
+      /===\s*"workspace_default"[\s\S]{0,200}invalidateComposioInlineToolCache\(/,
+      `${method} must invalidate UNDER a workspace_default check`,
+    );
+  }
 });
