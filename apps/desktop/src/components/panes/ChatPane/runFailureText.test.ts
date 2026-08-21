@@ -304,3 +304,99 @@ test("key order inside the gate's body does not matter", () => {
     CREDITS,
   );
 });
+
+// ------------------------------------------------- round-4 regressions
+
+test("a wallet code on a non-402 capture is ignored, and the recovery card survives", () => {
+  // The capture is chosen by RECENCY across every endpoint the run touched, so
+  // a wallet code can ride in on a response that was not a wallet block.
+  // Rewriting here would delete the "<provider>/<model>: 5xx error code: 5xx"
+  // string ModelErrorRecovery matches on, removing the "switch model and retry"
+  // card — swapping a real remedy for a wrong one.
+  const detail = runFailedDetail({
+    message: "502 error code: 502",
+    provider: "openai",
+    model: "gpt-5.5",
+    provider_http: {
+      status: 500,
+      parsed_body: { detail: { code: "model_proxy_insufficient_quota" } },
+    },
+  });
+  assert.doesNotMatch(detail, /out of credits/);
+  assert.match(detail, /5\d{2}\s+error\s+code:\s*5\d{2}/);
+});
+
+test("a capture with no parsed body does not suppress a legitimate text match", () => {
+  // captureBody only fills parsed_body for json content types that parse within
+  // 64 KB, but provider_http is attached either way. Keying the early return on
+  // the wrapper showed raw JSON whenever the body was non-JSON or truncated.
+  for (const parsedBody of [null, undefined, "402 {\"detail\":"]) {
+    assert.equal(
+      runFailedDetail({
+        message:
+          '402 {"detail":{"code":"model_proxy_insufficient_quota","message":"User does not have sufficient quota"}}',
+        provider_http: {
+          status: 402,
+          content_type: "text/plain",
+          parsed_body: parsedBody,
+        },
+      }),
+      CREDITS,
+      `parsed_body=${JSON.stringify(parsedBody)}`,
+    );
+  }
+});
+
+test("a wallet code nested under something other than detail is not our gate", () => {
+  // Our gate replies {"detail":{"code":…}}. A code reached by recursing into
+  // any key would accept a foreign body that merely mentions one.
+  const raw = '402 {"error":{"code":"model_proxy_insufficient_quota"}}';
+  assert.equal(runFailedDetail({ message: raw }), raw);
+  assert.doesNotMatch(
+    runFailedDetail({
+      message: "402 upstream",
+      provider_http: {
+        status: 402,
+        parsed_body: { error: { code: "model_proxy_insufficient_quota" } },
+      },
+    }),
+    /out of credits/,
+  );
+});
+
+test("a code merely mentioned elsewhere in the captured body is not a match", () => {
+  // Guards a stringify-and-substring shortcut through the structured path.
+  assert.doesNotMatch(
+    runFailedDetail({
+      message: "503 upstream",
+      provider_http: {
+        status: 402,
+        parsed_body: {
+          detail: {
+            code: "model_proxy_not_configured",
+            hint: "not model_proxy_insufficient_quota",
+          },
+        },
+      },
+    }),
+    /out of credits|remaining balance/,
+  );
+});
+
+test("a body truncated past parsing is not a wallet block", () => {
+  // The capture truncates at 64 KB; a half-JSON string must not be pattern-read.
+  const raw = '402 {"detail":{"code":"model_proxy_insufficient_quota","quota":{"bal';
+  assert.equal(runFailedDetail({ message: raw }), raw);
+});
+
+test("trailing content after the wire JSON disqualifies the whole string", () => {
+  // The end anchor is what separates a wire error from prose that opens with one.
+  const raw =
+    '402 {"detail":{"code":"model_proxy_insufficient_quota"}} — I hit this while testing.';
+  assert.equal(runFailedDetail({ message: raw }), raw);
+});
+
+test("a 2xx prefix is not an SDK error message", () => {
+  const raw = '200 {"detail":{"code":"model_proxy_insufficient_quota"}}';
+  assert.equal(runFailedDetail({ message: raw }), raw);
+});

@@ -115,6 +115,16 @@ export function walletBlockFromPayload(
   if (!isRecord(providerHttp)) {
     return null;
   }
+  // The status must agree with the code. The capture is selected by RECENCY
+  // over a 5-minute window across every endpoint the run touched (embeddings
+  // included), so a wallet code can ride in on a response that was not a wallet
+  // block. Accepting one would not just reword the failure: replacing a
+  // "<provider>/<model>: 5xx error code: 5xx" message deletes the string
+  // ModelErrorRecovery matches on, and with it the "switch model and retry"
+  // card — trading a real remedy for a wrong one.
+  if (providerHttp.status !== 402) {
+    return null;
+  }
   const code = walletCodeFromBody(providerHttp.parsed_body);
   return code ? WALLET_BLOCK_MESSAGES[code] : null;
 }
@@ -131,7 +141,9 @@ export function walletBlockFromPayload(
  * it, and the gate's own body already nests a "quota" object alongside.
  */
 export function walletBlockFromText(text: string): string | null {
-  const match = /^\d{3} (\{[\s\S]*\})$/.exec(text.trim());
+  // 4xx only: the doc's justification is that this is an SDK-built error
+  // message, and a 2xx never is. `\d{3}` also accepted "200 {...}" and "999 {...}".
+  const match = /^4\d{2} (\{[\s\S]*\})$/.exec(text.trim());
   if (!match) {
     return null;
   }
@@ -153,10 +165,17 @@ function walletBlock(
   if (structured) {
     return structured;
   }
-  // A capture exists and it is NOT a wallet block: that is an answer, not a
-  // gap. Falling through to the text would let a stale code quoted in a
-  // concatenated message override the response the request actually got.
-  if (isRecord(payload.provider_http)) {
+  // Defer to the capture only when it actually carries a parsed body. A capture
+  // whose body was non-JSON or truncated past parsing (captureBody only fills
+  // parsed_body for json content types that parse within 64 KB) has told us
+  // nothing, yet `provider_http` is attached either way — so keying on the
+  // wrapper suppressed a legitimate text match and showed raw JSON instead.
+  //
+  // When the body IS parsed and is not a wallet block, that is an answer rather
+  // than a gap: falling through would let a stale code quoted in a concatenated
+  // message override the response the request actually got.
+  const capture = payload.provider_http;
+  if (isRecord(capture) && isRecord(capture.parsed_body)) {
     return null;
   }
   return detail ? walletBlockFromText(detail) : null;
