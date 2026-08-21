@@ -541,6 +541,161 @@ test("searchPublicWeb preserves sandbox gateway prefixes when deriving Holaboss 
   );
 });
 
+test("searchPublicWeb posts to Firecrawl v2 search and flattens grouped results", async () => {
+  const requests: Array<{
+    url: string;
+    init?: RequestInit;
+  }> = [];
+  const result = await searchPublicWeb({
+    query: "latest alpha 2026",
+    numResults: 2,
+    // Exa-shaped knobs must not leak into the Firecrawl request body.
+    livecrawl: "preferred",
+    type: "deep",
+    contextMaxCharacters: 12000,
+    providerKind: "firecrawl",
+    apiKey: "fc-test-key",
+    fetchImpl: async (input, init) => {
+      requests.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            web: [
+              {
+                url: "https://example.com/alpha",
+                title: "Alpha Result",
+                description: "Alpha summary",
+                position: 1,
+              },
+            ],
+            news: [
+              {
+                url: "https://news.example.com/beta",
+                title: "Beta Result",
+                description: "Beta summary",
+                date: "2026-04-03",
+              },
+            ],
+          },
+          creditsUsed: 2,
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        },
+      );
+    },
+  });
+
+  assert.equal(result.providerId, "firecrawl");
+  assert.equal(
+    result.text,
+    [
+      "Title: Alpha Result",
+      "URL: https://example.com/alpha",
+      "Highlights:",
+      "Alpha summary",
+      "",
+      "Title: Beta Result",
+      "URL: https://news.example.com/beta",
+      "Published: 2026-04-03",
+      "Highlights:",
+      "Beta summary",
+    ].join("\n"),
+  );
+  assert.equal(requests[0]?.url, "https://api.firecrawl.dev/v2/search");
+  assert.equal(requests[0]?.init?.method, "POST");
+  assert.deepEqual(requests[0]?.init?.headers, {
+    accept: "application/json",
+    authorization: "Bearer fc-test-key",
+    "content-type": "application/json",
+  });
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+    query: "latest alpha 2026",
+    limit: 2,
+  });
+});
+
+test("searchPublicWeb fails closed for Firecrawl when no API key is configured", async () => {
+  let fetchCalled = false;
+  await assert.rejects(
+    () =>
+      searchPublicWeb({
+        query: "latest alpha 2026",
+        providerKind: "firecrawl",
+        fetchImpl: async () => {
+          fetchCalled = true;
+          return new Response("{}", {
+            status: 200,
+            headers: { "content-type": "application/json; charset=utf-8" },
+          });
+        },
+      }),
+    /web_search via Firecrawl requires an API key/,
+  );
+  assert.equal(fetchCalled, false);
+});
+
+test("searchPublicWeb reads Firecrawl provider settings from runtime config", async (t) => {
+  const previousConfigPath = process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "holaboss-search-"));
+  t.after(async () => {
+    if (previousConfigPath === undefined) {
+      delete process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
+    } else {
+      process.env.HOLABOSS_RUNTIME_CONFIG_PATH = previousConfigPath;
+    }
+    await rm(tempDir, { force: true, recursive: true });
+  });
+
+  const configPath = path.join(tempDir, "runtime-config.json");
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = configPath;
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      web_search: {
+        provider: "firecrawl",
+        providers: {
+          firecrawl: {
+            kind: "firecrawl",
+            // Bare origin: the endpoint path is appended, mirroring hosted Exa.
+            base_url: "https://firecrawl.internal.test",
+            api_key: "fc-runtime-key",
+          },
+        },
+      },
+    }),
+  );
+
+  const requests: Array<{
+    url: string;
+    init?: RequestInit;
+  }> = [];
+  const result = await searchPublicWeb({
+    query: "runtime configured search",
+    fetchImpl: async (input, init) => {
+      requests.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { web: [{ url: "https://example.com", title: "Runtime" }] },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        },
+      );
+    },
+  });
+
+  assert.equal(result.providerId, "firecrawl");
+  assert.equal(
+    requests[0]?.url,
+    "https://firecrawl.internal.test/v2/search",
+  );
+});
+
 test("searchPublicWeb requires a non-empty query", async () => {
   await assert.rejects(async () => await searchPublicWeb({ query: "   " }), /query is required/);
 });

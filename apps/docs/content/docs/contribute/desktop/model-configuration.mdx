@@ -38,7 +38,7 @@ holaOS already provides model configuration in the desktop app:
 - use the `Recall embeddings` panel to leave vector-assisted recall on `Automatic` or choose an explicit embedding-capable provider and model
 - use the `Image generation` panel to choose an image-capable provider and model for runtime image generation
 - use the `Defaults` panel to leave `Subagent model` on `Follow composer` or choose a fixed override for hidden delegated and scheduled subagent runs
-- use the `Web search` panel to choose Holaboss Search or Exa and provide a search API key when needed
+- web search has no desktop panel: the runtime resolves the provider from the `web_search` block in `runtime-config.json`, so it is configured by editing that file (see [Web search providers](#web-search-providers))
 - saved changes update `runtime-config.json`, and the chat model picker uses the configured provider models
 
 holaOS-managed sessions can inject managed background, embedding, and image defaults through the runtime binding. The desktop UI now assumes holaOS Proxy is the only provider surface and derives its model suggestions from the managed catalog plus the shipped Holaboss fallback metadata.
@@ -180,7 +180,7 @@ There are no additional desktop-configurable provider surfaces for image generat
 
 The native `web_search` tool reads a top-level `web_search` block from `runtime-config.json`. If that block is absent, the runtime keeps the legacy behavior and uses hosted Exa MCP without authentication.
 
-The desktop currently exposes:
+The runtime currently supports:
 
 - `holaboss_search`
   - default endpoint: the runtime binding's control-plane base URL plus `/api/v1/search/web`
@@ -189,8 +189,14 @@ The desktop currently exposes:
 - `exa`
   - default endpoint: `https://mcp.exa.ai/mcp`
   - API key is optional for the hosted MCP path, but can be provided for your own Exa quota
+- `firecrawl`
+  - default endpoint: `https://api.firecrawl.dev/v2/search`
+  - API key is required; get one at [firecrawl.dev](https://www.firecrawl.dev/app/api-keys) and set it as `api_key`
+  - a bare origin in `base_url` is fine (`/v2/search` is appended), so self-hosted Firecrawl instances work too
+  - the Exa-only knobs `livecrawl`, `type`, and `context_max_characters` have no Firecrawl equivalent and are ignored; `num_results` maps to Firecrawl's `limit`
+  - see the [Firecrawl search docs](https://docs.firecrawl.dev/features/search) for the full API surface
 
-The runtime also accepts legacy config keys `webSearch` and `search`, but the desktop writes the canonical `web_search` key.
+The runtime also accepts legacy config keys `webSearch` and `search`, but `web_search` is the canonical key.
 
 ## Model string format
 
@@ -233,6 +239,11 @@ The runtime also treats unprefixed `claude...` model ids as Anthropic models. If
         "kind": "exa_hosted_mcp",
         "base_url": "https://mcp.exa.ai/mcp",
         "api_key": "exa-your-api-key"
+      },
+      "firecrawl": {
+        "kind": "firecrawl",
+        "base_url": "https://api.firecrawl.dev/v2/search",
+        "api_key": "fc-your-api-key"
       }
     }
   },
