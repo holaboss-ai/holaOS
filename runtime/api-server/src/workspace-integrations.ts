@@ -1,5 +1,6 @@
 import type { RuntimeStateStore } from "@holaboss/runtime-state-store";
 
+import { invalidateComposioInlineToolCache } from "./composio-cache-invalidation.js";
 import { resolveConnectionMerged } from "./integration-connections-merged.js";
 
 export class WorkspaceIntegrationsService {
@@ -67,6 +68,11 @@ export class WorkspaceIntegrationsService {
       connectionId: params.connectionId,
       isDefault: true,
     });
+    // The default binding decides WHICH account's tools the listing resolves
+    // (see the composio toolkit resolver's workspace_default lookup), so changing
+    // it changes the tool set just as much as connecting does — drop the cached
+    // listing or the previous account's tools stay in front of the agent.
+    invalidateComposioInlineToolCache(this.store);
     return { connection_id: params.connectionId };
   }
 
@@ -82,6 +88,9 @@ export class WorkspaceIntegrationsService {
     });
     if (!existing) return { deleted: false };
     this.store.deleteIntegrationBinding(existing.bindingId);
+    // Clearing the default falls resolution back to another account, so the
+    // listing changes here too.
+    invalidateComposioInlineToolCache(this.store);
     return { deleted: true };
   }
 }

@@ -225,6 +225,10 @@ import {
 } from "@holaboss/runtime-client";
 import { installBffFetchHandler } from "./bff-fetch.js";
 import {
+  fetchAllMcpToolNames,
+  parseMcpToolsListResponse,
+} from "./mcp-tools-list.js";
+import {
   createComposioEventsBridge,
   type ComposioEventsBridge,
 } from "./composio-events-bridge.js";
@@ -11873,12 +11877,28 @@ async function composioDeleteUpstream(
   }
 }
 
+/**
+ * Post-connect / post-install hook: make newly available tools reachable.
+ *
+ * The composio-mcp host this used to start no longer exists. Composio tools are
+ * resolved inline now, and the runtime actively removes the legacy
+ * `holaboss_composio` registry entry — so `/api/v1/composio-mcp/ensure-running`
+ * has had no route for some time and every call here 404'd straight into the
+ * callers' `catch {}`.
+ *
+ * That silently removed the only step that made a just-connected integration's
+ * tools reachable: the runtime kept serving its cached tool listing (15 min TTL),
+ * so the agent reported the publish tool as "still loading" turn after turn and
+ * users abandoned the task.
+ *
+ * Refreshing is the live equivalent — it drops the workspace's MCP tool cache and
+ * the cached Composio listing, so the next turn re-resolves both. Kept under the
+ * original name so the three renderer call sites (chat connect proposal, add-app,
+ * marketplace install) keep working; the name is stale and worth retiring
+ * separately.
+ */
 async function composioMcpEnsureRunning(workspaceId: string): Promise<unknown> {
-  return requestRuntimeJson<unknown>({
-    method: "POST",
-    path: "/api/v1/composio-mcp/ensure-running",
-    payload: { workspace_id: workspaceId },
-  });
+  return refreshWorkspaceMcpTools(workspaceId);
 }
 
 /**
@@ -19243,51 +19263,67 @@ function asYamlRecord(value: unknown): Record<string, unknown> {
 // network round-trip on every per-turn re-attach; cleared on uninstall.
 const webHolaAppToolCache = new Map<string, string[]>();
 
-function parseMcpToolsListResponse(text: string): string[] {
-  const fromJson = (raw: string): string[] | null => {
-    try {
-      const obj = JSON.parse(raw) as {
-        result?: { tools?: Array<{ name?: unknown }> };
-      };
-      const tools = obj?.result?.tools;
-      if (Array.isArray(tools)) {
-        return tools
-          .map((tool) => tool?.name)
-          .filter((name): name is string => typeof name === "string");
-      }
-    } catch {
-      // not plain JSON — could be an SSE stream; fall through
-    }
+/**
+ * Short-lived cache for INCOMPLETE discoveries.
+ *
+ * Complete lists are cached until uninstall. Incomplete ones must not be — a
+ * truncated list cached that long is the bug this module exists to prevent — but
+ * refusing to cache them at all means a server that reliably fails page 2 is
+ * re-walked on EVERY turn (the attach loops run before each one), which is a
+ * worse trade on the hot path. Hold the partial result briefly instead: the agent
+ * still gets the tools we did read, the allowlist still unions rather than
+ * replaces, and the server is retried about once a minute rather than per turn.
+ */
+const INCOMPLETE_TOOL_CACHE_TTL_MS = 60_000;
+type IncompleteToolsEntry = { tools: string[]; expiresAt: number };
+const webHolaAppIncompleteToolCache = new Map<string, IncompleteToolsEntry>();
+const marketplaceIncompleteToolCache = new Map<string, IncompleteToolsEntry>();
+
+function readIncompleteToolCache(
+  cache: Map<string, IncompleteToolsEntry>,
+  key: string,
+): string[] | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    cache.delete(key);
     return null;
-  };
-  const direct = fromJson(text);
-  if (direct) {
-    return direct;
   }
-  // Streamable HTTP may answer with an SSE stream of `data:` events.
-  for (const line of text.split(/\r?\n/)) {
-    const match = line.match(/^data:\s*(.*)$/);
-    if (match) {
-      const parsed = fromJson(match[1]);
-      if (parsed) {
-        return parsed;
-      }
-    }
-  }
-  return [];
+  return entry.tools;
 }
+
+function writeIncompleteToolCache(
+  cache: Map<string, IncompleteToolsEntry>,
+  key: string,
+  tools: string[],
+): void {
+  cache.set(key, {
+    tools,
+    expiresAt: Date.now() + INCOMPLETE_TOOL_CACHE_TTL_MS,
+  });
+}
+
+// `tools/list` enumeration (including pagination) lives in ./mcp-tools-list.ts so
+// it can be tested against a stubbed transport — see the import at the top.
 
 // Discover a web HolaApp's MCP tool names (cached) via the same initialize + tools/list the
 // runtime's MCP client does. Needed to enumerate the app's tools into the workspace.yaml
 // allowlist (see attachWebHolaAppMcp): the pi ("Hola") harness builds its tool allowlist
 // from those refs, so un-enumerated tools are silently filtered out of the agent.
-async function discoverWebHolaAppMcpTools(holaAppId: string): Promise<string[]> {
+async function discoverWebHolaAppMcpTools(
+  holaAppId: string,
+): Promise<{ tools: string[]; complete: boolean }> {
   const cached = webHolaAppToolCache.get(holaAppId);
   if (cached) {
-    return cached;
+    // Only complete lists are ever cached (below), so a hit is complete.
+    return { tools: cached, complete: true };
+  }
+  const partial = readIncompleteToolCache(webHolaAppIncompleteToolCache, holaAppId);
+  if (partial) {
+    return { tools: partial, complete: false };
   }
   if (!WEB_HOLAAPP_MCP_BASE_URL) {
-    return [];
+    return { tools: [], complete: false };
   }
   const url = `${WEB_HOLAAPP_MCP_BASE_URL}/mcp/${encodeURIComponent(holaAppId)}/mcp`;
   const bearer = authBearerToken();
@@ -19313,23 +19349,24 @@ async function discoverWebHolaAppMcpTools(holaAppId: string): Promise<string[]> 
       }),
     }).catch(() => null);
     const sessionId = init?.headers.get("mcp-session-id") ?? undefined;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { ...headers, ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}) },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+    const { tools, complete } = await fetchAllMcpToolNames({
+      url,
+      headers,
+      sessionId,
+      label: `[web-holaapp] ${holaAppId}`,
     });
-    if (!resp.ok) {
-      console.warn(`[web-holaapp] tools/list for ${holaAppId} → ${resp.status}`);
-      return [];
-    }
-    const tools = parseMcpToolsListResponse(await resp.text());
-    if (tools.length > 0) {
+    // Only a COMPLETE list may be cached: this cache is cleared on uninstall, so
+    // caching a truncated one would hide the missing tools from the agent for the
+    // rest of the install.
+    if (tools.length > 0 && complete) {
       webHolaAppToolCache.set(holaAppId, tools);
+    } else if (!complete) {
+      writeIncompleteToolCache(webHolaAppIncompleteToolCache, holaAppId, tools);
     }
-    return tools;
+    return { tools, complete };
   } catch (err) {
     console.warn(`[web-holaapp] tools/list failed for ${holaAppId}:`, err);
-    return [];
+    return { tools: [], complete: false };
   }
 }
 
@@ -19366,7 +19403,8 @@ async function attachWebHolaAppMcp(
     // — its tools come from a connected Composio account, not a hosted MCP)
     // yields zero tools: skip attaching entirely rather than write a dead server
     // entry the pi harness would just filter out (and re-probe every turn).
-    const appToolNames = await discoverWebHolaAppMcpTools(holaAppId);
+    const { tools: appToolNames, complete: appToolsComplete } =
+      await discoverWebHolaAppMcpTools(holaAppId);
     if (appToolNames.length === 0) {
       return;
     }
@@ -19407,6 +19445,13 @@ async function attachWebHolaAppMcp(
       : [];
     const next = [
       ...existing.filter((id) => !id.startsWith(`${holaAppId}.`)),
+      // On a COMPLETE discovery this rewrite is authoritative — dropping the old
+      // entries is how a removed tool leaves the allowlist. On a PARTIAL one it
+      // would evict tools we simply failed to re-read, filtering them out of the
+      // agent, so keep what we already knew and union the new names in.
+      ...(appToolsComplete
+        ? []
+        : existing.filter((id) => id.startsWith(`${holaAppId}.`))),
       ...Object.keys(asYamlRecord(registry.catalog)),
       ...appToolNames.map((tool) => `${holaAppId}.${tool}`),
     ];
@@ -19463,6 +19508,7 @@ async function detachWebHolaAppMcp(
       registry.app_servers = appServers;
     }
     webHolaAppToolCache.delete(holaAppId);
+    webHolaAppIncompleteToolCache.delete(holaAppId);
     // Drop any stale allowlist ids for this app (harmless if absent).
     const allowlist = asYamlRecord(registry.allowlist);
     if (Array.isArray(allowlist.tool_ids)) {
@@ -19663,10 +19709,15 @@ async function discoverMarketplaceMcpTools(
   id: string,
   url: string,
   authHeaders: Record<string, string>,
-): Promise<string[]> {
+): Promise<{ tools: string[]; complete: boolean }> {
   const cached = marketplaceMcpToolCache.get(id);
   if (cached) {
-    return cached;
+    // Only complete lists are cached (below), so a hit is complete.
+    return { tools: cached, complete: true };
+  }
+  const partial = readIncompleteToolCache(marketplaceIncompleteToolCache, id);
+  if (partial) {
+    return { tools: partial, complete: false };
   }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -19689,23 +19740,22 @@ async function discoverMarketplaceMcpTools(
       }),
     }).catch(() => null);
     const sessionId = init?.headers.get("mcp-session-id") ?? undefined;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { ...headers, ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}) },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
+    const { tools, complete } = await fetchAllMcpToolNames({
+      url,
+      headers,
+      sessionId,
+      label: `[mcp-marketplace] ${id}`,
     });
-    if (!resp.ok) {
-      console.warn(`[mcp-marketplace] tools/list for ${id} → ${resp.status}`);
-      return [];
-    }
-    const tools = parseMcpToolsListResponse(await resp.text());
-    if (tools.length > 0) {
+    // Same rule as the web-HolaApp cache: never pin a truncated tool set.
+    if (tools.length > 0 && complete) {
       marketplaceMcpToolCache.set(id, tools);
+    } else if (!complete) {
+      writeIncompleteToolCache(marketplaceIncompleteToolCache, id, tools);
     }
-    return tools;
+    return { tools, complete };
   } catch (err) {
     console.warn(`[mcp-marketplace] tools/list failed for ${id}:`, err);
-    return [];
+    return { tools: [], complete: false };
   }
 }
 
@@ -19739,10 +19789,14 @@ async function attachHostedMcpServer(
     const headers = resolveMarketplaceMcpHeaders(config);
     // Prefer catalog-provided tool names; else probe the live server with the resolved
     // headers. Either way the allowlist must carry them or the pi harness filters them out.
-    const toolNames =
+    // A configured tool list is authoritative by definition; a discovered one is
+    // only authoritative when pagination completed.
+    const discovered =
       config.tools.length > 0
-        ? config.tools
+        ? { tools: config.tools, complete: true }
         : await discoverMarketplaceMcpTools(config.id, url, headers);
+    const toolNames = discovered.tools;
+    const toolsComplete = discovered.complete;
 
     const data = asYamlRecord(parseYaml(await fs.readFile(yamlPath, "utf-8")));
     const registry = asYamlRecord(data.mcp_registry);
@@ -19781,6 +19835,12 @@ async function attachHostedMcpServer(
       allowlist.tool_ids = [
         ...new Set([
           ...existing.filter((toolId) => !toolId.startsWith(`${config.id}.`)),
+          // The comment above guards the zero case; a PARTIAL list is the same
+          // hazard in slower motion — it evicts tools we merely failed to re-read.
+          // Authoritative only when pagination completed; otherwise union.
+          ...(toolsComplete
+            ? []
+            : existing.filter((toolId) => toolId.startsWith(`${config.id}.`))),
           ...Object.keys(asYamlRecord(registry.catalog)),
           ...toolNames.map((tool) => `${config.id}.${tool}`),
         ]),
@@ -19824,6 +19884,7 @@ async function syncInstalledMarketplaceMcps(
   for (const id of installedMarketplaceMcps.keys()) {
     if (!next.has(id)) {
       marketplaceMcpToolCache.delete(id);
+      marketplaceIncompleteToolCache.delete(id);
       await detachCustomMcpServer(ROOT_WORKSPACE_ID, id);
     }
   }
@@ -19844,6 +19905,7 @@ async function installMarketplaceMcp(
 async function uninstallMarketplaceMcp(id: string): Promise<void> {
   installedMarketplaceMcps.delete(id);
   marketplaceMcpToolCache.delete(id);
+  marketplaceIncompleteToolCache.delete(id);
   await detachCustomMcpServer(ROOT_WORKSPACE_ID, id);
 }
 

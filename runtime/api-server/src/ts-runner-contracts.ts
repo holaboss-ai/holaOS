@@ -22,6 +22,7 @@ export type TsRunnerEventType =
   | "auto_compaction_start"
   | "auto_compaction_end"
   | "mcp_server_unavailable"
+  | "composio_toolkit_unavailable"
   | "run_completed"
   | "run_failed";
 

@@ -2219,13 +2219,20 @@ export function phaseTraceStepFromEvent(
     };
   }
 
-  if (eventType === "mcp_server_unavailable") {
+  if (
+    eventType === "mcp_server_unavailable" ||
+    eventType === "composio_toolkit_unavailable"
+  ) {
     // Don't surface this in the transcript at all. It's a recoverable notice —
     // the run continues without the server's tools (e.g. an OAuth connector never
     // signed into) — but rendering it every turn read as a failure and was pure
     // noise. The actionable paths live elsewhere: the inline authorize card
     // (mcpAuthorizations, collected in a separate pass) and Customize → MCPs →
     // Custom apps (sign in / remove). So emit no step.
+    //
+    // composio_toolkit_unavailable is the integration equivalent and gets the
+    // same treatment: it exists so a failed toolkit is diagnosable in the run
+    // trace, not so it becomes per-turn chrome.
     return null;
   }
 

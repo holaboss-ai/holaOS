@@ -39,6 +39,7 @@ import {
   writeMcpAuthRequiredMarker,
 } from "../../harnesses/src/index.js";
 import { buildAppSetupEnv } from "./app-setup-env.js";
+import { invalidateComposioInlineToolCache } from "./composio-cache-invalidation.js";
 import { listHarnessAvailability } from "./harness-availability.js";
 import { resolveRuntimeHarnessPlugin } from "./harness-registry.js";
 import {
@@ -7819,20 +7820,32 @@ export class RuntimeAgentToolsService {
    * so the fresh tools apply from the next message — note that
    * buildSessionRefreshFields is for NEW servers (empty here) and returns {}, so
    * the flag is set directly.
+   *
+   * This ALSO drops the Composio inline tool listing. Composio integrations are
+   * not MCP servers (composio-tool-registry removes any legacy entry), so they
+   * are cached separately; clearing only the pi cache made this tool a no-op for
+   * exactly the case an agent reaches for it — a just-connected integration whose
+   * tools are missing. The agent would end the turn, the next turn would re-read
+   * the same stale listing, and the loop repeated until the 15 min TTL expired.
    */
   refreshMcpTools(params: { workspaceId: string }): JsonObject {
     this.requireWorkspace(params.workspaceId);
     const workspaceDir = this.store.workspaceDir(params.workspaceId);
     const cacheCleared = clearPiMcpToolCache(workspaceDir);
+    const integrationsCleared = invalidateComposioInlineToolCache(this.store);
     const servers = [...readWorkspaceMcpRegistryServerNames(workspaceDir)];
     return {
       refreshed: true,
       cache_cleared: cacheCleared,
+      // Counts cache FILES removed, which is 0 when nothing had been cached yet —
+      // that is a no-op, not a failure. Named so the model doesn't read a 0 as
+      // "the refresh didn't work" and tell the user so.
+      integration_cache_files_removed: integrationsCleared,
       servers,
-      note: "MCP tool cache cleared for this workspace. All connected MCP servers are re-discovered on your NEXT turn — ask the user to send one more message.",
+      note: "MCP tool cache and integration tool listing cleared for this workspace. Connected MCP servers and integrations are re-discovered on your NEXT turn — ask the user to send one more message.",
       requires_session_refresh: true,
       session_refresh_note:
-        "The MCP tool cache was invalidated; re-discovered tools apply from the next user message. End this turn now.",
+        "The MCP tool and integration caches were invalidated; re-discovered tools apply from the next user message. End this turn now.",
     };
   }
 
