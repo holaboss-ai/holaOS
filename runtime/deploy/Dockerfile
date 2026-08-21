@@ -1,28 +1,29 @@
 ARG TOOLCHAIN_IMAGE=holaboss/sandbox-base-toolchain:dev
 FROM ${TOOLCHAIN_IMAGE}
 
+# Install bun (toolchain image ships node + npm but not bun; the runtime build
+# scripts use bun install since the monorepo migration to a single root bun.lock)
+RUN npm install -g bun@1.3.6
+
 WORKDIR /tmp/runtime-source
 
+# Copy whole package dirs (not file-by-file) so future layout changes (new
+# config files, scripts/, etc.) don't silently break the build again.
+# build_runtime_root.mjs stages each package with copyIfPresent() guards, so
+# extra files are harmless.
+#
+# Layout mirrors the .mjs path assumptions:
+#   runtimeRoot = /tmp/runtime-source  (runtime/* packages)
+#   repoRoot    = /tmp                 (packages/remote-api, shared/)
 COPY runtime/deploy/ /tmp/runtime-source/deploy/
-COPY runtime/harnesses/package.json /tmp/runtime-source/harnesses/package.json
-COPY runtime/harnesses/src/ /tmp/runtime-source/harnesses/src/
-COPY runtime/harness-host/package.json /tmp/runtime-source/harness-host/package.json
-COPY runtime/harness-host/package-lock.json /tmp/runtime-source/harness-host/package-lock.json
-COPY runtime/harness-host/tsconfig.json /tmp/runtime-source/harness-host/tsconfig.json
-COPY runtime/harness-host/tsup.config.ts /tmp/runtime-source/harness-host/tsup.config.ts
-COPY runtime/harness-host/src/ /tmp/runtime-source/harness-host/src/
-COPY runtime/state-store/package.json /tmp/runtime-source/state-store/package.json
-COPY runtime/state-store/package-lock.json /tmp/runtime-source/state-store/package-lock.json
-COPY runtime/state-store/tsconfig.json /tmp/runtime-source/state-store/tsconfig.json
-COPY runtime/state-store/tsup.config.ts /tmp/runtime-source/state-store/tsup.config.ts
-COPY runtime/state-store/src/ /tmp/runtime-source/state-store/src/
-COPY runtime/api-server/package.json /tmp/runtime-source/api-server/package.json
-COPY runtime/api-server/package-lock.json /tmp/runtime-source/api-server/package-lock.json
-COPY runtime/api-server/tsconfig.json /tmp/runtime-source/api-server/tsconfig.json
-COPY runtime/api-server/tsup.config.ts /tmp/runtime-source/api-server/tsup.config.ts
-COPY runtime/api-server/src/ /tmp/runtime-source/api-server/src/
-RUN chmod +x /tmp/runtime-source/deploy/build_runtime_root.sh \
-    && /tmp/runtime-source/deploy/build_runtime_root.sh /opt/holaboss-runtime
+COPY runtime/harnesses/ /tmp/runtime-source/harnesses/
+COPY runtime/harness-host/ /tmp/runtime-source/harness-host/
+COPY runtime/state-store/ /tmp/runtime-source/state-store/
+COPY runtime/api-server/ /tmp/runtime-source/api-server/
+COPY runtime/channel-gateway/ /tmp/runtime-source/channel-gateway/
+COPY packages/remote-api/ /tmp/packages/remote-api/
+COPY shared/ /tmp/shared/
+RUN node /tmp/runtime-source/deploy/build_runtime_root.mjs /opt/holaboss-runtime
 
 WORKDIR /app
 

@@ -1,0 +1,8 @@
+# Keep the build context small: the Dockerfile now uses whole-directory
+# COPY, so exclude generated/checked-out artifacts that would otherwise be
+# swept into the context (a real checkout measures ~9.6 GB without this).
+node_modules
+dist
+out
+.git
+.env*
