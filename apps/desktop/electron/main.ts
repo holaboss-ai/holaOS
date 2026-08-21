@@ -19263,6 +19263,46 @@ function asYamlRecord(value: unknown): Record<string, unknown> {
 // network round-trip on every per-turn re-attach; cleared on uninstall.
 const webHolaAppToolCache = new Map<string, string[]>();
 
+/**
+ * Short-lived cache for INCOMPLETE discoveries.
+ *
+ * Complete lists are cached until uninstall. Incomplete ones must not be — a
+ * truncated list cached that long is the bug this module exists to prevent — but
+ * refusing to cache them at all means a server that reliably fails page 2 is
+ * re-walked on EVERY turn (the attach loops run before each one), which is a
+ * worse trade on the hot path. Hold the partial result briefly instead: the agent
+ * still gets the tools we did read, the allowlist still unions rather than
+ * replaces, and the server is retried about once a minute rather than per turn.
+ */
+const INCOMPLETE_TOOL_CACHE_TTL_MS = 60_000;
+type IncompleteToolsEntry = { tools: string[]; expiresAt: number };
+const webHolaAppIncompleteToolCache = new Map<string, IncompleteToolsEntry>();
+const marketplaceIncompleteToolCache = new Map<string, IncompleteToolsEntry>();
+
+function readIncompleteToolCache(
+  cache: Map<string, IncompleteToolsEntry>,
+  key: string,
+): string[] | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() >= entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.tools;
+}
+
+function writeIncompleteToolCache(
+  cache: Map<string, IncompleteToolsEntry>,
+  key: string,
+  tools: string[],
+): void {
+  cache.set(key, {
+    tools,
+    expiresAt: Date.now() + INCOMPLETE_TOOL_CACHE_TTL_MS,
+  });
+}
+
 // `tools/list` enumeration (including pagination) lives in ./mcp-tools-list.ts so
 // it can be tested against a stubbed transport — see the import at the top.
 
@@ -19277,6 +19317,10 @@ async function discoverWebHolaAppMcpTools(
   if (cached) {
     // Only complete lists are ever cached (below), so a hit is complete.
     return { tools: cached, complete: true };
+  }
+  const partial = readIncompleteToolCache(webHolaAppIncompleteToolCache, holaAppId);
+  if (partial) {
+    return { tools: partial, complete: false };
   }
   if (!WEB_HOLAAPP_MCP_BASE_URL) {
     return { tools: [], complete: false };
@@ -19316,6 +19360,8 @@ async function discoverWebHolaAppMcpTools(
     // rest of the install.
     if (tools.length > 0 && complete) {
       webHolaAppToolCache.set(holaAppId, tools);
+    } else if (!complete) {
+      writeIncompleteToolCache(webHolaAppIncompleteToolCache, holaAppId, tools);
     }
     return { tools, complete };
   } catch (err) {
@@ -19462,6 +19508,7 @@ async function detachWebHolaAppMcp(
       registry.app_servers = appServers;
     }
     webHolaAppToolCache.delete(holaAppId);
+    webHolaAppIncompleteToolCache.delete(holaAppId);
     // Drop any stale allowlist ids for this app (harmless if absent).
     const allowlist = asYamlRecord(registry.allowlist);
     if (Array.isArray(allowlist.tool_ids)) {
@@ -19668,6 +19715,10 @@ async function discoverMarketplaceMcpTools(
     // Only complete lists are cached (below), so a hit is complete.
     return { tools: cached, complete: true };
   }
+  const partial = readIncompleteToolCache(marketplaceIncompleteToolCache, id);
+  if (partial) {
+    return { tools: partial, complete: false };
+  }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json, text/event-stream",
@@ -19698,6 +19749,8 @@ async function discoverMarketplaceMcpTools(
     // Same rule as the web-HolaApp cache: never pin a truncated tool set.
     if (tools.length > 0 && complete) {
       marketplaceMcpToolCache.set(id, tools);
+    } else if (!complete) {
+      writeIncompleteToolCache(marketplaceIncompleteToolCache, id, tools);
     }
     return { tools, complete };
   } catch (err) {
@@ -19831,6 +19884,7 @@ async function syncInstalledMarketplaceMcps(
   for (const id of installedMarketplaceMcps.keys()) {
     if (!next.has(id)) {
       marketplaceMcpToolCache.delete(id);
+      marketplaceIncompleteToolCache.delete(id);
       await detachCustomMcpServer(ROOT_WORKSPACE_ID, id);
     }
   }
@@ -19851,6 +19905,7 @@ async function installMarketplaceMcp(
 async function uninstallMarketplaceMcp(id: string): Promise<void> {
   installedMarketplaceMcps.delete(id);
   marketplaceMcpToolCache.delete(id);
+  marketplaceIncompleteToolCache.delete(id);
   await detachCustomMcpServer(ROOT_WORKSPACE_ID, id);
 }
 

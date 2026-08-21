@@ -23,6 +23,13 @@ export type McpToolsListPage = { tools: string[]; nextCursor: string | null };
 export const MAX_MCP_TOOLS_LIST_PAGES = 20;
 
 /**
+ * Per-page request timeout. Discovery runs on the pre-turn hot path (every attach
+ * loop before a turn), and pagination multiplies any slowness by the page count —
+ * so an unbounded request could stall a turn behind a server that never answers.
+ */
+export const MCP_TOOLS_LIST_PAGE_TIMEOUT_MS = 10_000;
+
+/**
  * Parse one `tools/list` response body, keeping the cursor.
  *
  * Handles both a plain JSON-RPC body and the Streamable-HTTP variant, where the
@@ -84,6 +91,8 @@ export type FetchAllMcpToolNamesParams = {
   label: string;
   fetchImpl?: typeof fetch;
   log?: (message: string) => void;
+  /** Per-page timeout; see MCP_TOOLS_LIST_PAGE_TIMEOUT_MS. */
+  timeoutMs?: number;
 };
 
 /**
@@ -114,6 +123,11 @@ export async function fetchAllMcpToolNames(
     try {
       const resp = await doFetch(params.url, {
         method: "POST",
+        // Bound each page independently: a 20-page walk must not become a
+        // 20x-unbounded stall in front of the user's turn.
+        signal: AbortSignal.timeout(
+          params.timeoutMs ?? MCP_TOOLS_LIST_PAGE_TIMEOUT_MS,
+        ),
         headers: {
           ...params.headers,
           ...(params.sessionId ? { "Mcp-Session-Id": params.sessionId } : {}),

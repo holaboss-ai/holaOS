@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   MAX_MCP_TOOLS_LIST_PAGES,
+  MCP_TOOLS_LIST_PAGE_TIMEOUT_MS,
   fetchAllMcpToolNames,
   parseMcpToolsListPage,
   parseMcpToolsListResponse,
@@ -227,4 +228,49 @@ test("fetchAllMcpToolNames stops at the page cap and reports incomplete", async 
 
   assert.equal(result.complete, false);
   assert.equal(result.tools.length, MAX_MCP_TOOLS_LIST_PAGES);
+});
+
+test("each page request carries an abort signal so a hung server can't stall a turn", async () => {
+  const signals: Array<AbortSignal | undefined | null> = [];
+  const impl = (async (_url: string, init?: RequestInit) => {
+    signals.push(init?.signal);
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ result: { tools: [{ name: "t" }] } }),
+    } as Response;
+  }) as unknown as typeof fetch;
+
+  await fetchAllMcpToolNames({ ...BASE, fetchImpl: impl });
+
+  assert.equal(signals.length, 1);
+  assert.ok(
+    signals[0] instanceof AbortSignal,
+    "no timeout signal — discovery runs before every turn and would stall unbounded",
+  );
+});
+
+test("the per-page timeout is overridable and actually aborts", async () => {
+  // A server that never answers must not hold the loop open.
+  const impl = (async (_url: string, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () =>
+        reject(new Error("aborted")),
+      );
+    })) as unknown as typeof fetch;
+
+  const started = Date.now();
+  const result = await fetchAllMcpToolNames({
+    ...BASE,
+    fetchImpl: impl,
+    timeoutMs: 50,
+    log: () => {},
+  });
+
+  assert.equal(result.complete, false);
+  assert.deepEqual(result.tools, []);
+  assert.ok(
+    Date.now() - started < MCP_TOOLS_LIST_PAGE_TIMEOUT_MS,
+    "the request was not bounded by the supplied timeout",
+  );
 });
