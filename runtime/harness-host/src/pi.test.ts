@@ -2665,7 +2665,7 @@ test("buildPiProviderConfig preserves catalog pricing after runtime provider reg
 // @earendil 0.80 handles long/24h prompt-cache retention natively via the
 // PI_CACHE_RETENTION env — resolveCacheRetention() reads it regardless of baseUrl, so
 // patch 2's "gate on api.openai.com" hack is obsolete. Our configurePiPromptCacheRetention
-// sets that env for openai-responses models (which carries into PI's internal
+// sets that env for the APIs whose providers honour it (which carries into PI's internal
 // compaction/summarization requests too) and no-ops otherwise. This verifies our side.
 test("configurePiPromptCacheRetention enables PI_CACHE_RETENTION=long for openai-responses models", () => {
   const previous = process.env.PI_CACHE_RETENTION;
@@ -2676,9 +2676,23 @@ test("configurePiPromptCacheRetention enables PI_CACHE_RETENTION=long for openai
     restore();
     assert.equal(process.env.PI_CACHE_RETENTION, undefined);
 
-    const restoreAnthropic = configurePiPromptCacheRetention({ ...baseRequest(), model_id: "claude-sonnet-4-6" });
-    assert.equal(process.env.PI_CACHE_RETENTION, undefined);
+    // Anthropic honours it too — pi-ai only emits `ttl: "1h"` when retention is
+    // "long", and supportsLongCacheRetention already defaults to true. Leaving
+    // this unset pinned every Anthropic turn to the 5-minute TTL, re-billing the
+    // whole prompt at full price after any longer pause.
+    const restoreAnthropic = configurePiPromptCacheRetention({
+      ...baseRequest(),
+      provider_id: "holaboss_model_proxy",
+      model_id: "claude-sonnet-4-6",
+      model_client: {
+        model_proxy_provider: "anthropic_native",
+        api_key: "hbmk-test",
+        base_url: "http://127.0.0.1:3060/api/v1/model-proxy/anthropic/v1",
+      },
+    });
+    assert.equal(process.env.PI_CACHE_RETENTION, "long");
     restoreAnthropic();
+    assert.equal(process.env.PI_CACHE_RETENTION, undefined);
   } finally {
     if (previous === undefined) {
       delete process.env.PI_CACHE_RETENTION;
@@ -5103,5 +5117,55 @@ test("toolCallTimeoutMs bounds bash by default and leaves other tools unbounded"
     else process.env.HOLABOSS_BASH_TOOL_TIMEOUT_S = prevBash;
     if (prevAll === undefined) delete process.env.HOLABOSS_TOOL_CALL_TIMEOUT_S;
     else process.env.HOLABOSS_TOOL_CALL_TIMEOUT_S = prevAll;
+  }
+});
+
+/**
+ * The retention hint is only correct for providers that actually honour it.
+ * Setting it for the others would be a silent lie in the env that PI's internal
+ * compaction requests also read.
+ */
+test("configurePiPromptCacheRetention no-ops for APIs that do not honour retention", () => {
+  const previous = process.env.PI_CACHE_RETENTION;
+  delete process.env.PI_CACHE_RETENTION;
+  try {
+    for (const request of [
+      // openai-completions: a managed OpenAI-compatible model.
+      {
+        ...baseRequest(),
+        provider_id: "holaboss_model_proxy",
+        model_id: "qwen/qwen3.7-plus",
+        model_client: {
+          model_proxy_provider: "openai_compatible" as const,
+          api_key: "hbmk-test",
+          base_url: "http://127.0.0.1:3060/api/v1/model-proxy/v1",
+        },
+      },
+      // google-generative-ai: the native Gemini path.
+      {
+        ...baseRequest(),
+        provider_id: "gemini_direct",
+        model_id: "gemini-2.5-pro",
+        model_client: {
+          model_proxy_provider: "google_compatible" as const,
+          api_key: "g-test",
+          base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+        },
+      },
+    ]) {
+      const restore = configurePiPromptCacheRetention(request);
+      assert.equal(
+        process.env.PI_CACHE_RETENTION,
+        undefined,
+        `${request.model_id} should not set a retention hint`,
+      );
+      restore();
+    }
+  } finally {
+    if (previous === undefined) {
+      delete process.env.PI_CACHE_RETENTION;
+    } else {
+      process.env.PI_CACHE_RETENTION = previous;
+    }
   }
 });

@@ -2776,8 +2776,30 @@ function resolvePiModelProfile(request: HarnessHostPiRequest) {
   });
 }
 
+/**
+ * APIs whose providers honour a long prompt-cache retention hint.
+ *
+ * `anthropic-messages` was missing here, and the omission was expensive. pi-ai
+ * computes `ttl = retention === "long" && supportsLongCacheRetention ? "1h" :
+ * undefined` (anthropic-messages.js), `resolveCacheRetention` defaults to
+ * "short", and `supportsLongCacheRetention` already defaults to TRUE — so every
+ * Anthropic turn shipped a bare `{type: "ephemeral"}` and fell back to the
+ * 5-minute TTL. Any pause longer than that re-billed the whole prompt at full
+ * price.
+ *
+ * Measured on one production session: two turns with byte-identical input
+ * (425,100 tokens) billed 1,062,749 vs 156,044 — 6.8x — separated only by
+ * whether the gap before them exceeded five minutes. Across 14 days on the same
+ * upstream, the guarded `openai-responses` path ran an 89.3% cache-hit rate
+ * while `anthropic-messages` ran 26.7%.
+ */
+const LONG_CACHE_RETENTION_APIS: ReadonlySet<string> = new Set([
+  "openai-responses",
+  "anthropic-messages",
+]);
+
 export function configurePiPromptCacheRetention(request: HarnessHostPiRequest): () => void {
-  if (resolvePiModelProfile(request).api !== "openai-responses") {
+  if (!LONG_CACHE_RETENTION_APIS.has(resolvePiModelProfile(request).api)) {
     return () => {};
   }
   const previousValue = process.env.PI_CACHE_RETENTION;
