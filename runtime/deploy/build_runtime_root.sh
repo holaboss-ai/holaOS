@@ -28,20 +28,42 @@ stage_node_package() {
     return
   fi
 
-  require_cmd npm
+  require_cmd bun
   mkdir -p "${OUTPUT_ROOT}/${output_name}"
   cp "${package_dir}/package.json" "${OUTPUT_ROOT}/${output_name}/package.json"
-  cp "${package_dir}/package-lock.json" "${OUTPUT_ROOT}/${output_name}/package-lock.json"
   cp "${package_dir}/tsconfig.json" "${OUTPUT_ROOT}/${output_name}/tsconfig.json"
   cp "${package_dir}/tsup.config.ts" "${OUTPUT_ROOT}/${output_name}/tsup.config.ts"
   cp -R "${package_dir}/src" "${OUTPUT_ROOT}/${output_name}/src"
+  if [ -d "${package_dir}/scripts" ]; then
+    cp -R "${package_dir}/scripts" "${OUTPUT_ROOT}/${output_name}/scripts"
+  fi
   (
-    cd "${OUTPUT_ROOT}/${output_name}"
-    npm ci
-    npm run build
-    npm prune --omit=dev
-    rm -rf src
-    rm -f tsconfig.json tsup.config.ts
+    cd "${REPO_ROOT}"
+    bun install --frozen-lockfile --linker=isolated
+    cd "${package_dir}"
+    bun run build
+    cd "${REPO_ROOT}"
+    bun install --production --frozen-lockfile --linker=isolated --ignore-scripts
+    cp -R "${package_dir}/dist" "${OUTPUT_ROOT}/${output_name}/dist"
+    if [ -d "${package_dir}/node_modules" ]; then
+      cp -RL "${package_dir}/node_modules" "${OUTPUT_ROOT}/${output_name}/node_modules"
+    fi
+    rm -rf "${OUTPUT_ROOT}/${output_name}/src"
+    rm -f "${OUTPUT_ROOT}/${output_name}/tsconfig.json" "${OUTPUT_ROOT}/${output_name}/tsup.config.ts"
+  )
+}
+
+build_node_packages() {
+  require_cmd bun
+  (
+    cd "${REPO_ROOT}"
+    bun install --frozen-lockfile --linker=isolated
+    for package_dir in "$@"; do
+      (
+        cd "${package_dir}"
+        bun run build
+      )
+    done
   )
 }
 
@@ -76,6 +98,7 @@ rm -rf "${OUTPUT_ROOT}"
 stage_source_package "${RUNTIME_ROOT}/harnesses" "harnesses"
 stage_node_package "${RUNTIME_ROOT}/harness-host" "harness-host"
 stage_node_package "${RUNTIME_ROOT}/state-store" "state-store"
+build_node_packages "${REPO_ROOT}/packages/remote-api" "${RUNTIME_ROOT}/channel-gateway"
 stage_node_package "${RUNTIME_ROOT}/api-server" "api-server"
 cp -R "${SCRIPT_DIR}/bootstrap" "${OUTPUT_ROOT}/bootstrap"
 chmod +x "${OUTPUT_ROOT}/bootstrap/"*.sh
