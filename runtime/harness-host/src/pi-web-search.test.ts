@@ -85,6 +85,25 @@ test("Pi web search tool proxies Exa hosted MCP and returns the raw text block",
   });
 });
 
+test("Pi exposes Parallel through the normal search tool with supported inputs", async () => {
+  const tools = await resolvePiWebSearchToolDefinitions({
+    providerKind: "parallel_search_mcp",
+    fetchImpl: async () => new Response(JSON.stringify({ result: { content: [{
+      type: "text",
+      text: JSON.stringify({ results: [{ title: "Alpha", url: "https://example.com", excerpts: ["Relevant"] }] }),
+    }] } }), { headers: { "content-type": "application/json" } }),
+  });
+  const tool = tools[0]!;
+  const properties = (tool.parameters as { properties: Record<string, unknown> }).properties;
+  assert.equal(tool.name, "search_web");
+  assert.match(tool.description, /Parallel Search MCP/);
+  assert.equal(properties.type, undefined);
+  assert.equal(properties.livecrawl, undefined);
+  const result = await tool.execute("call-1", { query: "latest alpha 2026" }, undefined, undefined, {} as never);
+  assert.equal(result.content[0]?.type === "text" ? result.content[0].text : "", "Title: Alpha\nURL: https://example.com\nHighlights:\nRelevant");
+  assert.deepEqual(result.details, { tool_id: "web_search", provider: "parallel_search_mcp" });
+});
+
 test("Pi web search tool supports max_results as a compatibility alias for num_results", async () => {
   let requestBody = "";
   const tools = await resolvePiWebSearchToolDefinitions({
