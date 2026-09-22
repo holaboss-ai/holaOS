@@ -9,7 +9,7 @@ import {
 
 export type ExaWebSearchLivecrawlMode = "fallback" | "preferred";
 export type ExaWebSearchType = "auto" | "fast" | "deep";
-export type NativeWebSearchProviderKind = "exa_hosted_mcp" | "holaboss_search";
+export type NativeWebSearchProviderKind = "exa_hosted_mcp" | "holaboss_search" | "parallel_search_mcp";
 
 export interface NativeWebSearchProviderOptions {
   providerId?: string | null;
@@ -62,8 +62,9 @@ interface ExaMcpSearchRequest {
   };
 }
 
-interface ExaMcpSseResponse {
+interface McpToolResponse {
   result?: {
+    isError?: boolean;
     content?: Array<{
       type?: string;
       text?: string;
@@ -89,11 +90,13 @@ export const EXA_WEB_SEARCH_ENDPOINT = "/mcp";
 export const EXA_WEB_SEARCH_ENDPOINT_URL = `${EXA_WEB_SEARCH_BASE_URL}${EXA_WEB_SEARCH_ENDPOINT}`;
 export const HOLABOSS_WEB_SEARCH_ENDPOINT_URL =
   "https://api.holaboss.ai/api/v1/search/web";
+export const PARALLEL_WEB_SEARCH_ENDPOINT_URL = "https://search.parallel.ai/mcp";
 export const DEFAULT_WEB_SEARCH_NUM_RESULTS = 8;
 export const MAX_WEB_SEARCH_NUM_RESULTS = 10;
 export const DEFAULT_WEB_SEARCH_TIMEOUT_MS = 25_000;
 export const EXA_WEB_SEARCH_PROVIDER_ID = "exa_hosted_mcp";
 export const HOLABOSS_WEB_SEARCH_PROVIDER_ID = "holaboss_search";
+export const PARALLEL_WEB_SEARCH_PROVIDER_ID = "parallel_search_mcp";
 
 const WEB_SEARCH_CONFIG_KEYS = ["web_search", "webSearch", "search"];
 const RUNTIME_CONFIG_PATH_ENV = "HOLABOSS_RUNTIME_CONFIG_PATH";
@@ -175,6 +178,12 @@ function providerAliases(providerId: string): string[] {
   if (normalized === HOLABOSS_WEB_SEARCH_PROVIDER_ID) {
     aliases.push("holaboss");
   }
+  if (normalized === "parallel") {
+    aliases.push(PARALLEL_WEB_SEARCH_PROVIDER_ID);
+  }
+  if (normalized === PARALLEL_WEB_SEARCH_PROVIDER_ID) {
+    aliases.push("parallel");
+  }
   return aliases;
 }
 
@@ -188,13 +197,16 @@ function normalizeProviderKind(
   if (normalized.includes("holaboss")) {
     return "holaboss_search";
   }
+  if (normalized === "parallel" || normalized === PARALLEL_WEB_SEARCH_PROVIDER_ID) {
+    return "parallel_search_mcp";
+  }
   return "exa_hosted_mcp";
 }
 
 function providerIdForKind(kind: NativeWebSearchProviderKind): string {
-  return kind === "holaboss_search"
-    ? HOLABOSS_WEB_SEARCH_PROVIDER_ID
-    : EXA_WEB_SEARCH_PROVIDER_ID;
+  if (kind === "holaboss_search") return HOLABOSS_WEB_SEARCH_PROVIDER_ID;
+  if (kind === "parallel_search_mcp") return PARALLEL_WEB_SEARCH_PROVIDER_ID;
+  return EXA_WEB_SEARCH_PROVIDER_ID;
 }
 
 function hasManagedHolabossSearchBinding(document: Record<string, unknown>): boolean {
@@ -402,8 +414,8 @@ function resolveProviderFromRuntimeConfig(): Partial<ResolvedWebSearchProvider> 
       providerPayload.apiKey as string | undefined,
       providerPayload.auth_token as string | undefined,
       providerPayload.authToken as string | undefined,
-      config.api_key as string | undefined,
-      config.apiKey as string | undefined,
+      providerKind === "parallel_search_mcp" ? "" : config.api_key as string | undefined,
+      providerKind === "parallel_search_mcp" ? "" : config.apiKey as string | undefined,
       providerKind === "holaboss_search"
         ? (holabossIntegration.auth_token as string | undefined)
         : "",
@@ -429,7 +441,7 @@ function resolveWebSearchProvider(
     firstNonEmptyString(runtimeProvider.providerId) ||
     EXA_WEB_SEARCH_PROVIDER_ID;
   const kind = normalizeProviderKind(
-    explicitKind || runtimeProvider.kind,
+    explicitKind || (explicitProviderId ? "" : runtimeProvider.kind),
     providerId,
   );
   const shouldUseRuntimeProvider =
@@ -444,7 +456,9 @@ function resolveWebSearchProvider(
       ) ||
       (kind === "holaboss_search"
         ? HOLABOSS_WEB_SEARCH_ENDPOINT_URL
-        : EXA_WEB_SEARCH_ENDPOINT_URL),
+        : kind === "parallel_search_mcp"
+          ? PARALLEL_WEB_SEARCH_ENDPOINT_URL
+          : EXA_WEB_SEARCH_ENDPOINT_URL),
     apiKey: firstNonEmptyString(
       options.apiKey,
       shouldUseRuntimeProvider ? runtimeProvider.apiKey : "",
@@ -519,6 +533,10 @@ export function webSearchDescription(
   const providerLabel =
     provider.kind === "holaboss_search"
       ? "configured Holaboss Search"
+      : provider.kind === "parallel_search_mcp"
+        ? provider.apiKey
+          ? "configured Parallel Search MCP"
+          : "free Parallel Search MCP without authentication"
       : provider.apiKey
         ? "configured Exa web search"
         : "hosted Exa web search without authentication";
@@ -588,7 +606,7 @@ function parseSseText(responseText: string): string {
     if (!payloadText) {
       continue;
     }
-    const payload = JSON.parse(payloadText) as ExaMcpSseResponse;
+    const payload = JSON.parse(payloadText) as McpToolResponse;
     const errorMessage = payload.error?.message?.trim();
     if (errorMessage) {
       throw new Error(errorMessage);
@@ -611,6 +629,7 @@ function resultTextFromRecord(value: Record<string, unknown>): string {
     value.summary as string | undefined,
     value.snippet as string | undefined,
     value.highlights as string | undefined,
+    value.excerpts as string[] | undefined,
     value.content as string | undefined,
     value.description as string | undefined,
   );
@@ -722,6 +741,67 @@ async function searchExaHostedMcp(params: {
   };
 }
 
+async function searchParallelMcp(params: {
+  provider: ResolvedWebSearchProvider;
+  query: string;
+  numResults: number;
+  fetchImpl: typeof fetch;
+  signal?: AbortSignal;
+  requestTimeoutMs: number;
+}): Promise<{ text: string; providerId: string }> {
+  // Identify holaOS in aggregate Parallel MCP usage without sending a user or device ID.
+  const headers: Record<string, string> = {
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+    "user-agent": "holaOS",
+  };
+  if (params.provider.apiKey) {
+    headers.authorization = `Bearer ${params.provider.apiKey}`;
+  }
+  const response = await params.fetchImpl(params.provider.baseUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "web_search",
+        arguments: {
+          objective: params.query,
+          search_queries: [params.query],
+        },
+      },
+    }),
+    signal: requestSignal(params.signal, params.requestTimeoutMs),
+  });
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new Error(
+      `web_search failed with status ${response.status}${errorText ? `: ${errorText}` : ""}`,
+    );
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const payload = contentType.includes("text/event-stream")
+    ? JSON.parse((await response.text()).split(/\r?\n/).find((line) => line.startsWith("data: "))?.slice(6) ?? "{}") as McpToolResponse
+    : await response.json() as McpToolResponse;
+  if (payload.error?.message) throw new Error(payload.error.message);
+  const content = payload.result?.content?.find((entry) => entry.type === "text")?.text;
+  if (payload.result?.isError) throw new Error(content || "Parallel Search MCP failed");
+  if (!content) return { providerId: PARALLEL_WEB_SEARCH_PROVIDER_ID, text: "No search results found. Please try a different query." };
+  const result = JSON.parse(content) as { results?: unknown[] };
+  const text = (result.results ?? [])
+    .slice(0, params.numResults)
+    .map(formatSearchResult)
+    .filter(Boolean)
+    .join("\n\n");
+  return {
+    providerId: PARALLEL_WEB_SEARCH_PROVIDER_ID,
+    text: text || "No search results found. Please try a different query.",
+  };
+}
+
 async function searchHolaboss(params: {
   provider: ResolvedWebSearchProvider;
   query: string;
@@ -827,6 +907,9 @@ export async function searchPublicWeb(
   if (provider.kind === "holaboss_search") {
     return searchHolaboss(commonParams);
   }
+  if (provider.kind === "parallel_search_mcp") {
+    return searchParallelMcp(commonParams);
+  }
   return searchExaHostedMcp(commonParams);
 }
 
@@ -859,7 +942,8 @@ export function nativeWebSearchPayload(payload: unknown): {
   };
 }
 
-function webSearchParameters(): Record<string, unknown> {
+function webSearchParameters(options: NativeWebSearchProviderOptions): Record<string, unknown> {
+  const parallel = resolveWebSearchProvider(options).kind === "parallel_search_mcp";
   return {
     type: "object",
     properties: {
@@ -883,21 +967,23 @@ function webSearchParameters(): Record<string, unknown> {
         minimum: 1,
         maximum: MAX_WEB_SEARCH_NUM_RESULTS,
       },
-      livecrawl: {
-        type: "string",
-        enum: ["fallback", "preferred"],
-        description: "Whether to prefer live crawling or only use it as fallback.",
-      },
-      type: {
-        type: "string",
-        enum: ["auto", "fast", "deep"],
-        description: "Search depth mode.",
-      },
-      context_max_characters: {
-        type: "integer",
-        description: "Maximum number of context characters to request from the search backend.",
-        minimum: 1,
-      },
+      ...(parallel ? {} : {
+        livecrawl: {
+          type: "string",
+          enum: ["fallback", "preferred"],
+          description: "Whether to prefer live crawling or only use it as fallback.",
+        },
+        type: {
+          type: "string",
+          enum: ["auto", "fast", "deep"],
+          description: "Search depth mode.",
+        },
+        context_max_characters: {
+          type: "integer",
+          description: "Maximum number of context characters to request from the search backend.",
+          minimum: 1,
+        },
+      }),
     },
     required: ["query"],
     additionalProperties: false,
@@ -922,7 +1008,7 @@ export function createHarnessNativeWebSearchToolDefinition(
     label: "Web Search",
     description,
     promptSnippet: `${NATIVE_WEB_SEARCH_EXPOSED_TOOL_NAME}: ${description}`,
-    parameters: webSearchParameters(),
+    parameters: webSearchParameters(options),
     execute: async (toolCallId, toolParams, signal) => {
       const payload = nativeWebSearchPayload(toolParams);
       const { text, providerId } = await searchPublicWeb({

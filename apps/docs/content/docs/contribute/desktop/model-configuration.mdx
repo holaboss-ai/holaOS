@@ -38,7 +38,6 @@ holaOS already provides model configuration in the desktop app:
 - use the `Recall embeddings` panel to leave vector-assisted recall on `Automatic` or choose an explicit embedding-capable provider and model
 - use the `Image generation` panel to choose an image-capable provider and model for runtime image generation
 - use the `Defaults` panel to leave `Subagent model` on `Follow composer` or choose a fixed override for hidden delegated and scheduled subagent runs
-- use the `Web search` panel to choose Holaboss Search or Exa and provide a search API key when needed
 - saved changes update `runtime-config.json`, and the chat model picker uses the configured provider models
 
 holaOS-managed sessions can inject managed background, embedding, and image defaults through the runtime binding. The desktop UI now assumes holaOS Proxy is the only provider surface and derives its model suggestions from the managed catalog plus the shipped Holaboss fallback metadata.
@@ -180,7 +179,7 @@ There are no additional desktop-configurable provider surfaces for image generat
 
 The native `web_search` tool reads a top-level `web_search` block from `runtime-config.json`. If that block is absent, the runtime keeps the legacy behavior and uses hosted Exa MCP without authentication.
 
-The desktop currently exposes:
+The runtime supports these web search providers through `runtime-config.json`:
 
 - `holaboss_search`
   - default endpoint: the runtime binding's control-plane base URL plus `/api/v1/search/web`
@@ -189,8 +188,23 @@ The desktop currently exposes:
 - `exa`
   - default endpoint: `https://mcp.exa.ai/mcp`
   - API key is optional for the hosted MCP path, but can be provided for your own Exa quota
+- `parallel_search_mcp`
+  - default endpoint: `https://search.parallel.ai/mcp`
+  - free without an API key; an optional Parallel API key raises rate limits
 
-The runtime also accepts legacy config keys `webSearch` and `search`, but the desktop writes the canonical `web_search` key.
+To select Parallel for the native `web_search` tool, add this block to `runtime-config.json`:
+
+```json
+{
+  "web_search": {
+    "provider": "parallel_search_mcp"
+  }
+}
+```
+
+Without this selection, signed-in managed sessions keep Holaboss Search and other sessions keep the keyless Exa route. Once Parallel is selected, an agent may call the native search tool during a task. Its queries go to Parallel's Search MCP and the result excerpts appear in the normal `web_search` response. Free access has rate limits. The runtime sends `User-Agent: holaOS` so Parallel can measure aggregate usage by calling project; it does not add a user or device identifier. For higher rate limits, put your Parallel key in `web_search.providers.parallel_search_mcp.api_key` in your local runtime configuration and do not commit it. A key left in the old `web_search.api_key` field is not sent to Parallel.
+
+The runtime also accepts legacy config keys `webSearch` and `search`; use the canonical `web_search` key for new configuration.
 
 ## Model string format
 
