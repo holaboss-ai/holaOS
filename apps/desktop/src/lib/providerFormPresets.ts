@@ -26,6 +26,14 @@ export const PROVIDER_FORM_PRESETS = [
     apiHost: "https://api.atlascloud.ai/v1",
     keyPlaceholder: "sk-…",
   },
+  {
+    id: "cheaperinference",
+    label: "Cheaper Inference",
+    displayName: "Cheaper Inference",
+    providerType: "openai_compatible",
+    apiHost: "https://api.cheaperinference.com/v1",
+    keyPlaceholder: "ci_live_…",
+  },
 ] as const satisfies readonly ProviderFormPreset[];
 
 export function providerFormPreset(presetId: string): ProviderFormPreset {
