@@ -17,6 +17,17 @@ test("Atlas Cloud preset uses the OpenAI-compatible endpoint", () => {
   });
 });
 
+test("Cheaper Inference preset uses the OpenAI-compatible endpoint", () => {
+  assert.deepEqual(providerFormPreset("cheaperinference"), {
+    id: "cheaperinference",
+    label: "Cheaper Inference",
+    displayName: "Cheaper Inference",
+    providerType: "openai_compatible",
+    apiHost: "https://api.cheaperinference.com/v1",
+    keyPlaceholder: "ci_live_…",
+  });
+});
+
 test("unknown provider presets fall back to an empty custom form", () => {
   const preset = providerFormPreset("unknown");
 
