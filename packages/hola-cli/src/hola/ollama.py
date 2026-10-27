@@ -229,8 +229,16 @@ def kill_tree(pid, sig=signal.SIGTERM):
         pass
 
 
+def short_reason(reason):
+    """Ollama quotes whole presigned download URLs in its errors; the host is all a person needs."""
+    return re.sub(r'(?:(?:Get|Head) )?"?https?://([^/"\s]+)[^"\s]*"?', r"\1", reason)
+
+
 def pull_failure(model, reason):
-    message = f"Pulling {model} failed: {reason}."
+    reason = short_reason(reason)
+    fake_ip = re.search(r"(\S+) resolves to non-public (\S+?)\.?$", reason)
+    message = (f"Pulling {model} failed: the download host {fake_ip.group(1)} resolved to {fake_ip.group(2)}, a private address."
+               if fake_ip else f"Pulling {model} failed: {reason}.")
     if "resolves to non-public" in reason:
         hint = "Your proxy resolves the download host to a private address (fake-ip mode). " + FAKE_IP_NEXT_STEP
     elif "proxyconnect" in reason:

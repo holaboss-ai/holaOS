@@ -54,6 +54,17 @@ class OllamaHelpersTest(unittest.TestCase):
         self.assertEqual(ollama.user_base_url({"OLLAMA_HOST": "0.0.0.0:9000"}), "http://127.0.0.1:9000")
         self.assertEqual(ollama.user_base_url({"OLLAMA_HOST": "http://box.lan:11434/"}), "http://box.lan:11434")
 
+    def test_a_fake_ip_failure_names_the_host_not_the_signed_url(self):
+        # Ollama 0.40.10 in a container behind Clash fake-ip DNS, signature shortened.
+        reason = ('max retries exceeded: Get "https://dd20bb89.r2.cloudflarestorage.com/ollama/docker/registry/v2/blobs/'
+                  'sha256/5d/5ddf/data?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=b966": redirect target not '
+                  'allowed: dd20bb89.r2.cloudflarestorage.com resolves to non-public 198.18.0.106')
+        err = ollama.pull_failure("qwen3.5:2b-q4_K_M", reason)
+        self.assertEqual(err.message, "Pulling qwen3.5:2b-q4_K_M failed: the download host "
+                                      "dd20bb89.r2.cloudflarestorage.com resolved to 198.18.0.106, a private address.")
+        self.assertIn("export HTTPS_PROXY=", err.next_step)
+        self.assertNotIn("X-Amz", err.message)
+
     def test_pull_failures_name_the_next_step(self):
         cases = {
             "pull model manifest: dial tcp: lookup registry.ollama.ai: no such host": "internet connection",
@@ -63,8 +74,11 @@ class OllamaHelpersTest(unittest.TestCase):
         }
         for reason, hint in cases.items():
             err = ollama.pull_failure("m:q4", reason)
-            self.assertEqual((err.code, err.message), ("pull_failed", f"Pulling m:q4 failed: {reason}."))
+            self.assertEqual(err.code, "pull_failed")
             self.assertIn(hint, err.next_step)
+        manifest = 'pull model manifest: Get "https://registry.ollama.ai/v2/library/q/manifests/2b": proxyconnect tcp: refused'
+        self.assertEqual(ollama.pull_failure("q:2b", manifest).message,
+                         "Pulling q:2b failed: pull model manifest: registry.ollama.ai: proxyconnect tcp: refused.")
 
 
 @unittest.skipIf(os.name == "nt", "the fake ollama is a shell script")
