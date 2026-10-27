@@ -7,6 +7,9 @@ const POLL_MS = 200;
 const STREAM_CHARS = 1600;
 const TPS_WINDOW_MS = 1000;
 const RATE_HISTORY = 120;
+const ACTIVITY_LINES = 8;
+
+export const CODING_SUITE = "suite-coding@1.0";
 
 export type BenchStepKind = "warmup" | "speed" | "task";
 
@@ -20,6 +23,8 @@ export interface BenchStep {
   samples?: number;
   decodeTps?: number;
   ttftMs?: number;
+  /** Coding tries finished so far, while the task runs. */
+  tried?: number;
 }
 
 export const SUITE_PLAN: Record<string, Array<Pick<BenchStep, "id" | "kind" | "label">>> = {
@@ -30,6 +35,14 @@ export const SUITE_PLAN: Record<string, Array<Pick<BenchStep, "id" | "kind" | "l
     { id: "code-intervals", kind: "task", label: "Code · unit tests" },
     { id: "tool-flight", kind: "task", label: "Tool calling" },
     { id: "needle-8k", kind: "task", label: "Long context · 8K needle" },
+  ],
+  [CODING_SUITE]: [
+    { id: "warmup", kind: "warmup", label: "Warm up" },
+    { id: "fix-pagination", kind: "task", label: "1 · Fix a failing test" },
+    { id: "parse-duration", kind: "task", label: "2 · Implement from a spec" },
+    { id: "csv-export", kind: "task", label: "3 · Add a CLI option" },
+    { id: "checkout-bug", kind: "task", label: "4 · Fix a reported bug" },
+    { id: "calc-power", kind: "task", label: "5 · Change a parser" },
   ],
 };
 
@@ -51,6 +64,9 @@ export interface BenchProgress {
   engineVersion: string | null;
   /** Live decode rate samples for the current speed step, oldest first. */
   rateHistory: number[];
+  /** The coding try in progress and the agent's recent tool calls, newest last. */
+  attempt: { sample: number; turn: number } | null;
+  activity: string[];
 }
 
 export function initialProgress(suite: string): BenchProgress {
@@ -65,7 +81,13 @@ export function initialProgress(suite: string): BenchProgress {
     machine: null,
     engineVersion: null,
     rateHistory: [],
+    attempt: null,
+    activity: [],
   };
+}
+
+function pushActivity(activity: string[], line: string): string[] {
+  return [...activity, line].slice(-ACTIVITY_LINES);
 }
 
 function updateStep(steps: BenchStep[], id: string, patch: Partial<BenchStep>): BenchStep[] {
@@ -133,6 +155,33 @@ export function applyBenchEvents(
             stream: (next.stream + String(event.delta ?? "")).slice(-STREAM_CHARS),
             liveTps,
             rateHistory: liveTps === null ? next.rateHistory : [...next.rateHistory, liveTps].slice(-RATE_HISTORY),
+          };
+        }
+        break;
+      case "attempt_start":
+        next = { ...next, attempt: { sample: Number(event.sample ?? 0), turn: 0 }, activity: [], stream: "" };
+        break;
+      case "tool_call":
+        next = {
+          ...next,
+          attempt: { sample: Number(event.sample ?? 0), turn: Number(event.turn ?? 0) },
+          activity: pushActivity(next.activity, `${String(event.name ?? "")} ${String(event.arg ?? "")}`.trim()),
+        };
+        break;
+      case "tool_result":
+        if (event.name === "run_tests" || event.error === true) {
+          next = { ...next, activity: pushActivity(next.activity, `  → ${String(event.summary ?? "")}`) };
+        }
+        break;
+      case "sample_done":
+        if (task && typeof event.finish === "string") {
+          const step = next.steps.find((entry) => entry.id === task);
+          next = {
+            ...next,
+            steps: updateStep(next.steps, task, {
+              tried: (step?.tried ?? 0) + 1,
+              passed: (step?.passed ?? 0) + (event.passed === true ? 1 : 0),
+            }),
           };
         }
         break;

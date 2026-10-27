@@ -170,3 +170,26 @@ test("recording prefers H.264 MP4 and falls back to WebM", () => {
   assert.equal(preferredRecordingMime((mime) => mime.startsWith("video/webm")), "video/webm;codecs=vp9");
   assert.equal(preferredRecordingMime(() => false), null);
 });
+
+test("a coding run shows the try, the agent's tool calls and test results, and the score so far", () => {
+  const events: BenchEvent[] = [
+    { seq: 1, at: 1000, type: "task_start", task: "fix-pagination", kind: "task", category: "coding", samples: 3 },
+    { seq: 2, at: 1100, type: "attempt_start", task: "fix-pagination", sample: 0 },
+    { seq: 3, at: 1200, type: "tool_call", task: "fix-pagination", sample: 0, turn: 1, name: "read", arg: "pager.py" },
+    { seq: 4, at: 1300, type: "tool_result", task: "fix-pagination", sample: 0, turn: 1, name: "read", error: false, summary: "file text" },
+    { seq: 5, at: 1400, type: "tool_call", task: "fix-pagination", sample: 0, turn: 2, name: "run_tests", arg: "" },
+    { seq: 6, at: 1500, type: "tool_result", task: "fix-pagination", sample: 0, turn: 2, name: "run_tests", error: true, summary: "FAILED: 2 failed" },
+    { seq: 7, at: 1600, type: "sample_done", task: "fix-pagination", sample: 0, passed: true, reason: null, finish: "answered" },
+    { seq: 8, at: 1700, type: "attempt_start", task: "fix-pagination", sample: 1 },
+  ];
+  const progress = applyBenchEvents(initialProgress("suite-coding@1.0"), events, []);
+  assert.deepEqual(progress.attempt, { sample: 1, turn: 0 });
+  assert.deepEqual(progress.activity, []);
+  const step = progress.steps.find((entry) => entry.id === "fix-pagination");
+  assert.equal(step?.label, "1 · Fix a failing test");
+  assert.equal(step?.tried, 1);
+  assert.equal(step?.passed, 1);
+  const midTry = applyBenchEvents(initialProgress("suite-coding@1.0"), events.slice(0, 6), []);
+  assert.deepEqual(midTry.activity, ["read pager.py", "run_tests", "  → FAILED: 2 failed"]);
+  assert.deepEqual(midTry.attempt, { sample: 0, turn: 2 });
+});

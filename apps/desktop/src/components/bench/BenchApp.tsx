@@ -32,10 +32,11 @@ import {
   readingComparison,
   resultUrl,
   speedResult,
+  taskResults,
   wasBusy,
 } from "./record";
 import { type BenchRecording, startBenchRecording } from "./recording";
-import { type BenchProgress, type BenchStep, stepsFromRecord, useBenchRun } from "./useBenchRun";
+import { type BenchProgress, type BenchStep, CODING_SUITE, stepsFromRecord, useBenchRun } from "./useBenchRun";
 
 const BENCH_THEME = "holaos-light";
 const FINAL_FRAME_MS = 1500;
@@ -112,6 +113,10 @@ function StepRow({ step, current }: { step: BenchStep; current: boolean }) {
       <span className="flex items-center gap-2 tabular-nums">
         <Dots passed={step.passed ?? 0} samples={step.samples} />
         {step.passed ?? 0}/{step.samples}
+      </span>
+    ) : step.kind === "task" && step.tried ? (
+      <span className="text-muted-foreground text-xs tabular-nums">
+        {step.passed ?? 0} of {step.tried} passed
       </span>
     ) : null;
   return (
@@ -204,6 +209,9 @@ function CenterLive({ run, progress }: { run: BenchRun; progress: BenchProgress 
       </div>
     );
   }
+  if (run.suite === CODING_SUITE && step.kind === "task") {
+    return <CodingLive progress={progress} step={step} />;
+  }
   const isTask = step.kind === "task";
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-4">
@@ -236,6 +244,98 @@ function CenterLive({ run, progress }: { run: BenchRun; progress: BenchProgress 
         </pre>
         <div className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-card to-transparent" />
       </div>
+    </div>
+  );
+}
+
+const CODING_TASK_INFO: Record<string, { title: string; what: string }> = {
+  "fix-pagination": { title: "Fix a failing test", what: "Runs the tests, finds an off-by-one bug and fixes it" },
+  "parse-duration": { title: "Implement from a spec", what: "Writes a parser from its docstring, error cases included" },
+  "csv-export": { title: "Add a CLI option", what: "Adds CSV output across files and keeps the default table unchanged" },
+  "checkout-bug": { title: "Fix a reported bug", what: "Traces a support ticket to two causes in two different files" },
+  "calc-power": { title: "Change a parser", what: "Adds ** to an expression parser with Python's precedence rules" },
+};
+
+const IS_MAC = /Mac/.test(navigator.userAgent);
+
+function CodingLive({ step, progress }: { step: BenchStep; progress: BenchProgress }) {
+  const info = CODING_TASK_INFO[step.id];
+  return (
+    <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-4">
+      <div className="flex flex-col items-center gap-2">
+        <Label>{info?.title ?? step.label}</Label>
+        <span className="max-w-[300px] text-center text-muted-foreground text-sm">{info?.what}</span>
+        <span className="mt-1 flex items-center gap-2 text-muted-foreground text-sm tabular-nums">
+          <Loader2 className="size-3.5 animate-spin text-primary" />
+          {progress.attempt ? `Try ${progress.attempt.sample + 1} of 3 · turn ${Math.max(progress.attempt.turn, 1)}` : "Starting"}
+        </span>
+      </div>
+      <ul className="flex w-full flex-col gap-0.5 rounded-xl bg-card p-3 font-mono text-[11px] leading-4 ring-1 ring-border">
+        {progress.activity.length > 0 ? (
+          progress.activity.map((line, index) => (
+            <li className={cn("truncate", line.startsWith("  →") ? "text-foreground" : "text-muted-foreground")} key={`${index}-${line}`}>
+              {line}
+            </li>
+          ))
+        ) : (
+          <li className="text-muted-foreground">Reading the task</li>
+        )}
+      </ul>
+      <div className="relative min-h-0 w-full flex-1 overflow-hidden rounded-xl bg-card ring-1 ring-border">
+        <pre className="absolute inset-x-0 bottom-0 whitespace-pre-wrap break-words p-3 font-mono text-[11px] text-muted-foreground leading-4">
+          {progress.stream}
+        </pre>
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-card to-transparent" />
+      </div>
+    </div>
+  );
+}
+
+function CodingSummary({ record }: { record: RunRecordView }) {
+  const tasks = taskResults(record);
+  if (tasks.every((task) => task.status === "unsupported")) {
+    return <p className="max-w-[300px] text-center text-muted-foreground text-sm">Ollama reports no tool calling for this model, so the coding scenario could not run. That is not a fail.</p>;
+  }
+  return (
+    <ul className="flex w-full max-w-[320px] flex-col gap-1">
+      {tasks.map((task) => (
+        <li className="flex items-center justify-between gap-3 rounded-lg px-3 py-1.5 text-sm" key={task.task}>
+          <span className="truncate">{CODING_TASK_INFO[task.task]?.title ?? task.task}</span>
+          <span className="flex items-center gap-2 font-medium tabular-nums">
+            <Dots passed={task.passed} samples={task.samples} />
+            {task.passed}/{task.samples}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SuitePicker({ suite, onChange }: { suite: string; onChange: (suite: string) => void }) {
+  const options = [
+    { id: "suite-standard@1.0", label: "Speed and capability", enabled: true },
+    { id: CODING_SUITE, label: "Coding scenario", enabled: IS_MAC },
+  ];
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="flex rounded-lg bg-card p-0.5 ring-1 ring-border">
+        {options.map((option) => (
+          <button
+            aria-pressed={suite === option.id}
+            className={cn(
+              "rounded-md px-3 py-1 text-xs transition-colors disabled:opacity-50",
+              suite === option.id ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent",
+            )}
+            disabled={!option.enabled}
+            key={option.id}
+            onClick={() => onChange(option.id)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {IS_MAC ? null : <span className="text-muted-foreground text-xs">Coding scenario: coming to Windows in November.</span>}
     </div>
   );
 }
@@ -280,6 +380,7 @@ const PUBLISH_REFUSED: Record<Extract<BenchPublishResult, { ok: false }>["reason
 };
 
 function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun; runDir: string; onRunAgain: () => void }) {
+  const coding = finished.record.suite.id === "suite-coding";
   const [busy, setBusy] = useState<"kit" | "share" | "publish" | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
@@ -384,14 +485,18 @@ function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun
             Publish to HolaHub
           </Button>
         )}
-        <Button disabled={busy !== null} onClick={() => void exportKit()} size="sm" type="button" variant="outline">
-          {busy === "kit" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-          Export creator kit
-        </Button>
-        <Button disabled={busy !== null} onClick={() => void share()} size="sm" type="button" variant="outline">
-          {busy === "share" ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-          Share on X
-        </Button>
+        {coding ? null : (
+          <>
+            <Button disabled={busy !== null} onClick={() => void exportKit()} size="sm" type="button" variant="outline">
+              {busy === "kit" ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+              Export creator kit
+            </Button>
+            <Button disabled={busy !== null} onClick={() => void share()} size="sm" type="button" variant="outline">
+              {busy === "share" ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+              Share on X
+            </Button>
+          </>
+        )}
         <Button onClick={() => void window.electronAPI.bench.showInFolder(runDir)} size="sm" type="button" variant="ghost">
           <FolderOpen className="size-3.5" />
           Show in Finder
@@ -405,7 +510,9 @@ function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun
 export function BenchApp() {
   const [context, setContext] = useState<BenchWindowContext | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const suite = context?.suite ?? "suite-standard@1.0";
+  const [suiteChoice, setSuiteChoice] = useState<string | null>(null);
+  const suite = suiteChoice ?? context?.suite ?? "suite-standard@1.0";
+  const isCoding = suite === CODING_SUITE;
   const { run, progress, startError, start, cancel } = useBenchRun(suite);
   const recording = useRef<BenchRecording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -464,9 +571,13 @@ export function BenchApp() {
           const { bytes, extension } = await active.stop();
           recordingFile = (await window.electronAPI.bench.saveRecording(done.run_dir, bytes, extension)).file;
         }
-        setFinishing("Making the cards");
         const { record } = await remoteApi.bench.record({ run_id: done.run_id });
-        const cards = await renderCards(record as unknown as RunRecordView, done.run_dir, url);
+        const view = record as unknown as RunRecordView;
+        const coding = view.suite.id === "suite-coding";
+        if (!coding) {
+          setFinishing("Making the cards");
+        }
+        const cards = coding ? [] : await renderCards(view, done.run_dir, url);
         const offset = active && progress.runStartedAt ? Math.max(0, (active.startedAt - progress.runStartedAt) / 1000) : 0;
         const { record: final } = await remoteApi.bench.setArtifacts({
           run_id: done.run_id,
@@ -492,7 +603,7 @@ export function BenchApp() {
         const view = record as unknown as RunRecordView;
         const url = resultUrl(context?.result_base_url ?? "", summary.run_id);
         // Cards are derived from the record, so an older run shows in the current design.
-        const cards = await renderCards(view, summary.run_dir, url);
+        const cards = view.suite.id === "suite-coding" ? [] : await renderCards(view, summary.run_dir, url);
         const recording = view.artifacts.recording;
         setFinished({
           record: view,
@@ -522,7 +633,9 @@ export function BenchApp() {
     void remoteApi.bench
       .list({ subject_id: subjectId })
       .then(({ runs }) => {
-        const target = showRunId ? runs.find((entry) => entry.run_id === showRunId) : runs[0];
+        const target = showRunId
+          ? runs.find((entry) => entry.run_id === showRunId)
+          : runs.find((entry) => entry.suite === suite);
         if (!cancelled && target && target.run_id !== shownRun) {
           void showPastRun(target);
         }
@@ -531,7 +644,7 @@ export function BenchApp() {
     return () => {
       cancelled = true;
     };
-  }, [loaded, subjectId, showRunId, shownRun, showPastRun]);
+  }, [loaded, subjectId, showRunId, shownRun, showPastRun, suite]);
 
   useEffect(() => {
     if (run && run.status !== "running" && finalizedRun.current !== run.run_id) {
@@ -618,6 +731,15 @@ export function BenchApp() {
                   ))}
                 </div>
               </div>
+              {!isRunning && subject.suites?.includes(CODING_SUITE) ? (
+                <SuitePicker
+                  onChange={(next) => {
+                    setSuiteChoice(next);
+                    setFinished(null);
+                  }}
+                  suite={suite}
+                />
+              ) : null}
               {run && isRunning ? (
                 <CenterLive progress={progress} run={run} />
               ) : run?.status === "failed" && !finished ? (
@@ -634,17 +756,21 @@ export function BenchApp() {
                       Last run · {runTime(record.started_at)}
                     </span>
                   ) : null}
-                  <HeroNumber
-                    label="Decode speed"
-                    sub={
-                      wasBusy(record) !== null
-                        ? `Measured while other apps used ${wasBusy(record)}% of the CPU`
-                        : reading
-                          ? `≈ ${Math.round(reading.wordsPerSecond)} words a second, ${Math.round(reading.timesReading)}× faster than you read`
-                          : undefined
-                    }
-                    value={formatTps(finalSpeed)}
-                  />
+                  {record.suite.id === "suite-coding" ? (
+                    <CodingSummary record={record} />
+                  ) : (
+                    <HeroNumber
+                      label="Decode speed"
+                      sub={
+                        wasBusy(record) !== null
+                          ? `Measured while other apps used ${wasBusy(record)}% of the CPU`
+                          : reading
+                            ? `≈ ${Math.round(reading.wordsPerSecond)} words a second, ${Math.round(reading.timesReading)}× faster than you read`
+                            : undefined
+                      }
+                      value={formatTps(finalSpeed)}
+                    />
+                  )}
                   <Button onClick={() => void start(subject)} size="sm" type="button" variant="ghost">
                     <RotateCw className="size-3.5" />
                     Run again
@@ -657,7 +783,9 @@ export function BenchApp() {
                     Run on this machine
                   </Button>
                   <span className="max-w-[300px] text-center text-muted-foreground text-xs leading-5">
-                    About 3 minutes once the model is downloaded. This window is recorded while it runs.
+                    {isCoding
+                      ? "5 to 20 minutes, depending on the model. The model's code runs in a sandbox with no network. This window is recorded while it runs."
+                      : "About 3 minutes once the model is downloaded. This window is recorded while it runs."}
                   </span>
                   {sizeHint(context) ? (
                     <span className="max-w-[300px] text-center font-medium text-muted-foreground text-xs leading-5">{sizeHint(context)}</span>
@@ -676,18 +804,34 @@ export function BenchApp() {
           ) : (
             <div className="flex flex-col gap-4 px-1">
               <Label>What this measures</Label>
-              <div className="flex flex-col gap-1">
-                <span className="font-medium text-sm">Speed</span>
-                <span className="text-muted-foreground text-xs leading-5">
-                  Tokens per second and time to first token, with an empty context and with 8K tokens of context.
-                </span>
-              </div>
-              {Object.values(TASK_INFO).map((info) => (
-                <div className="flex flex-col gap-1" key={info.title}>
-                  <span className="font-medium text-sm">{info.title}</span>
-                  <span className="text-muted-foreground text-xs leading-5">{info.what}. Three tries, graded by code.</span>
-                </div>
-              ))}
+              {isCoding ? (
+                <>
+                  <span className="text-muted-foreground text-xs leading-5">
+                    Five small Python coding jobs. The model works as an agent with holaOS's file tools and a tool that runs the visible tests. Hidden tests decide each try.
+                  </span>
+                  {Object.values(CODING_TASK_INFO).map((info) => (
+                    <div className="flex flex-col gap-1" key={info.title}>
+                      <span className="font-medium text-sm">{info.title}</span>
+                      <span className="text-muted-foreground text-xs leading-5">{info.what}. Three tries.</span>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium text-sm">Speed</span>
+                    <span className="text-muted-foreground text-xs leading-5">
+                      Tokens per second and time to first token, with an empty context and with 8K tokens of context.
+                    </span>
+                  </div>
+                  {Object.values(TASK_INFO).map((info) => (
+                    <div className="flex flex-col gap-1" key={info.title}>
+                      <span className="font-medium text-sm">{info.title}</span>
+                      <span className="text-muted-foreground text-xs leading-5">{info.what}. Three tries, graded by code.</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </section>

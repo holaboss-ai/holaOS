@@ -22,7 +22,7 @@ export interface TaskResult {
   task: string;
   kind: "task";
   category: string;
-  status: "ok" | "unsupported" | "error";
+  status: "ok" | "unsupported" | "error" | "incomplete";
   passed: number;
   samples: number;
   reasons?: Record<string, number>;

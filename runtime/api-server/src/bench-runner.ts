@@ -30,8 +30,17 @@ import {
   userLoadedModels,
 } from "./ollama-instance.js";
 
-export const BENCH_SUITES: Readonly<Record<string, string>> = {
-  "suite-standard@1.0": "suite-standard-1.0.json",
+export interface BenchSuite {
+  pack: string;
+  /** The holaeval subcommand that runs the pack; it writes `<command>-main.json`. */
+  command: "bench" | "code";
+  /** Where the suite may run. The coding suite executes model-written code and needs the macOS sandbox. */
+  platforms?: readonly NodeJS.Platform[];
+}
+
+export const BENCH_SUITES: Readonly<Record<string, BenchSuite>> = {
+  "suite-standard@1.0": { pack: "suite-standard-1.0.json", command: "bench" },
+  "suite-coding@1.0": { pack: "suite-coding-1.0.json", command: "code", platforms: ["darwin"] },
 };
 
 const STDERR_TAIL_BYTES = 4000;
@@ -45,6 +54,7 @@ export type BenchErrorCode =
   | "busy"
   | "invalid_subject"
   | "unknown_suite"
+  | "unsupported_platform"
   | "not_found"
   | "not_ready"
   | "invalid_artifacts"
@@ -78,6 +88,7 @@ export interface BenchRunState {
 export interface BenchRunSummary {
   run_id: string;
   run_dir: string;
+  suite: string;
   subject_id: string;
   subject_name: string;
   quant: string;
@@ -133,6 +144,7 @@ export interface BenchRunnerDeps {
   spawnImpl?: SpawnImpl;
   fetchImpl?: typeof fetch;
   cpuBusy?: () => Promise<number | null>;
+  platform?: NodeJS.Platform;
 }
 
 /** Share of CPU time spent busy across all cores over a short window. */
@@ -291,6 +303,7 @@ export class BenchRunner {
         runs.push({
           run_id: record.run_id,
           run_dir: path.join(root, name),
+          suite: `${record.suite.id}@${record.suite.version}`,
           subject_id: record.subject.id,
           subject_name: record.subject.name,
           quant: record.subject.quant,
@@ -324,6 +337,7 @@ export class BenchRunner {
     };
     const offset = input.recording ? (input.recording_offset_s ?? 0) : 0;
     record.artifacts = {
+      ...record.artifacts,
       recording: input.recording ? { file: inRunDir(input.recording.file), scored_run: input.recording.scored_run } : null,
       cards: input.cards.map(inRunDir),
       highlights: entry
@@ -366,6 +380,15 @@ export class BenchRunner {
     const { subject } = entry.state;
     let instance: BenchInstance | null = null;
     try {
+      const suite = BENCH_SUITES[entry.state.suite];
+      const platform = this.deps.platform ?? process.platform;
+      if (suite.platforms && !suite.platforms.includes(platform)) {
+        throw new BenchError(
+          "unsupported_platform",
+          "The coding scenario runs only on macOS for now. It's coming to Windows in November.",
+          { platforms: [...suite.platforms] },
+        );
+      }
       const binary = (this.deps.findBinary ?? (() => findOllamaBinary()))();
       if (!binary) {
         throw new BenchError("ollama_missing", "Ollama is not installed.", { download_url: OLLAMA_DOWNLOAD_URL });
@@ -391,7 +414,7 @@ export class BenchRunner {
         this.emit(entry, "machine_busy", { cpu_busy_pct: cpuBusy });
       }
 
-      const packPath = path.join(this.deps.packsDir(), BENCH_SUITES[entry.state.suite]);
+      const packPath = path.join(this.deps.packsDir(), suite.pack);
       const pack = JSON.parse(fs.readFileSync(packPath, "utf8")) as { min_ollama_version?: string };
       instance = (
         this.deps.createInstance ??
@@ -413,7 +436,7 @@ export class BenchRunner {
       this.throwIfCancelled(entry);
 
       this.setPhase(entry, "running");
-      const bench = await this.runHolaeval(entry, instance.baseUrl, packPath, instance.pid ?? null);
+      const bench = await this.runHolaeval(entry, instance.baseUrl, packPath, suite.command, instance.pid ?? null);
 
       this.setPhase(entry, "finishing");
       const record = buildRunRecord({
@@ -423,7 +446,12 @@ export class BenchRunner {
         digest,
         evidence: instance.evidence(),
         client: { app: "holaOS", version: this.deps.appVersion() },
-        artifacts: { recording: null, cards: [], highlights: benchHighlights(entry.events) },
+        artifacts: {
+          recording: null,
+          cards: [],
+          highlights: benchHighlights(entry.events),
+          ...(fs.existsSync(path.join(entry.state.run_dir, "transcripts")) ? { transcripts: "transcripts" } : {}),
+        },
         conditions: { cpu_busy_pct: cpuBusy },
       });
       const recordPath = path.join(entry.state.run_dir, "run-record.json");
@@ -454,12 +482,18 @@ export class BenchRunner {
     }
   }
 
-  private async runHolaeval(entry: RunEntry, baseUrl: string, packPath: string, ollamaPid: number | null): Promise<HolaevalBenchOutput> {
+  private async runHolaeval(
+    entry: RunEntry,
+    baseUrl: string,
+    packPath: string,
+    command: BenchSuite["command"],
+    ollamaPid: number | null,
+  ): Promise<HolaevalBenchOutput> {
     const runDir = entry.state.run_dir;
     const args = [
       "-I",
       this.deps.holaevalPath(),
-      "bench",
+      command,
       "--base-url",
       baseUrl,
       "--model",
@@ -472,7 +506,7 @@ export class BenchRunner {
       runDir,
       "--label",
       BENCH_LABEL,
-      ...(ollamaPid ? ["--ollama-pid", String(ollamaPid)] : []),
+      ...(ollamaPid && command === "bench" ? ["--ollama-pid", String(ollamaPid)] : []),
     ];
     const spawnImpl: SpawnImpl = this.deps.spawnImpl ?? ((command, spawnArgs, options) => spawn(command, spawnArgs, options));
     const python = this.deps.python ?? (process.platform === "win32" ? "python" : "python3");
@@ -523,7 +557,7 @@ export class BenchRunner {
       const last = stderr.trim().split("\n").pop() ?? `exited with code ${code}`;
       throw new BenchError("bench_failed", `The benchmark stopped: ${last}`);
     }
-    return JSON.parse(fs.readFileSync(path.join(runDir, `bench-${BENCH_LABEL}.json`), "utf8")) as HolaevalBenchOutput;
+    return JSON.parse(fs.readFileSync(path.join(runDir, `${command}-${BENCH_LABEL}.json`), "utf8")) as HolaevalBenchOutput;
   }
 }
 

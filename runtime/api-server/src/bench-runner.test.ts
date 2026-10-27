@@ -30,7 +30,7 @@ const subject = {
 };
 
 /** An `ollama` executable that serves holaeval's fake Ollama on OLLAMA_HOST. */
-function fakeOllamaBinary(dir: string, capabilities: string[]): string {
+function fakeOllamaBinary(dir: string, capabilities: string[], script = "None"): string {
   const file = path.join(dir, "ollama");
   fs.writeFileSync(
     file,
@@ -40,7 +40,7 @@ spec = importlib.util.spec_from_file_location("holaeval", ${JSON.stringify(holae
 h = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(h)
 host, port = os.environ["OLLAMA_HOST"].split(":")
-h.fake_ollama(${JSON.stringify(capabilities)}, model="m:q4", port=int(port))
+h.fake_ollama(${JSON.stringify(capabilities)}, model="m:q4", port=int(port), script=${script})
 while True:
     time.sleep(3600)
 `,
@@ -156,6 +156,52 @@ test("one click runs the standard suite end to end and writes a Run Record", { s
   assert.equal(listed[0].subject_name, "MiniCPM5-2B");
   assert.ok((listed[0].decode_tps ?? 0) > 0);
   assert.deepEqual(runner.list("someone-else"), []);
+});
+
+test("the coding suite runs through holaeval code and records each attempt", { skip: process.platform !== "darwin" }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bench-coding-"));
+  tempDirs.push(dir);
+  const binary = fakeOllamaBinary(dir, ["completion", "tools"], 'lambda prompt, body: (["Nothing to change."], None)');
+  const { runner } = makeRunner({ findBinary: () => binary });
+  const started = runner.start({ subject, suite: "suite-coding@1.0" });
+  const { run } = await settle(runner, started.run_id, 120_000);
+  assert.equal(run.status, "done", JSON.stringify(run.error));
+
+  const record = runner.record(started.run_id) as unknown as RunRecord;
+  assert.equal(record.suite.id, "suite-coding");
+  assert.deepEqual(
+    record.results.map((result) => [result.task, result.category, result.passed, result.samples]),
+    [
+      ["fix-pagination", "coding", 0, 3],
+      ["parse-duration", "coding", 0, 3],
+      ["csv-export", "coding", 0, 3],
+      ["checkout-bug", "coding", 0, 3],
+      ["calc-power", "coding", 0, 3],
+    ],
+  );
+  const attempt = (record.results[0].attempts as Array<Record<string, unknown>>)[0];
+  assert.equal(attempt.finish, "answered");
+  assert.equal(attempt.reason, "hidden tests failed (4 of 8)");
+  assert.equal((record.test_agent.settings.budgets as { max_turns: number }).max_turns, 15);
+  assert.deepEqual(record.test_agent.settings.sandbox, { os: "seatbelt", audit_hook: true, network: false });
+  assert.equal(record.artifacts.transcripts, "transcripts");
+  assert.ok(fs.existsSync(path.join(run.run_dir, "transcripts", "calc-power-2.jsonl")));
+
+  fs.writeFileSync(path.join(run.run_dir, "scene-card.png"), "");
+  const updated = runner.setArtifacts(started.run_id, { recording: null, cards: ["scene-card.png"] }) as unknown as RunRecord;
+  assert.equal(updated.artifacts.transcripts, "transcripts");
+
+  const [listed] = runner.list("openbmb-minicpm5-2b");
+  assert.equal(listed.suite, "suite-coding@1.0");
+  assert.equal(listed.decode_tps, null);
+});
+
+test("the coding suite refuses to run outside macOS", async () => {
+  const { runner } = makeRunner({ platform: "win32" });
+  const started = runner.start({ subject, suite: "suite-coding@1.0" });
+  const { run } = await settle(runner, started.run_id);
+  assert.equal(run.status, "failed");
+  assert.equal(run.error?.code, "unsupported_platform");
 });
 
 test("runs from before a restart can still be listed, read and given new cards", { skip: process.platform === "win32" }, async () => {

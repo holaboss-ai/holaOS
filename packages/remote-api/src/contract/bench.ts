@@ -51,6 +51,7 @@ const runIdInput = workspaceScoped.extend({ run_id: z.string().min(1) });
 export const benchRunSummarySchema = z.object({
   run_id: z.string(),
   run_dir: z.string(),
+  suite: z.string(),
   subject_id: z.string(),
   subject_name: z.string(),
   quant: z.string(),

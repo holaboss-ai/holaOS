@@ -24,7 +24,7 @@ export const BUNDLED_BENCH_SUBJECTS: ReadonlyArray<
       known_digests: ["71a44e98400fbd490d66332a0ebba31143479a714987c13f45c82e94025cbfa7"],
     },
     sampling: { temperature: 1.0, top_p: 0.95, min_p: 0 },
-    suites: ["suite-standard@1.0"],
+    suites: ["suite-standard@1.0", "suite-coding@1.0"],
   },
   {
     type: "model",
@@ -55,7 +55,7 @@ export const BUNDLED_BENCH_SUBJECTS: ReadonlyArray<
     },
     // The model card's thinking-mode settings for text tasks; thinking is the model's default.
     sampling: { temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0, presence_penalty: 1.5 },
-    suites: ["suite-standard@1.0"],
+    suites: ["suite-standard@1.0", "suite-coding@1.0"],
   },
   {
     type: "model",
@@ -70,6 +70,6 @@ export const BUNDLED_BENCH_SUBJECTS: ReadonlyArray<
       known_digests: ["07d35212591fc27746f0a317c975a6d68754fb38e9053d82e25f06057af28522"],
     },
     sampling: { temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0, presence_penalty: 1.5 },
-    suites: ["suite-standard@1.0"],
+    suites: ["suite-standard@1.0", "suite-coding@1.0"],
   },
 ];

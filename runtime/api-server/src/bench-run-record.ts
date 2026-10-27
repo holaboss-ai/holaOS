@@ -25,6 +25,8 @@ export interface BenchArtifacts {
   recording: { file: string; scored_run: boolean } | null;
   cards: string[];
   highlights: BenchHighlight[];
+  /** Directory of per-attempt agent transcripts; coding suite only. */
+  transcripts?: string;
 }
 
 /** What `holaeval bench` writes. */
@@ -34,10 +36,12 @@ export interface HolaevalBenchOutput {
   model: string;
   capabilities: string[];
   request: Record<string, unknown>;
-  warmup_load_ms: number;
+  warmup_load_ms: number | null;
   machine: Record<string, unknown>;
   /** What other programs used during the timed speed requests; absent from engines older than this field. */
   conditions?: Pick<BenchConditions, "others_cpu_busy_pct" | "others_gpu_busy_pct">;
+  /** How model-written code was confined; coding suite only. */
+  sandbox?: Record<string, unknown> | null;
   results: Array<Record<string, unknown>>;
   started_at: string;
   finished_at: string;
@@ -155,7 +159,10 @@ export function buildRunRecord(params: {
       digest_registered: digest !== null && (subject.ollama.known_digests ?? []).includes(digest),
       capabilities: bench.capabilities,
     },
-    test_agent: { ...bench.test_agent, settings: { ...bench.request, warmup_load_ms: bench.warmup_load_ms } },
+    test_agent: {
+      ...bench.test_agent,
+      settings: { ...bench.request, warmup_load_ms: bench.warmup_load_ms, ...(bench.sandbox ? { sandbox: bench.sandbox } : {}) },
+    },
     runtime: {
       kind: params.evidence.kind,
       hardware: bench.machine,

@@ -19,7 +19,8 @@
       "min_p": 0
     },
     "suites": [
-      "suite-standard@1.0"
+      "suite-standard@1.0",
+      "suite-coding@1.0"
     ]
   },
   {
@@ -67,7 +68,8 @@
       "presence_penalty": 1.5
     },
     "suites": [
-      "suite-standard@1.0"
+      "suite-standard@1.0",
+      "suite-coding@1.0"
     ]
   },
   {
@@ -92,7 +94,8 @@
       "presence_penalty": 1.5
     },
     "suites": [
-      "suite-standard@1.0"
+      "suite-standard@1.0",
+      "suite-coding@1.0"
     ]
   }
 ]
