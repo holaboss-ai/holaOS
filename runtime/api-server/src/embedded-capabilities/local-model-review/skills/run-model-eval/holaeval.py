@@ -903,17 +903,17 @@ def ollama_tree(procs, root_pid=None):
     return found
 
 
-def others_cpu_pct(before, after, wall_s, cpus, root_pid=None):
-    """Busy share of all cores minus Ollama's share, from two (ticks, procs) snapshots."""
+def others_cpu_pct(before, after, wall_s, cpus, root_pid=None, self_pid=None):
+    """Busy share of all cores minus Ollama's and this measuring process's, from two (ticks, procs) snapshots."""
     (ticks0, procs0), (ticks1, procs1) = before, after
     if ticks0 is None or ticks1 is None or procs0 is None or procs1 is None or wall_s <= 0:
         return None
     busy, total = ticks1[0] - ticks0[0], ticks1[1] - ticks0[1]
     if busy < 0 or total <= 0:
         return None
-    pids = ollama_tree(procs0, root_pid) | ollama_tree(procs1, root_pid)
-    ollama_s = sum(procs1[pid][2] - procs0.get(pid, (0, "", 0.0))[2] for pid in pids if pid in procs1)
-    return round(min(100.0, max(0.0, 100 * busy / total - 100 * ollama_s / (wall_s * cpus))), 1)
+    pids = ollama_tree(procs0, root_pid) | ollama_tree(procs1, root_pid) | ({self_pid} if self_pid else set())
+    excluded_s = sum(procs1[pid][2] - procs0.get(pid, (0, "", 0.0))[2] for pid in pids if pid in procs1)
+    return round(min(100.0, max(0.0, 100 * busy / total - 100 * excluded_s / (wall_s * cpus))), 1)
 
 
 def parse_pmon(text, ollama_pids):
@@ -932,29 +932,35 @@ def parse_pmon(text, ollama_pids):
     return round(min(100.0, others / len(gpus)), 1) if gpus else None
 
 
-def parse_typeperf(text, cpus):
-    """`typeperf` CSV with _Total and per-process columns: total CPU % minus Ollama's processes' share."""
+def parse_typeperf(text, cpus, self_pid=None):
+    """`typeperf` CSV of total CPU % and each process's % and pid: total minus Ollama's and this process's share."""
     import csv
     rows = list(csv.reader(line for line in text.splitlines() if line.startswith('"')))
     if len(rows) < 2:
         return None
-    total, ollama = None, 0.0
+    total, busy, pids = None, {}, {}
     for name, value in zip(rows[0][1:], rows[-1][1:]):
         number = float(value) if value.strip() else 0.0
+        m = re.search(r"\\Process\(([^)]*)\)\\(.+)$", name)
         if "\\Processor(_Total)\\" in name:
             total = number
-        elif (m := re.search(r"\\Process\(([^)]*)\)\\", name)) and OLLAMA_PROCESS_RE.match(m.group(1)):
-            ollama += number
-    return None if total is None else round(min(100.0, max(0.0, total - ollama / cpus)), 1)
+        elif m and m.group(2) == "ID Process":
+            pids[m.group(1)] = int(number)
+        elif m:
+            busy[m.group(1)] = number
+    excluded = sum(pct for instance, pct in busy.items()
+                   if OLLAMA_PROCESS_RE.match(instance) or (self_pid and pids.get(instance) == self_pid))
+    return None if total is None else round(min(100.0, max(0.0, total - excluded / cpus)), 1)
 
 
 class LoadSampler:
-    """Others' CPU (and NVIDIA GPU) use across one timed request: a process-table read at each end, or one
-    1-second typeperf/nvidia-smi sample in a thread while the request runs, so the sampler's own cost stays small."""
+    """CPU (and NVIDIA GPU) use by everything except Ollama and holaeval across one timed request: a process-table
+    read at each end, or one 1-second typeperf/nvidia-smi sample in a thread while it runs, so the cost stays small."""
 
     def __init__(self, ollama_pid=None, read_procs=read_processes, read_ticks=read_cpu_ticks, clock=time.monotonic,
-                 cpus=None, gpu=None, windows=None):
+                 cpus=None, gpu=None, windows=None, self_pid=None):
         self.ollama_pid = ollama_pid
+        self.self_pid = self_pid or os.getpid()
         self.read_procs, self.read_ticks, self.clock = read_procs, read_ticks, clock
         self.cpus = cpus or os.cpu_count() or 1
         self.gpu = gpu if gpu is not None else (self.nvidia_sample if shutil.which("nvidia-smi") else None)
@@ -973,8 +979,8 @@ class LoadSampler:
 
     def typeperf_sample(self, _procs):
         out = subprocess.run(["typeperf", r"\Processor(_Total)\% Processor Time", r"\Process(*)\% Processor Time",
-                              "-sc", "1"], capture_output=True, text=True, timeout=30)
-        return parse_typeperf(out.stdout, self.cpus)
+                              r"\Process(*)\ID Process", "-sc", "1"], capture_output=True, text=True, timeout=30)
+        return parse_typeperf(out.stdout, self.cpus, self.self_pid)
 
     def begin(self):
         # Ollama is idle at both ends of a request, so reading its processes outside the tick window costs nothing.
@@ -995,7 +1001,7 @@ class LoadSampler:
             ticks, wall = self._read(self.read_ticks), self.clock() - state["t"]
             procs = self._read(self.read_procs)
             out["others_cpu_busy_pct"] = others_cpu_pct((state["ticks"], state["procs"]), (ticks, procs), wall,
-                                                        self.cpus, self.ollama_pid)
+                                                        self.cpus, self.ollama_pid, self.self_pid)
         for key, (thread, box) in state["threads"].items():
             thread.join(30)
             out[key] = box.get("value")
