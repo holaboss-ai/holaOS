@@ -1,0 +1,101 @@
+{
+ "id": "suite-coding",
+ "version": "1.0",
+ "name": "Coding scenario",
+ "description": "Five small Python repositories, each with a coding task for an agent. The model works with holaOS's file tools and a tool that runs the visible tests; hidden tests that follow the same spec decide a pass. Each task runs 3 times with the vendor's recommended sampling. Budgets are tokens and turns, never seconds.",
+ "num_ctx": 16384,
+ "samples": 3,
+ "sampling": {
+  "temperature": 1.0,
+  "top_p": 0.95,
+  "min_p": 0.0
+ },
+ "holaos_snapshot": "read, edit, ls, find and search are copied unchanged from packs/agent-v1/tools-lean.json (holaOS main-session tools); write is pi-coding-agent 0.80.2's write schema",
+ "system": "suite-coding-1.0/system.md",
+ "system_sha256": "0bfc160a4a5fc6af6ba78299febc870d65514c64dd08f7c3b3377dbc5675875f",
+ "tools": "suite-coding-1.0/tools.json",
+ "tools_sha256": "f8b319cf638b61592e5942b05ca0ceb0e84686ea0229c78bdc055495a661c77b",
+ "budgets": {
+  "max_turns": 15,
+  "turn_tokens": 8192,
+  "attempt_tokens": 12288,
+  "min_turn_tokens": 1024,
+  "chars_per_token": 3.2,
+  "test_timeout_s": 20,
+  "attempt_wall_s": 600,
+  "tool_output_chars": 16000,
+  "test_output_chars": 4000,
+  "write_max_bytes": 262144,
+  "repo_max_files": 500,
+  "repo_max_bytes": 5242880,
+  "diff_chars": 16000,
+  "answer_chars": 2000
+ },
+ "tasks": [
+  {
+   "id": "fix-pagination",
+   "tier": 1,
+   "title": "Fix a failing test",
+   "prompt": "The test suite in this repo fails. Find the bug in the code and fix it so all tests pass. Don't change the tests.",
+   "dir": "suite-coding-1.0/fix-pagination",
+   "visible_tests": [
+    "tests/test_pager.py"
+   ],
+   "expected_tests": 8,
+   "repo_sha256": "16ef0c3881cb758775fa3db5b71e0027984a9a2261364775e63861d395d1d1a1",
+   "hidden_sha256": "4186ce816a6579fdc214bb5fcc4752871e365c216eb3e1387279ec96f7d4eacb"
+  },
+  {
+   "id": "parse-duration",
+   "tier": 2,
+   "title": "Implement a function from its spec",
+   "prompt": "Implement `parse_duration` in `durations.py`. Its docstring is the spec. Keep the signature.",
+   "dir": "suite-coding-1.0/parse-duration",
+   "visible_tests": [
+    "tests/test_durations.py"
+   ],
+   "expected_tests": 21,
+   "repo_sha256": "17cc85c21acf9c2e1454c15917db1c65375d07be9c8bd79959b477dca930f8ec",
+   "hidden_sha256": "545b07e946034deb0ea95fd9456570f8992d645cb108acf415a145c5c5474a5c"
+  },
+  {
+   "id": "csv-export",
+   "tier": 3,
+   "title": "Add a CLI option across files",
+   "prompt": "Add a `--format` option to the inventory CLI. `--format table` is the current output and stays the default. `--format csv` prints the same items as CSV to stdout: a header row `sku,name,qty,unit_price`, then one row per item in the same order as the table, with `unit_price` to two decimals. Use Python's `csv` module so names containing commas are quoted. argparse should reject any other value.",
+   "dir": "suite-coding-1.0/csv-export",
+   "visible_tests": [
+    "tests/test_report.py"
+   ],
+   "expected_tests": 10,
+   "repo_sha256": "bd9ddaca11c4ae46847175f076c7ba49181e94703d4501080407f1fe5e8818c3",
+   "hidden_sha256": "55419923aa000917b6ce2235fffd9bafd86bf137fd171a6cb8dfb4526c1be00f"
+  },
+  {
+   "id": "checkout-bug",
+   "tier": 4,
+   "title": "Fix a reported bug",
+   "prompt": "Support says: a customer typed the code `save10 ` (lowercase, with a trailing space) at checkout and it was rejected. They retyped it as `SAVE10` and their total for 3 × Widget at 19.99 came to 53.98. Our pricing policy (`docs/pricing.md`) says it should be 53.97. Fix the code so checkout follows the policy. Keep the existing tests passing.",
+   "dir": "suite-coding-1.0/checkout-bug",
+   "visible_tests": [
+    "tests/test_cart.py"
+   ],
+   "expected_tests": 13,
+   "repo_sha256": "d60b4577184da6ffeb222a787b6bbb596244df13ef1d2435e365afbc5e228cd5",
+   "hidden_sha256": "4db445ab5ff65b4e87b0cceeda7dd0277ea8805ef3afac21c75b5d3403dd4710"
+  },
+  {
+   "id": "calc-power",
+   "tier": 5,
+   "title": "Change a parser's core algorithm",
+   "prompt": "Add the exponent operator `**` to the calculator in `calc/`. Follow Python's rules: it binds tighter than `*`, `/` and a unary minus on its left, so `-2 ** 2` is `-4`; it is right-associative, so `2 ** 3 ** 2` is `512`; and its right operand may start with a unary minus, so `2 ** -1` is `0.5`. `*` must work as before. Keep the existing tests passing.",
+   "dir": "suite-coding-1.0/calc-power",
+   "visible_tests": [
+    "tests/test_calc.py"
+   ],
+   "expected_tests": 20,
+   "repo_sha256": "8016500beebbb1ff5cfdba5647ee1ef4c5fee86e9e987f07aebc7e810d540e5b",
+   "hidden_sha256": "bfbec81939fd6a4d76e7498eadaa6c292d81b2aae6073243952817cfc2986543"
+  }
+ ]
+}

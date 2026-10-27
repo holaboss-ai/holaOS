@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """Evaluate an OpenAI-compatible model server that is already running.
 
-Subcommands: probe, speed, run, bench, agent, tables, chart, selftest. Standard library only.
-bench talks to Ollama's native API instead, because /v1 cannot set the context size.
+Subcommands: probe, speed, run, bench, code, codepack, agent, tables, chart, selftest. Standard library only.
+bench and code talk to Ollama's native API instead, because /v1 cannot set the context size.
 """
 
 import argparse
+import difflib
 import fnmatch
 import hashlib
 import json
+import math
 import os
 import platform
 import random
 import re
 import shlex
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -2255,6 +2258,596 @@ def cmd_agent(args):
         + f" wall={summary['wall_seconds']}s")
 
 
+# ---------- code: coding agent on a repo copy, tests in a sandbox ----------
+
+DEFAULT_CODE_SUITE = HERE / "packs" / "suite-coding-1.0.json"
+CODE_ROOT = "/repo"
+CODE_RESULT_TAG = "HOLAEVAL-RESULT"
+TREE_SKIP = {"__pycache__", ".DS_Store"}
+MODULE_RE = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
+
+
+def tree_files(root):
+    """Text files under root, keyed by POSIX path relative to it."""
+    root = Path(root)
+    if not root.is_dir():
+        return {}
+    return {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8") for p in sorted(root.rglob("*"))
+            if p.is_file() and not TREE_SKIP & set(p.relative_to(root).parts)}
+
+
+def tree_sha256(files):
+    h = hashlib.sha256()
+    for rel in sorted(files):
+        h.update(f"{rel}\0{hashlib.sha256(files[rel].encode()).hexdigest()}\n".encode())
+    return h.hexdigest()
+
+
+def pack_hashes(pack, root):
+    """What the pack's sha256 fields should say, computed from the files on disk."""
+    out = {"system_sha256": sha256_file(root / pack["system"]), "tools_sha256": sha256_file(root / pack["tools"]), "tasks": {}}
+    for t in pack["tasks"]:
+        d = root / t["dir"]
+        out["tasks"][t["id"]] = {"repo_sha256": tree_sha256(tree_files(d / "repo")), "hidden_sha256": tree_sha256(tree_files(d / "hidden"))}
+    return out
+
+
+def load_code_pack(path, verify=True):
+    """Load suite-coding and refuse it if any file drifted from the hashes the pack pins."""
+    path = Path(path)
+    pack = json.loads(path.read_text())
+    root = path.resolve().parent
+    if verify:
+        want = pack_hashes(pack, root)
+        drift = [k for k in ("system_sha256", "tools_sha256") if pack.get(k) != want[k]]
+        drift += [f"{t['id']}.{k}" for t in pack["tasks"] for k, v in want["tasks"][t["id"]].items() if t.get(k) != v]
+        if drift:
+            raise ValueError(f"{path.name} does not match its files: {', '.join(drift)} (run holaeval codepack --write)")
+    pack["_root"] = root
+    pack["_system"] = (root / pack["system"]).read_text().rstrip("\n")
+    pack["_tools"] = json.loads((root / pack["tools"]).read_text())
+    for t in pack["tasks"]:
+        t["_repo"] = tree_files(root / t["dir"] / "repo")
+        t["_hidden"] = tree_files(root / t["dir"] / "hidden")
+        t["_solution"] = tree_files(root / t["dir"] / "solution")
+    return pack
+
+
+def cmd_codepack(args):
+    path = Path(args.pack)
+    pack = json.loads(path.read_text())
+    want = pack_hashes(pack, path.resolve().parent)
+    pack["system_sha256"], pack["tools_sha256"] = want["system_sha256"], want["tools_sha256"]
+    for t in pack["tasks"]:
+        t.update(want["tasks"][t["id"]])
+    text = json.dumps(pack, indent=1, ensure_ascii=False) + "\n"
+    if args.write:
+        path.write_text(text)
+    print(json.dumps(want, indent=1))
+
+
+SANDBOX_BOOT = r'''"""holaeval sandbox boot: guard this process, then run unittest on the repo copy."""
+import json
+import os
+import sys
+
+
+def main():
+    nonce = os.environ.pop("HOLAEVAL_SANDBOX_NONCE", "")
+    repo, tmp, deny_read, verbosity = sys.argv[1:5]
+    repo = os.path.realpath(repo)
+    names = sys.argv[5:]
+    writable = tuple(os.path.realpath(p) + os.sep for p in (repo, tmp))
+    unreadable = os.path.realpath(deny_read) + os.sep if deny_read else None
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_TRUNC
+    blocked = {"subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn", "os.fork", "os.forkpty",
+               "os.startfile", "os.kill", "os.killpg", "ctypes.dlopen", "ctypes.dlsym", "ctypes.cdata",
+               "_winapi.CreateProcess", "socket.connect", "socket.bind", "socket.getaddrinfo", "socket.gethostbyname",
+               "socket.gethostbyaddr", "socket.getnameinfo", "socket.sendto", "socket.sendmsg"}
+    mutating = {"os.remove", "os.rename", "os.mkdir", "os.rmdir", "os.chmod", "os.chown", "os.chflags", "os.lchflags",
+                "os.symlink", "os.link", "os.truncate", "os.utime", "os.setxattr", "os.removexattr", "shutil.rmtree",
+                "shutil.move", "shutil.copyfile", "shutil.copytree", "shutil.chown"}
+
+    def under(path, prefixes):
+        return (os.path.realpath(os.fsdecode(path)) + os.sep).startswith(prefixes)
+
+    def is_path(value):
+        return isinstance(value, (str, bytes, os.PathLike))
+
+    def hook(event, args):
+        if event == "open":
+            path, mode, flags = args
+            if not is_path(path):
+                return
+            if unreadable and under(path, unreadable):
+                raise PermissionError("sandbox: reading the test pack is blocked")
+            writing = any(c in mode for c in "wax+") if isinstance(mode, str) else bool((flags or 0) & write_flags)
+            if writing and not under(path, writable):
+                raise PermissionError(f"sandbox: writing outside the repository is blocked ({os.fsdecode(path)})")
+        elif event in blocked:
+            raise PermissionError(f"sandbox: {event} is blocked (no processes, no network)")
+        elif event in mutating:
+            for value in args:
+                if is_path(value) and not under(value, writable):
+                    raise PermissionError(f"sandbox: changing files outside the repository is blocked ({os.fsdecode(value)})")
+
+    sys.addaudithook(hook)
+    sys.path.insert(0, repo)
+    os.chdir(repo)
+    import unittest
+
+    summary = {"run": 0, "failures": 0, "errors": 0, "skipped": 0, "ok": False}
+    try:
+        loader = unittest.TestLoader()
+        suite = loader.loadTestsFromNames(names) if names else loader.discover(os.path.join(repo, "tests"), top_level_dir=repo)
+        result = unittest.TextTestRunner(stream=sys.stdout, verbosity=int(verbosity)).run(suite)
+        summary = {"run": result.testsRun, "failures": len(result.failures), "errors": len(result.errors),
+                   "skipped": len(result.skipped), "ok": result.wasSuccessful()}
+    except BaseException as exc:
+        import traceback
+        traceback.print_exc(file=sys.stdout)
+        summary["error"] = f"{type(exc).__name__}: {exc}"[:300]
+    sys.stdout.flush()
+    print(f"HOLAEVAL-RESULT {nonce} {json.dumps(summary)}", flush=True)
+
+
+main()
+'''
+
+
+def materialize(files, dest):
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    for rel, content in files.items():
+        p = dest / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+
+
+def sbpl_string(path):
+    return '"' + path.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+class CodeSandbox:
+    """Runs unittest on a fresh copy of the repo. Every platform gets the audit-hook guard and a
+    stripped environment; macOS adds a Seatbelt profile (no network, no exec, writes only in the copy)."""
+
+    OUTPUT_TAIL = 65536
+
+    def __init__(self, work, deny_read=None, os_sandbox=True, python=None, cpu_seconds=20):
+        Path(work).mkdir(parents=True, exist_ok=True)
+        self.work = Path(os.path.realpath(work))
+        self.python = os.path.realpath(python or sys.executable)
+        self.deny_read = os.path.realpath(deny_read) if deny_read else ""
+        self.cpu_seconds = cpu_seconds
+        self.boot = self.work / "sandbox_boot.py"
+        self.boot.write_text(SANDBOX_BOOT)
+        self.seatbelt = bool(os_sandbox) and sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec")
+
+    @property
+    def evidence(self):
+        return {"os": "seatbelt" if self.seatbelt else None, "audit_hook": True, "network": False if self.seatbelt else None}
+
+    def profile(self, run_dir):
+        prefix = os.path.dirname(os.path.dirname(self.python))
+        rules = ["(version 1)", "(allow default)", "(deny network*)", "(deny process-fork)", "(deny process-exec)",
+                 f"(allow process-exec (subpath {sbpl_string(prefix)}))", "(deny file-write*)",
+                 f'(allow file-write* (subpath {sbpl_string(os.path.realpath(run_dir))}) (literal "/dev/null"))']
+        if self.deny_read:
+            rules.append(f"(deny file-read* (subpath {sbpl_string(self.deny_read)}))")
+        return "\n".join(rules)
+
+    def limits(self):
+        import resource
+        for name, value in (("RLIMIT_CPU", self.cpu_seconds), ("RLIMIT_FSIZE", 16 << 20), ("RLIMIT_CORE", 0)):
+            if hasattr(resource, name):
+                try:
+                    resource.setrlimit(getattr(resource, name), (value, value))
+                except (ValueError, OSError):
+                    pass
+
+    def run(self, files, names=(), verbosity=2, timeout=20):
+        run_dir = self.work / "run"
+        shutil.rmtree(run_dir, ignore_errors=True)
+        repo, tmp = run_dir / "repo", run_dir / "tmp"
+        materialize(files, repo)
+        (tmp / "home").mkdir(parents=True)
+        nonce = os.urandom(8).hex()
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp / "home"), "TMPDIR": str(tmp), "LANG": "C.UTF-8",
+               "PYTHONDONTWRITEBYTECODE": "1", "PYTHONHASHSEED": "0", "HOLAEVAL_SANDBOX_NONCE": nonce}
+        if os.name == "nt":
+            env.update(SYSTEMROOT=os.environ.get("SYSTEMROOT", ""), PATH=os.environ.get("SYSTEMROOT", ""))
+        cmd = [self.python, "-I", "-B", str(self.boot), str(repo), str(tmp), self.deny_read, str(verbosity), *names]
+        if self.seatbelt:
+            cmd = ["/usr/bin/sandbox-exec", "-p", self.profile(run_dir), *cmd]
+        out_path = run_dir / "output.txt"
+        timed_out = False
+        with open(out_path, "wb") as out:
+            proc = subprocess.Popen(cmd, cwd=repo, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                    start_new_session=os.name == "posix", preexec_fn=self.limits if os.name == "posix" else None)
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                if os.name == "posix":
+                    os.killpg(proc.pid, signal.SIGKILL)
+                else:
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+                proc.wait()
+        with open(out_path, "rb") as f:
+            f.seek(max(0, out_path.stat().st_size - self.OUTPUT_TAIL))
+            text = f.read().decode("utf-8", "replace")
+        tag = re.compile(rf"^{CODE_RESULT_TAG} {nonce} (\{{.*\}})\s*$", re.M)
+        found = tag.findall(text)
+        result = json.loads(found[-1]) if found else None
+        text = tag.sub("", text).rstrip()
+        return {"timed_out": timed_out, "returncode": proc.returncode, "result": result, "output": text,
+                "denials": text.count("PermissionError: sandbox: ")}
+
+
+def test_module(target):
+    """`tests/test_x.py`, `tests.test_x` or `tests/test_x.py::Case::test` -> a unittest name; None if unusable."""
+    t = str(target).strip().replace("::", ".")
+    t = re.sub(r"\.py(?=$|\.)", "", t).replace("\\", "/").strip("/").replace("/", ".")
+    return t if MODULE_RE.fullmatch(t) else None
+
+
+def tests_summary(r, timeout):
+    res = r["result"]
+    if r["timed_out"]:
+        return f"Tests timed out after {timeout} s and were stopped."
+    if not res:
+        return "Tests could not run (the test process exited before reporting)."
+    if res.get("error"):
+        return f"Tests could not run: {res['error']}"
+    bad = res["failures"] + res["errors"]
+    if res["run"] == 0:
+        return "No tests ran."
+    if not bad:
+        return f"OK: all {res['run']} tests passed."
+    return f"FAILED: {res['failures']} failed and {res['errors']} errored out of {res['run']} tests."
+
+
+def code_tool(vfs, name, args, ctx):
+    """Execute one tool call against the in-memory repo. Returns (text, is_error, info)."""
+    b = ctx["budgets"]
+    if name not in ctx["tool_names"]:
+        return f"Error: Tool {name} not found.", True, {}
+    if name == "run_tests":
+        target = args.get("target")
+        names = []
+        if target not in (None, "", ".", "tests", "tests/"):
+            module = test_module(target)
+            if not module:
+                return "Error: target must be a test module such as tests/test_example.py or tests.test_example.", True, {}
+            names = [module]
+        files = {vfs.rel(p): c for p, c in vfs.files.items() if p.startswith(CODE_ROOT + "/")}
+        r = ctx["sandbox"].run(files, names, verbosity=2, timeout=b["test_timeout_s"])
+        summary = tests_summary(r, b["test_timeout_s"])
+        tail = r["output"][-b["test_output_chars"]:]
+        ok = bool(r["result"] and r["result"].get("ok") and r["result"]["run"] > 0 and not r["timed_out"])
+        return summary + ("\n\n" + tail if tail else ""), not ok, {"summary": summary, "denials": r["denials"]}
+    if name in ("write", "edit"):
+        path = args.get("path")
+        if isinstance(path, str) and not vfs.resolve(path).startswith(CODE_ROOT + "/"):
+            return f"Error: {path} is outside the repository.", True, {}
+        if name == "write" and isinstance(args.get("content"), str) and len(args["content"].encode()) > b["write_max_bytes"]:
+            return f"Error: content is larger than {b['write_max_bytes']} bytes.", True, {}
+    text, err = execute_tool(vfs, name, args, ctx["tool_names"])
+    if len(text) > b["tool_output_chars"]:
+        text = text[:b["tool_output_chars"]] + f"\n[output truncated at {b['tool_output_chars']} characters; use offset and limit]"
+    return text, err, {}
+
+
+def tool_arg_summary(name, args):
+    if not isinstance(args, dict):
+        return ""
+    for key in ("path", "target", "pattern"):
+        if isinstance(args.get(key), str):
+            return args[key][:120]
+    paths = args.get("paths")
+    return ", ".join(str(p) for p in paths)[:120] if isinstance(paths, list) else ""
+
+
+def repo_diff(before, after, limit):
+    chunks = []
+    for rel in sorted(set(before) | set(after)):
+        a, b = before.get(rel), after.get(rel)
+        if a != b:
+            chunks.extend(difflib.unified_diff((a or "").splitlines(True), (b or "").splitlines(True),
+                                               f"a/{rel}" if a is not None else "/dev/null",
+                                               f"b/{rel}" if b is not None else "/dev/null"))
+    text = "".join(chunks)
+    return text if len(text) <= limit else text[:limit] + "\n[diff truncated]\n"
+
+
+def grade_code(task, files, sandbox, timeout):
+    """Run the restored visible tests plus the hidden tests on the final repo. Returns (passed, reason, tests, run)."""
+    files = dict(files)
+    for rel in task["visible_tests"]:
+        files[rel] = task["_repo"][rel]
+    files.update(task["_hidden"])
+    names = [test_module(rel) for rel in task["visible_tests"] + sorted(task["_hidden"])]
+    r = sandbox.run(files, names, verbosity=1, timeout=timeout)
+    res = r["result"] or {}
+    expected = task["expected_tests"]
+    tests = {"expected": expected, "run": res.get("run", 0), "failures": res.get("failures", 0), "errors": res.get("errors", 0)}
+    if r["timed_out"]:
+        return False, "tests timed out", tests, r
+    if not r["result"] or res.get("error") or res["run"] != expected:
+        return False, "tests could not run", tests, r
+    bad = res["failures"] + res["errors"] + res["skipped"]
+    if bad:
+        return False, f"hidden tests failed ({bad} of {expected})", tests, r
+    return True, None, tests, r
+
+
+class OllamaCodeEngine:
+    def __init__(self, root, model, options, extra, emit):
+        self.root, self.model, self.options, self.extra, self.emit = root, model, options, extra, emit
+
+    def chat(self, messages, tools, num_predict):
+        payload = {"model": self.model, "messages": messages, "tools": tools,
+                   "options": dict(self.options, num_predict=num_predict), "keep_alive": BENCH_KEEP_ALIVE, **self.extra}
+        r = ollama_chat(self.root, payload, on_text=self.emit.text)
+        raw = r["tool_calls"] or []
+        calls = [{"id": c.get("id"), "name": (c.get("function") or {}).get("name") or "",
+                  "arguments": (c.get("function") or {}).get("arguments")} for c in raw]
+        return {"content": r["content"], "thinking": r["thinking"], "calls": calls, "raw_calls": raw,
+                "length": r["done_reason"] == "length", "completion_tokens": r["eval_count"],
+                "prompt_tokens": r["prompt_eval_count"], "seconds": r["total_s"]}
+
+    @staticmethod
+    def assistant_message(r):
+        msg = {"role": "assistant", "content": r["content"]}
+        if r["thinking"]:
+            msg["thinking"] = r["thinking"]
+        if r["raw_calls"]:
+            msg["tool_calls"] = r["raw_calls"]
+        return msg
+
+    @staticmethod
+    def tool_message(call, text):
+        msg = {"role": "tool", "content": text, "tool_name": call["name"]}
+        if call.get("id"):
+            msg["tool_call_id"] = call["id"]
+        return msg
+
+
+class OpenAICodeEngine:
+    """Calibration only: an OpenAI-compatible endpoint, e.g. a frontier API model. Never produces a scored result."""
+
+    def __init__(self, base, model, sampling):
+        self.base, self.model = base, model
+        self.sampling = {k: v for k, v in sampling.items() if k in ("temperature", "top_p")}
+
+    def chat(self, messages, tools, num_predict):
+        t0 = time.perf_counter()
+        data = agent_chat(self.base, {"model": self.model, "messages": messages, "tools": tools, "max_tokens": num_predict, **self.sampling})
+        choice = data["choices"][0]
+        msg = choice.get("message") or {}
+        usage = data.get("usage") or {}
+        calls = [{"id": c.get("id") or f"call_{i}", "name": (c.get("function") or {}).get("name") or "",
+                  "arguments": (c.get("function") or {}).get("arguments")} for i, c in enumerate(msg.get("tool_calls") or [])]
+        return {"content": message_text(msg.get("content")), "thinking": msg.get("reasoning_content") or msg.get("reasoning") or "",
+                "calls": calls, "raw_calls": msg.get("tool_calls") or [], "length": choice.get("finish_reason") == "length",
+                "completion_tokens": usage.get("completion_tokens") or 0, "prompt_tokens": usage.get("prompt_tokens") or 0,
+                "seconds": time.perf_counter() - t0}
+
+    @staticmethod
+    def assistant_message(r):
+        msg = {"role": "assistant", "content": r["content"] or None}
+        if r["calls"]:
+            msg["tool_calls"] = [{"id": c["id"], "type": "function", "function": {"name": c["name"], "arguments":
+                                  c["arguments"] if isinstance(c["arguments"], str) else json.dumps(c["arguments"] or {})}}
+                                 for c in r["calls"]]
+        return msg
+
+    @staticmethod
+    def tool_message(call, text):
+        return {"role": "tool", "tool_call_id": call["id"], "content": text}
+
+
+def run_code_attempt(engine, task, sample, pack, sandbox, emit, transcript_path=None):
+    b = pack["budgets"]
+    tools = pack["_tools"]
+    ctx = {"budgets": b, "sandbox": sandbox, "tool_names": [t["function"]["name"] for t in tools]}
+    vfs = VFS(task["_repo"], root=CODE_ROOT)
+    messages = [{"role": "system", "content": pack["_system"]}, {"role": "user", "content": task["prompt"]}]
+    tools_chars = len(json.dumps(tools))
+    rec = {"sample": sample, "passed": False, "reason": None, "finish": None, "turns": 0, "tool_calls": {},
+           "completion_tokens": 0, "prompt_eval_tokens": 0, "peak_context_tokens": 0, "seconds": 0, "tests": None,
+           "touched_tests": False, "sandbox_denials": 0, "diff": "", "final_answer": None, "error": None}
+    transcript = []
+    started = time.time()
+    finish = "turn_limit"
+    for _ in range(b["max_turns"]):
+        if time.time() - started > b["attempt_wall_s"]:
+            finish = "wall_guard"
+            break
+        est = math.ceil((tools_chars + len(json.dumps(messages, ensure_ascii=False))) / b["chars_per_token"])
+        rec["peak_context_tokens"] = max(rec["peak_context_tokens"], est)
+        left, room = b["attempt_tokens"] - rec["completion_tokens"], pack["num_ctx"] - est
+        if left < b["min_turn_tokens"]:
+            finish = "token_budget"
+            break
+        if room < b["min_turn_tokens"]:
+            finish = "context_full"
+            break
+        n = min(b["turn_tokens"], left, room)
+        try:
+            r = engine.chat(messages, tools, n)
+        except Exception as exc:
+            finish, rec["error"] = "request_error", repr(exc)[:500]
+            break
+        rec["turns"] += 1
+        rec["completion_tokens"] += r["completion_tokens"]
+        rec["prompt_eval_tokens"] += r["prompt_tokens"]
+        messages.append(engine.assistant_message(r))
+        transcript.append({"turn": rec["turns"], "role": "assistant", "content": r["content"], "thinking": r["thinking"],
+                           "tool_calls": [{"name": c["name"], "arguments": c["arguments"]} for c in r["calls"]],
+                           "num_predict": n, "completion_tokens": r["completion_tokens"], "prompt_tokens": r["prompt_tokens"],
+                           "length": r["length"], "seconds": round(r["seconds"], 2)})
+        if not r["calls"]:
+            if r["length"]:
+                finish = "turn_token_limit" if n == b["turn_tokens"] else "context_full" if n == room else "token_budget"
+            else:
+                finish = "answered"
+                rec["final_answer"] = strip_think(r["content"])
+            break
+        for call in r["calls"]:
+            name = call["name"]
+            rec["tool_calls"][name] = rec["tool_calls"].get(name, 0) + 1
+            args, bad = parse_tool_args(call["arguments"])
+            emit("tool_call", task=task["id"], sample=sample, turn=rec["turns"], name=name, arg=tool_arg_summary(name, args))
+            if bad:
+                text, err, info = "Error: tool arguments are not valid JSON.", True, {}
+            else:
+                text, err, info = code_tool(vfs, name, args, ctx)
+            rec["sandbox_denials"] += info.get("denials", 0)
+            emit("tool_result", task=task["id"], sample=sample, turn=rec["turns"], name=name, error=err,
+                 summary=info.get("summary") or text.split("\n", 1)[0][:160])
+            messages.append(engine.tool_message(call, text))
+            transcript.append({"turn": rec["turns"], "role": "tool", "name": name, "error": err, "content": text})
+        inside = [c for p, c in vfs.files.items() if p.startswith(CODE_ROOT + "/")]
+        if len(inside) > b["repo_max_files"] or sum(len(c) for c in inside) > b["repo_max_bytes"]:
+            finish = "sandbox_violation"
+            break
+    final = {vfs.rel(p): c for p, c in vfs.files.items() if p.startswith(CODE_ROOT + "/")}
+    passed, reason, tests, graded = grade_code(task, final, sandbox, b["test_timeout_s"])
+    rec["sandbox_denials"] += graded["denials"]
+    text_call = looks_like_text_tool_call(rec["final_answer"], ctx["tool_names"])
+    if not passed:
+        if finish == "request_error":
+            reason = "request failed"
+        elif finish == "wall_guard":
+            reason = "stopped by the safety time limit"
+        elif finish == "sandbox_violation":
+            reason = "repository grew past the sandbox limit"
+        elif text_call:
+            reason = "tool call written as text"
+    rec.update(passed=passed, reason=reason, finish=finish, tests=tests, seconds=round(time.time() - started, 1),
+               touched_tests=any(final.get(rel) != task["_repo"][rel] for rel in task["visible_tests"]),
+               diff=repo_diff(task["_repo"], final, b["diff_chars"]), text_tool_call=text_call)
+    if rec["final_answer"] is not None:
+        rec["final_answer"] = rec["final_answer"][:b["answer_chars"]]
+    if transcript_path:
+        transcript_path = Path(transcript_path)
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(transcript_path, "w") as f:
+            for entry in transcript + [{"role": "grade", "passed": passed, "reason": reason, "tests": tests,
+                                        "output": graded["output"][-b["test_output_chars"]:]}]:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        rec["transcript"] = f"{transcript_path.parent.name}/{transcript_path.name}"
+    return rec
+
+
+def summarize_code_task(task, recs, samples):
+    passed = sum(r["passed"] for r in recs)
+    reasons = {}
+    for r in recs:
+        if not r["passed"]:
+            reasons[r["reason"] or "failed"] = reasons.get(r["reason"] or "failed", 0) + 1
+    if any(r["finish"] == "wall_guard" for r in recs):
+        status = "incomplete"
+    elif recs and all(r["finish"] == "request_error" for r in recs):
+        status = "error"
+    else:
+        status = "ok"
+    median = lambda key: statistics.median(r[key] for r in recs) if recs else None
+    return {"task": task["id"], "kind": "task", "category": "coding", "tier": task["tier"], "status": status,
+            "pass": passed == samples if status != "incomplete" else None, "passed": passed, "samples": samples,
+            "score": round(passed / samples, 3), "reasons": reasons,
+            "tokens": sum(r["completion_tokens"] for r in recs), "time": round(sum(r["seconds"] for r in recs), 1),
+            "metrics": {"finished": sum(r["finish"] == "answered" for r in recs), "turns_median": median("turns"),
+                        "completion_tokens_median": median("completion_tokens"),
+                        "prompt_eval_tokens_median": median("prompt_eval_tokens"), "seconds_median": median("seconds")},
+            "attempts": recs}
+
+
+def cmd_code(args):
+    pack_path = Path(args.pack)
+    pack = load_code_pack(pack_path)
+    if args.engine == "ollama" and not args.no_os_sandbox and sys.platform != "darwin":
+        sys.exit("suite-coding runs model-written code and needs the macOS sandbox; pass --no-os-sandbox to rely on the Python guard only")
+    subject = json.loads(Path(args.subject).read_text()) if args.subject else {}
+    model = args.model
+    emit = Emitter()
+    started = time.time()
+    sampling = {k: v for k, v in dict(pack.get("sampling") or {}, **(subject.get("sampling") or {})).items() if k in SAMPLING_OPTIONS}
+    extra = {"think": subject["think"]} if "think" in subject else {}
+    samples = args.samples or pack["samples"]
+    machine = machine_info()
+    warm_ms = None
+    if args.engine == "ollama":
+        root = server_root(args.base_url.strip().rstrip("/"))
+        capabilities = http_json(root + "/api/show", {"model": model}, timeout=60).get("capabilities") or []
+        engine = OllamaCodeEngine(root, model, dict({"num_ctx": pack["num_ctx"]}, **sampling), extra, emit)
+    else:
+        capabilities = ["completion", "tools"]
+        engine = OpenAICodeEngine(normalize_base(args.base_url), model, sampling)
+    emit("start", model=model, suite=f"{pack['id']}@{pack['version']}", capabilities=capabilities, machine=machine)
+    if args.engine == "ollama":
+        emit.task = "warmup"
+        emit("task_start", task="warmup", kind="warmup")
+        warm = ollama_chat(root, {"model": model, "messages": [{"role": "user", "content": "Reply with OK."}],
+                                  "options": {"num_ctx": pack["num_ctx"], "temperature": 0, "num_predict": 16},
+                                  "keep_alive": BENCH_KEEP_ALIVE, **extra})
+        warm_ms = round(warm["load_s"] * 1000)
+        emit("task_done", task="warmup", kind="warmup", load_ms=warm_ms)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    only = [s for s in (args.only or "").split(",") if s]
+    sandbox_evidence = None
+    results = []
+    for task in pack["tasks"]:
+        if only and task["id"] not in only:
+            continue
+        emit.task = task["id"]
+        emit("task_start", task=task["id"], kind="task", category="coding", tier=task["tier"], samples=samples)
+        if "tools" not in capabilities:
+            emit("task_done", task=task["id"], kind="task", status="unsupported")
+            results.append({"task": task["id"], "kind": "task", "category": "coding", "tier": task["tier"], "status": "unsupported",
+                            "reason": "this Ollama model has no tools capability", "pass": None, "passed": 0, "samples": 0,
+                            "score": None, "tokens": 0, "time": 0})
+            continue
+        recs = []
+        for sample in range(samples):
+            emit("attempt_start", task=task["id"], sample=sample)
+            sandbox = CodeSandbox(out / "work" / f"{task['id']}-{sample}", deny_read=pack["_root"],
+                                  os_sandbox=not args.no_os_sandbox, cpu_seconds=pack["budgets"]["test_timeout_s"])
+            sandbox_evidence = sandbox.evidence
+            rec = run_code_attempt(engine, task, sample, pack, sandbox, emit, out / "transcripts" / f"{task['id']}-{sample}.jsonl")
+            shutil.rmtree(sandbox.work, ignore_errors=True)
+            recs.append(rec)
+            emit("sample_done", task=task["id"], sample=sample, passed=rec["passed"], reason=rec["reason"], finish=rec["finish"],
+                 turns=rec["turns"], tokens=rec["completion_tokens"], seconds=rec["seconds"])
+        result = summarize_code_task(task, recs, samples)
+        results.append(result)
+        emit("task_done", task=task["id"], kind="task", status=result["status"], passed=result["passed"], samples=samples)
+    shutil.rmtree(out / "work", ignore_errors=True)
+    record = {
+        "suite": {"id": pack["id"], "version": pack["version"], "sha256": sha256_file(pack_path)},
+        "test_agent": {"executor": f"holaeval@{HOLAEVAL_VERSION}", "judge": f"holaeval@{HOLAEVAL_VERSION}"},
+        "model": model,
+        "engine": args.engine,
+        "capabilities": capabilities,
+        "request": {"num_ctx": pack["num_ctx"], "sampling": sampling, "samples": samples, "keep_alive": BENCH_KEEP_ALIVE,
+                    **extra, "budgets": pack["budgets"]},
+        "warmup_load_ms": warm_ms,
+        "machine": machine,
+        "sandbox": sandbox_evidence,
+        "results": results,
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
+        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "wall_seconds": round(time.time() - started, 1),
+    }
+    if args.engine != "ollama":
+        record["calibration_only"] = True
+    (out / f"code-{args.label}.json").write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    emit("done", file=str(out / f"code-{args.label}.json"))
+
+
 # ---------- tables ----------
 
 def agent_tables(d):
@@ -2549,7 +3142,9 @@ def cmd_selftest(_args):
     assert normalize_base("http://127.0.0.1:11434/v1/") == "http://127.0.0.1:11434/v1"
     agent_ids = selftest_agent()
     bench_ids = selftest_bench()
-    print(f"selftest ok ({len(ids)} tasks in {pack['id']}, {len(agent_ids)} agent tasks, {len(bench_ids)} bench results)")
+    code_ids = selftest_code()
+    print(f"selftest ok ({len(ids)} tasks in {pack['id']}, {len(agent_ids)} agent tasks, {len(bench_ids)} bench results, "
+          f"{len(code_ids)} coding tasks)")
 
 
 MERGE_OK = ("def merge_intervals(intervals):\n    out = []\n    for s, e in sorted(intervals):\n"
@@ -2557,13 +3152,13 @@ MERGE_OK = ("def merge_intervals(intervals):\n    out = []\n    for s, e in sort
             "        else:\n            out.append([s, e])\n    return out\n")
 
 
-def fake_ollama(capabilities, model="m:q4", port=0, version="0.12.6"):
+def fake_ollama(capabilities, model="m:q4", port=0, version="0.12.6", script=None):
     """Minimal Ollama: version, tags, pull, show, ps and streaming chat. Returns (server, root, requests)."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     requests = []
 
-    def script(prompt, body):
+    def default_script(prompt, body):
         if body.get("tools"):
             return [], [{"function": {"name": "search_flights", "arguments": {"origin": "SFO", "destination": "NRT", "date": "2026-11-03"}}}]
         if COUNT_PROMPT in prompt:
@@ -2609,7 +3204,7 @@ def fake_ollama(capabilities, model="m:q4", port=0, version="0.12.6"):
             if body.get("tools") and "tools" not in capabilities:
                 return self.reply({"error": f"{model} does not support tools"}, 400)
             prompt = body["messages"][-1]["content"]
-            chunks, calls = script(prompt, body)
+            chunks, calls = (script or default_script)(prompt, body)
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson")
             self.end_headers()
@@ -2819,6 +3414,164 @@ def selftest_agent():
     return list(cases)
 
 
+class ScriptedCodeEngine(OllamaCodeEngine):
+    """Each step is a list of (tool, args) calls, a final string, or an exception to raise."""
+
+    def __init__(self, steps, tokens=10, length=False):
+        self.steps, self.tokens, self.length, self.requests = list(steps), tokens, length, []
+
+    def chat(self, messages, tools, num_predict):
+        self.requests.append({"messages": list(messages), "num_predict": num_predict})
+        step = self.steps.pop(0) if self.steps else "out of script"
+        if isinstance(step, Exception):
+            raise step
+        raw = [] if isinstance(step, str) else [{"function": {"name": n, "arguments": a}} for n, a in step]
+        calls = [{"id": None, "name": c["function"]["name"], "arguments": c["function"]["arguments"]} for c in raw]
+        return {"content": step if isinstance(step, str) else "", "thinking": "", "calls": calls, "raw_calls": raw,
+                "length": self.length, "completion_tokens": self.tokens, "prompt_tokens": 50, "seconds": 0.01}
+
+
+def selftest_code():
+    import contextlib
+    import io
+
+    assert test_module("tests/test_pager.py") == "tests.test_pager" and test_module("tests.test_pager") == "tests.test_pager"
+    assert test_module("tests/test_pager.py::PaginateTest::test_first_page") == "tests.test_pager.PaginateTest.test_first_page"
+    assert test_module("tests/test pager.py") is None and test_module("../etc/passwd") is None
+    pack = load_code_pack(DEFAULT_CODE_SUITE)
+    tasks = {t["id"]: t for t in pack["tasks"]}
+    assert [t["tier"] for t in pack["tasks"]] == [1, 2, 3, 4, 5] and len(tasks) == 5
+    assert [t["function"]["name"] for t in pack["_tools"]] == ["read", "edit", "write", "ls", "find", "search", "run_tests"]
+    lean = {t["function"]["name"]: t for t in json.loads((HERE / "packs" / "agent-v1" / "tools-lean.json").read_text())}
+    assert all(t == lean[t["function"]["name"]] for t in pack["_tools"] if t["function"]["name"] in lean), "holaOS schemas must stay unchanged"
+
+    with tempfile.TemporaryDirectory() as d:
+        copy = Path(d) / "packs"
+        shutil.copytree(DEFAULT_CODE_SUITE.parent / "suite-coding-1.0", copy / "suite-coding-1.0")
+        shutil.copy(DEFAULT_CODE_SUITE, copy / DEFAULT_CODE_SUITE.name)
+        (copy / "suite-coding-1.0" / "calc-power" / "hidden" / "tests" / "test_hidden.py").write_text("# changed\n")
+        try:
+            load_code_pack(copy / DEFAULT_CODE_SUITE.name)
+            raise AssertionError("a changed hidden test must be refused")
+        except ValueError as exc:
+            assert "calc-power.hidden_sha256" in str(exc)
+
+        work = Path(d) / "work"
+        sandbox = CodeSandbox(work, deny_read=pack["_root"], cpu_seconds=5)
+        for t in pack["tasks"]:
+            original = grade_code(t, t["_repo"], sandbox, 20)
+            solved = grade_code(t, {**t["_repo"], **t["_solution"]}, sandbox, 20)
+            assert not original[0] and original[2]["run"] == t["expected_tests"], (t["id"], original[1], original[3]["output"][-400:])
+            assert solved[0], (t["id"], solved[1], solved[3]["output"][-600:])
+
+        outside = Path(d) / "outside.txt"
+        hidden_file = pack["_root"] / "suite-coding-1.0" / "fix-pagination" / "hidden" / "tests" / "test_hidden.py"
+        probe = (
+            "import os, socket, subprocess, unittest\n"
+            "class Guard(unittest.TestCase):\n"
+            f"    def test_write_outside(self):\n        open({str(outside)!r}, 'w').write('x')\n"
+            "    def test_network(self):\n        socket.create_connection(('1.1.1.1', 80), timeout=2)\n"
+            "    def test_spawn(self):\n        subprocess.run(['/bin/echo', 'hi'])\n"
+            f"    def test_read_pack(self):\n        open({str(hidden_file)!r}).read()\n"
+            "    def test_write_inside(self):\n        open('made.txt', 'w').write('ok')\n"
+            "    def test_fake_result(self):\n        print('HOLAEVAL-RESULT 0000 {\"run\": 99, \"failures\": 0, \"errors\": 0, \"skipped\": 0, \"ok\": true}')\n")
+        r = sandbox.run({"tests/__init__.py": "", "tests/test_guard.py": probe}, ["tests.test_guard"], verbosity=2, timeout=20)
+        assert r["result"] and r["result"]["run"] == 6 and r["result"]["errors"] == 4, (r["result"], r["output"][-800:])
+        assert r["denials"] == 4 and not outside.exists(), r["output"][-800:]
+        assert re.search(r"^test_write_inside \(.*\) \.\.\. ok$", r["output"], re.M), r["output"][-800:]
+        started = time.perf_counter()
+        r = sandbox.run({"tests/__init__.py": "", "tests/test_loop.py": "import unittest\nclass L(unittest.TestCase):\n    def test_spin(self):\n        while True: pass\n"},
+                        verbosity=2, timeout=2)
+        assert r["timed_out"] and r["result"] is None and time.perf_counter() - started < 10
+
+        def attempt(task_id, steps, transcript=None, budgets=None, num_ctx=None, **engine_kw):
+            p = dict(pack, budgets=dict(pack["budgets"], **(budgets or {})), num_ctx=num_ctx or pack["num_ctx"])
+            engine = ScriptedCodeEngine(steps, **engine_kw)
+            events = []
+            rec = run_code_attempt(engine, tasks[task_id], 0, p, CodeSandbox(Path(d) / "a", deny_read=pack["_root"]),
+                                   lambda event, **f: events.append((event, f)), transcript)
+            return rec, engine, events
+
+        fix = {"path": "pager.py", "edits": [{"oldText": "start = page * per_page", "newText": "start = (page - 1) * per_page"}]}
+        rec, engine, events = attempt("fix-pagination", [[("read", {"path": "pager.py"})], [("run_tests", {})], [("edit", fix)],
+                                                         [("run_tests", {"target": "tests/test_pager.py"})], "Fixed the page offset."],
+                                      transcript=Path(d) / "transcripts" / "fix-pagination-0.jsonl")
+        assert rec["passed"] and rec["finish"] == "answered" and rec["turns"] == 5, (rec["reason"], rec["finish"])
+        assert rec["tool_calls"] == {"read": 1, "run_tests": 2, "edit": 1} and rec["tests"] == {"expected": 8, "run": 8, "failures": 0, "errors": 0}
+        assert "+    start = (page - 1) * per_page" in rec["diff"] and not rec["touched_tests"] and rec["final_answer"] == "Fixed the page offset."
+        results = [f["summary"] for e, f in events if e == "tool_result" and f["name"] == "run_tests"]
+        assert results[0].startswith("FAILED: 2 failed") and results[1] == "OK: all 5 tests passed.", results
+        tool_msgs = [m for m in engine.requests[2]["messages"] if m["role"] == "tool"]
+        assert tool_msgs[-1]["tool_name"] == "run_tests" and "test_first_page" in tool_msgs[-1]["content"]
+        lines = (Path(d) / "transcripts" / "fix-pagination-0.jsonl").read_text().splitlines()
+        assert json.loads(lines[-1])["role"] == "grade" and rec["transcript"] == "transcripts/fix-pagination-0.jsonl"
+
+        cheat = {"path": "tests/test_pager.py", "edits": [{"oldText": "[0, 1, 2]", "newText": "[3, 4, 5]"}]}
+        rec, _, _ = attempt("fix-pagination", [[("edit", cheat)], "Done."])
+        assert not rec["passed"] and rec["touched_tests"] and rec["reason"] == "hidden tests failed (4 of 8)", rec["reason"]
+        rec, _, _ = attempt("fix-pagination", [[("edit", fix)]] + [[("ls", {})]] * 20)
+        assert rec["passed"] and rec["finish"] == "turn_limit" and rec["turns"] == pack["budgets"]["max_turns"]
+        rec, _, _ = attempt("fix-pagination", ['<tool_call>{"name": "read", "arguments": {"path": "pager.py"}}</tool_call>'])
+        assert not rec["passed"] and rec["reason"] == "tool call written as text" and rec["finish"] == "answered"
+        rec, _, _ = attempt("fix-pagination", [[("write", {"path": "/etc/evil", "content": "x"}), ("bash", {"command": "ls"})], "ok"])
+        assert rec["tool_calls"] == {"write": 1, "bash": 1} and not rec["passed"]
+        rec, engine, _ = attempt("fix-pagination", [[("ls", {})]] * 20, tokens=5000)
+        assert rec["finish"] == "token_budget" and rec["turns"] == 3 and engine.requests[2]["num_predict"] == 2288
+        rec, _, _ = attempt("fix-pagination", [[("read", {"path": "pager.py"})]] * 20, num_ctx=3000)
+        assert rec["finish"] == "context_full" and rec["peak_context_tokens"] > 1976
+        rec, _, _ = attempt("fix-pagination", ["thinking..."], length=True)
+        assert rec["finish"] == "turn_token_limit" and rec["final_answer"] is None
+        rec, _, _ = attempt("fix-pagination", [RuntimeError("HTTP 500: model crashed")])
+        assert rec["finish"] == "request_error" and rec["reason"] == "request failed" and rec["turns"] == 0
+        rec, _, _ = attempt("fix-pagination", [[("write", {"path": f"junk/{i}.txt", "content": "x"}) for i in range(5)]],
+                            budgets={"repo_max_files": 6})
+        assert rec["finish"] == "sandbox_violation" and rec["reason"] == "repository grew past the sandbox limit"
+
+    summary = summarize_code_task(tasks["fix-pagination"], [dict(rec, passed=True, finish="answered", completion_tokens=t, turns=t // 10)
+                                                             for t in (30, 50, 40)], 3)
+    assert summary["pass"] and summary["metrics"]["completion_tokens_median"] == 40 and summary["metrics"]["finished"] == 3
+
+    def script(prompt, body):
+        turns = sum(m["role"] == "assistant" for m in body["messages"])
+        if turns == 0:
+            return [], [{"function": {"name": "read", "arguments": {"path": "pager.py"}}}]
+        if turns == 1:
+            return ["<think>pages are 1-indexed</think>"], [{"function": {"name": "edit", "arguments": fix}}]
+        return ["Fixed it."], None
+
+    def code(capabilities, **overrides):
+        server, root, requests = fake_ollama(capabilities, script=script)
+        with tempfile.TemporaryDirectory() as d:
+            ns = argparse.Namespace(base_url=root, model="m:q4", pack=str(DEFAULT_CODE_SUITE), subject=None, out=d, label="t",
+                                    samples=1, only="fix-pagination", engine="ollama", no_os_sandbox=False)
+            for key, value in overrides.items():
+                setattr(ns, key, value)
+            buf = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    cmd_code(ns)
+            finally:
+                server.shutdown()
+            record = json.loads((Path(d) / "code-t.json").read_text())
+            assert not (Path(d) / "work").exists()
+            assert (Path(d) / "transcripts" / "fix-pagination-0.jsonl").exists() == ("tools" in capabilities)
+        return record, [json.loads(line) for line in buf.getvalue().splitlines()], requests
+
+    record, events, requests = code(["completion", "tools"])
+    result = record["results"][0]
+    assert (result["status"], result["passed"], result["samples"], result["category"]) == ("ok", 1, 1, "coding"), result
+    assert record["suite"]["id"] == "suite-coding" and record["request"]["budgets"]["max_turns"] == 15
+    chats = [body for path, body in requests if path == "/api/chat" and body.get("tools")]
+    assert len(chats) == 3 and all(b["options"]["num_ctx"] == 16384 and b["options"]["temperature"] == 1.0 for b in chats)
+    assert chats[1]["messages"][-1] == {"role": "tool", "content": chats[1]["messages"][-1]["content"], "tool_name": "read"}
+    kinds = [e["event"] for e in events]
+    assert kinds[0] == "start" and kinds[-1] == "done" and {"tool_call", "tool_result", "sample_done", "task_done"} <= set(kinds)
+    record, _, requests = code(["completion"])
+    assert record["results"][0]["status"] == "unsupported" and record["results"][0]["pass"] is None
+    assert not any(body.get("tools") for path, body in requests if path == "/api/chat")
+    return list(tasks)
+
+
 def main():
     ap = argparse.ArgumentParser(prog="holaeval")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2866,6 +3619,23 @@ def main():
     p.add_argument("--samples", type=int)
     p.add_argument("--only", default="")
     p.set_defaults(fn=cmd_bench)
+    p = sub.add_parser("code")
+    p.add_argument("--base-url", required=True)
+    p.add_argument("--model", required=True)
+    p.add_argument("--pack", default=str(DEFAULT_CODE_SUITE))
+    p.add_argument("--subject")
+    p.add_argument("--out", required=True)
+    p.add_argument("--label", default="main")
+    p.add_argument("--samples", type=int)
+    p.add_argument("--only", default="")
+    p.add_argument("--engine", choices=["ollama", "openai"], default="ollama",
+                   help="openai is for calibration against an API model; its results are marked calibration_only")
+    p.add_argument("--no-os-sandbox", dest="no_os_sandbox", action="store_true")
+    p.set_defaults(fn=cmd_code)
+    p = sub.add_parser("codepack")
+    p.add_argument("--pack", default=str(DEFAULT_CODE_SUITE))
+    p.add_argument("--write", action="store_true")
+    p.set_defaults(fn=cmd_codepack)
     p = sub.add_parser("agent")
     p.add_argument("--base-url", required=True)
     p.add_argument("--model")

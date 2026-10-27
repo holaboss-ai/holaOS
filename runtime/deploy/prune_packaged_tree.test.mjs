@@ -52,6 +52,42 @@ test("prunePackagedTree preserves skill markdown while pruning other markdown fi
   }
 });
 
+test("prunePackagedTree keeps tests and docs directories inside embedded capability assets", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prune-embedded-dirs-"));
+  const repoDir = path.join(
+    root,
+    "runtime",
+    "api-server",
+    "dist",
+    "embedded-capabilities",
+    "local-model-review",
+    "skills",
+    "run-model-eval",
+    "packs",
+    "suite-coding-1.0",
+    "checkout-bug",
+    "repo",
+  );
+  const visibleTestPath = path.join(repoDir, "tests", "test_cart.py");
+  const policyPath = path.join(repoDir, "docs", "pricing.md");
+  const packageTestPath = path.join(root, "node_modules", "left-pad", "test", "index.js");
+
+  try {
+    for (const file of [visibleTestPath, policyPath, packageTestPath]) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, "x\n", "utf8");
+    }
+
+    prunePackagedTree(root, "macos");
+
+    assert.equal(fs.existsSync(visibleTestPath), true);
+    assert.equal(fs.existsSync(policyPath), true);
+    assert.equal(fs.existsSync(packageTestPath), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("prunePackagedTree removes packaged-runtime archives, sources, and duplicate node binaries", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prune-node-runtime-"));
   const nodePackageDir = path.join(root, "node_modules", "node");
