@@ -1,0 +1,201 @@
+{
+ "id": "agent-v1",
+ "version": 1,
+ "name": "holaOS agent fitness",
+ "description": "8 agent-loop tasks run against a simulated workspace (in-memory files, no real commands). Each task runs under two conditions: 'full' sends the real holaOS system prompt and tool list, 'lean' sends 8 core tools from the same snapshot and a short system prompt. Graded by program.",
+ "sampling": {
+  "temperature": 1.0,
+  "top_p": 0.95,
+  "min_p": 0.0
+ },
+ "samples": 3,
+ "max_turns": 6,
+ "max_tokens": 6000,
+ "workspace": "/workspace",
+ "conditions": {
+  "full": {
+   "description": "Real holaOS main-session request: system prompt and tool list captured from the runtime's request pipeline on a fresh workspace with no integrations, MCP servers or browser. Paths, dates and timezone replaced with neutral placeholders.",
+   "system": "agent-v1/system-full.md",
+   "tools": "agent-v1/tools-full.json",
+   "user_suffix": "\n\nRuntime context:\n\n[Runtime Context 1]\nCurrent user context:\nThe current operator timezone is `UTC`.\nInterpret relative dates and times such as `today`, `tomorrow`, `this morning`, and `end of day` in that timezone unless the user says otherwise.\n[/Runtime Context 1]",
+   "tool_count": 30,
+   "approx_tokens": {
+    "system": 4200,
+    "tools": 11300,
+    "request": 15300
+   }
+  },
+  "lean": {
+   "description": "8 core tools copied unchanged from the full snapshot (read, edit, bash, search, find, ls, search_web, ask_user_question) and a short system prompt. holaOS has no write tool; new files are created with bash in both conditions.",
+   "system": "agent-v1/system-lean.md",
+   "tools": "agent-v1/tools-lean.json",
+   "user_suffix": "",
+   "tool_count": 8,
+   "approx_tokens": {
+    "system": 300,
+    "tools": 3700,
+    "request": 4100
+   }
+  }
+ },
+ "token_note": "approx_tokens measured with one model's tokenizer and chat template; other models differ by roughly 10-20%.",
+ "vfs_base": {
+  "AGENTS.md": "# Holaboss\n\nDefault workspace.\n",
+  "outputs/": null
+ },
+ "tasks": [
+  {
+   "id": "read-config",
+   "category": "read",
+   "prompt": "Which port does the database use, according to config/app.yaml? Reply with just the port number.",
+   "vfs": {
+    "config/app.yaml": "service: orders-api\nlog_level: info\n\nserver:\n  host: 0.0.0.0\n  port: 8080\n\ndatabase:\n  host: db.internal\n  port: 6432\n  name: orders\n  pool_size: 12\n"
+   },
+   "grader": {
+    "tools_used_any": [
+     "read",
+     "bash",
+     "search"
+    ],
+    "answer_contains": "6432",
+    "answer_excludes": [
+     "8080"
+    ]
+   }
+  },
+  {
+   "id": "edit-json",
+   "category": "edit",
+   "prompt": "In settings.json, change max_items to 200. Leave every other setting as it is.",
+   "vfs": {
+    "settings.json": "{\n  \"theme\": \"light\",\n  \"autosave\": false,\n  \"max_items\": 50,\n  \"language\": \"en\"\n}\n"
+   },
+   "grader": {
+    "file_json": {
+     "path": "settings.json",
+     "equals": {
+      "theme": "light",
+      "autosave": false,
+      "max_items": 200,
+      "language": "en"
+     }
+    }
+   }
+  },
+  {
+   "id": "count-csv",
+   "category": "read",
+   "prompt": "How many orders are in data/orders.csv? The first line is a header. Reply with just the number.",
+   "vfs": {
+    "data/orders.csv": "order_id,customer,total\n4000,Avery,10.00\n4263,Jordan,47.13\n4526,Devon,84.26\n4789,Morgan,31.39\n4055,Harper,68.52\n4318,Casey,15.65\n4581,Logan,52.78\n4844,Finley,89.91\n4110,Blake,36.04\n4373,Kai,73.17\n4636,Emery,20.30\n4899,Avery,57.43\n4165,Jordan,94.56\n4428,Devon,41.69\n4691,Morgan,78.82\n4954,Harper,25.95\n4220,Casey,62.08\n4483,Logan,99.21\n4746,Finley,46.34\n4012,Blake,83.47\n4275,Kai,30.60\n4538,Emery,67.73\n4801,Avery,14.86\n4067,Jordan,51.99\n4330,Devon,88.12\n4593,Morgan,35.25\n4856,Harper,72.38\n4122,Casey,19.51\n4385,Logan,56.64\n4648,Finley,93.77\n4911,Blake,40.90\n4177,Kai,77.03\n4440,Emery,24.16\n4703,Avery,61.29\n4966,Jordan,98.42\n4232,Devon,45.55\n4495,Morgan,82.68\n"
+   },
+   "grader": {
+    "answer_number": 37
+   }
+  },
+  {
+   "id": "index-notes",
+   "category": "multi_step",
+   "prompt": "Create notes/INDEX.md: a markdown bullet list with one line per file in the notes folder, in the form `- <file name>`. Do not list INDEX.md itself.",
+   "vfs": {
+    "notes/2026-03-02-meeting.md": "# Weekly sync\n\n- Ship the pricing page\n- Review hiring plan\n",
+    "notes/ideas.md": "# Ideas\n\n- Offline mode\n- Keyboard shortcuts\n",
+    "notes/reading-list.md": "# Reading\n\n- Designing Data-Intensive Applications\n",
+    "notes/budget.csv": "item,amount\nhosting,120\ndomains,30\n"
+   },
+   "grader": {
+    "file_bullets": {
+     "path": "notes/INDEX.md",
+     "items": [
+      "2026-03-02-meeting.md",
+      "ideas.md",
+      "reading-list.md",
+      "budget.csv"
+     ],
+     "exclude": [
+      "INDEX.md"
+     ]
+    }
+   }
+  },
+  {
+   "id": "web-lookup",
+   "category": "tool_choice",
+   "prompt": "What is the latest stable release of the Rust programming language right now?",
+   "vfs": {},
+   "web_results": [
+    {
+     "title": "Announcing Rust 1.92.0 | Rust Blog",
+     "url": "https://blog.rust-lang.org/",
+     "snippet": "The Rust team has published a new version of Rust, 1.92.0. It is the current stable release."
+    },
+    {
+     "title": "Releases - rust-lang/rust",
+     "url": "https://github.com/rust-lang/rust/releases",
+     "snippet": "Rust 1.92.0 (2025-12-11). Stable release notes."
+    },
+    {
+     "title": "Rust Versions",
+     "url": "https://releases.rs/",
+     "snippet": "Stable: 1.92.0, released 2025-12-11. Next: 1.93.0, planned 2026-01-22."
+    }
+   ],
+   "grader": {
+    "tool_call": {
+     "name": "search_web",
+     "arg": "query",
+     "contains_any_ci": [
+      "rust"
+     ]
+    }
+   }
+  },
+  {
+   "id": "no-tool-math",
+   "category": "no_tool",
+   "prompt": "What is 17 × 23? Reply with just the number.",
+   "vfs": {},
+   "grader": {
+    "no_tool_calls": true,
+    "answer_number": 391
+   }
+  },
+  {
+   "id": "ambiguous-rename",
+   "category": "clarify",
+   "prompt": "Rename the report to final.md.",
+   "vfs": {
+    "reports/q1-summary.md": "# Q1 summary\n\nRevenue up 4%.\n",
+    "reports/q2-summary.md": "# Q2 summary\n\nRevenue up 7%.\n",
+    "reports/q3-draft.md": "# Q3 draft\n\nNumbers pending.\n"
+   },
+   "grader": {
+    "asks_user": true,
+    "no_mutation": true
+   }
+  },
+  {
+   "id": "json-filenames",
+   "category": "format",
+   "prompt": "Which PNG images are in the assets folder? Reply with only a JSON array of the file names, for example [\"a.png\", \"b.png\"]. No code fence and no other text.",
+   "vfs": {
+    "assets/hero.png": "PNG placeholder\n",
+    "assets/icon-192.png": "PNG placeholder\n",
+    "assets/screenshot-home.png": "PNG placeholder\n",
+    "assets/logo.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"/>\n",
+    "assets/notes.txt": "Export at 2x.\n"
+   },
+   "grader": {
+    "answer_json_array": {
+     "items": [
+      "hero.png",
+      "icon-192.png",
+      "screenshot-home.png"
+     ],
+     "no_fence": true,
+     "basename": true
+    }
+   }
+  }
+ ]
+}

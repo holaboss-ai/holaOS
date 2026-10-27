@@ -1,0 +1,1445 @@
+[
+ {
+  "type": "function",
+  "function": {
+   "name": "bash",
+   "description": "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "command"
+    ],
+    "properties": {
+     "command": {
+      "type": "string",
+      "description": "Bash command to execute"
+     },
+     "timeout": {
+      "type": "number",
+      "description": "Timeout in seconds (optional, no default timeout)"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "edit",
+   "description": "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path",
+     "edits"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the file to edit (relative or absolute)"
+     },
+     "edits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "oldText",
+        "newText"
+       ],
+       "properties": {
+        "oldText": {
+         "type": "string",
+         "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+        },
+        "newText": {
+         "type": "string",
+         "description": "Replacement text for this targeted edit."
+        }
+       },
+       "additionalProperties": false
+      },
+      "description": "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+     }
+    },
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "search",
+   "description": "Search file contents across files, directories, globs, or .zip archive members with grouped results. Use this tool for content search instead of shelling out to `grep`, `rg`, or `git grep`. Accepts file selectors like \"src/app.ts:50-120\" to constrain the search to specific line ranges. Results are grouped by file, show 1 line before and 3 lines after each match with gap elision, paginate by 20 files via skip, and truncate long lines to 500 characters.",
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "pattern"
+    ],
+    "properties": {
+     "pattern": {
+      "description": "Regex pattern to search for",
+      "type": "string"
+     },
+     "path": {
+      "description": "Single file, directory, glob, or file with line selector (for example \"src/app.ts:50-120\")",
+      "type": "string"
+     },
+     "paths": {
+      "description": "Optional multi-path search scope. Use instead of `path` when searching several scopes.",
+      "type": "array",
+      "items": {
+       "description": "File, directory, glob, or file with line selector (for example \"src/app.ts:50-120\")",
+       "type": "string"
+      }
+     },
+     "i": {
+      "description": "Case-insensitive search.",
+      "type": "boolean"
+     },
+     "gitignore": {
+      "description": "Respect .gitignore files. Defaults to true.",
+      "type": "boolean"
+     },
+     "skip": {
+      "description": "Number of matching files to skip before showing the next page. Defaults to 0. File window size is 20.",
+      "type": "number"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "find",
+   "description": "Find files and directories from one or more file, directory, or glob inputs. Use this tool for filename lookup instead of shelling out to `find`, `fd`, or `ls`. Results are grouped by directory, sorted by most recent modification time, and truncated to 200 results or 50.0KB of output.",
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+     "paths": {
+      "minItems": 1,
+      "description": "File, directory, or glob entries to search. Prefer this over the legacy pattern/path pair.",
+      "type": "array",
+      "items": {
+       "description": "File, directory, or glob including an optional search path.",
+       "type": "string"
+      }
+     },
+     "pattern": {
+      "description": "Legacy compatibility alias for a single glob pattern.",
+      "type": "string"
+     },
+     "path": {
+      "description": "Legacy compatibility search root used with `pattern`.",
+      "type": "string"
+     },
+     "hidden": {
+      "description": "Include hidden files. Defaults to true.",
+      "type": "boolean"
+     },
+     "gitignore": {
+      "description": "Respect .gitignore files. Defaults to true.",
+      "type": "boolean"
+     },
+     "limit": {
+      "description": "Maximum results to return. Clamped to 1-200. Defaults to 200.",
+      "type": "number"
+     },
+     "timeout": {
+      "description": "Timeout in seconds. Returns partial results on timeout.",
+      "type": "number"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "ls",
+   "description": "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Directory to list (default: current directory)"
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum number of entries to return (default: 500)"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "read",
+   "description": "Read files, directories, and common documents. Use this tool instead of shelling out to `cat`, `head`, `tail`, or `ls`. Plain text/code reads return verbatim file contents and can be paginated with offset/limit. Large source files (100-20000 lines) may return a structural summary that keeps declarations and elides long function bodies; re-read elided ranges with offset/limit before editing. Directories return numbered entry listings. Images are returned inline as attachments. PDFs, DOCX, PPTX, XLSX, and XLS files are converted into readable text output.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the file to read (relative or absolute)"
+     },
+     "offset": {
+      "type": "number",
+      "description": "Line number to start reading from (1-indexed)"
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum number of lines to read"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "ask_user_question",
+   "description": "Pause and ask the user one or more multiple-choice questions in an inline answer card on the current session. Prefer this over listing questions as prose whenever you need setup details, scope, or a decision before acting — the card lets the user confirm or tweak with a tap instead of composing a reply. For each question offer concrete options and mark the single best default with `recommended: true`, deriving it from connected integrations, workspace context, and sensible convention, so the user can accept the whole set at once; leave a question without a recommended option only when it is genuinely unknowable and you truly need the user to pick. Keep freeform on as an escape hatch. Each option's `answer_text` is what routes back into the session, so write it as a clear standalone statement. Keep the deck short — at most 4 questions per ask (extras are dropped), and ask only what actually changes what you do, inferring or safely defaulting the rest. The user's answers return as the next user message.",
+   "parameters": {
+    "properties": {
+     "question": {
+      "description": "Structured question payload. Use either one question object with `prompt` and `options`, or a deck object with `questions: [...]` where each item also has `prompt` and `options`. You may also pass `questions: [...]` at the top level instead of wrapping it in `question`.",
+      "anyOf": [
+       {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "description": "Optional stable question id."
+         },
+         "title": {
+          "type": "string",
+          "description": "Optional short heading above the prompt."
+         },
+         "prompt": {
+          "type": "string",
+          "description": "Required question text shown to the user."
+         },
+         "details": {
+          "type": "string",
+          "description": "Optional supporting detail under the prompt."
+         },
+         "allow_notes": {
+          "type": "boolean",
+          "description": "Allow a short notes field."
+         },
+         "notes_placeholder": {
+          "type": "string",
+          "description": "Optional notes input placeholder."
+         },
+         "allow_freeform": {
+          "type": "boolean",
+          "description": "Allow a natural-language answer box in addition to options."
+         },
+         "freeform_placeholder": {
+          "type": "string",
+          "description": "Optional placeholder for the freeform answer box."
+         },
+         "options": {
+          "type": "array",
+          "description": "Two or more answer choices.",
+          "minItems": 2,
+          "items": {
+           "type": "object",
+           "properties": {
+            "id": {
+             "type": "string",
+             "description": "Optional stable option id."
+            },
+            "label": {
+             "type": "string",
+             "description": "Visible answer label shown to the user."
+            },
+            "description": {
+             "type": "string",
+             "description": "Optional helper detail for this option."
+            },
+            "answer_text": {
+             "type": "string",
+             "description": "Optional normalized answer text to store instead of the visible label."
+            },
+            "recommended": {
+             "type": "boolean",
+             "description": "Mark the recommended default option."
+            }
+           },
+           "required": [
+            "label"
+           ],
+           "additionalProperties": false
+          }
+         }
+        },
+        "required": [
+         "prompt",
+         "options"
+        ],
+        "additionalProperties": false
+       },
+       {
+        "type": "object",
+        "properties": {
+         "title": {
+          "type": "string",
+          "description": "Optional deck heading above the questions."
+         },
+         "details": {
+          "type": "string",
+          "description": "Optional deck-level context."
+         },
+         "allow_notes": {
+          "type": "boolean",
+          "description": "Default notes toggle inherited by questions unless overridden."
+         },
+         "notes_placeholder": {
+          "type": "string",
+          "description": "Default notes placeholder inherited by questions unless overridden."
+         },
+         "allow_freeform": {
+          "type": "boolean",
+          "description": "Default freeform-answer toggle inherited by questions unless overridden."
+         },
+         "freeform_placeholder": {
+          "type": "string",
+          "description": "Default freeform placeholder inherited by questions unless overridden."
+         },
+         "questions": {
+          "type": "array",
+          "description": "One or more structured alignment questions.",
+          "minItems": 1,
+          "items": {
+           "type": "object",
+           "properties": {
+            "id": {
+             "type": "string",
+             "description": "Optional stable question id."
+            },
+            "title": {
+             "type": "string",
+             "description": "Optional short heading above the prompt."
+            },
+            "prompt": {
+             "type": "string",
+             "description": "Required question text shown to the user."
+            },
+            "details": {
+             "type": "string",
+             "description": "Optional supporting detail under the prompt."
+            },
+            "allow_notes": {
+             "type": "boolean",
+             "description": "Allow a short notes field."
+            },
+            "notes_placeholder": {
+             "type": "string",
+             "description": "Optional notes input placeholder."
+            },
+            "allow_freeform": {
+             "type": "boolean",
+             "description": "Allow a natural-language answer box in addition to options."
+            },
+            "freeform_placeholder": {
+             "type": "string",
+             "description": "Optional placeholder for the freeform answer box."
+            },
+            "options": {
+             "type": "array",
+             "description": "Two or more answer choices.",
+             "minItems": 2,
+             "items": {
+              "type": "object",
+              "properties": {
+               "id": {
+                "type": "string",
+                "description": "Optional stable option id."
+               },
+               "label": {
+                "type": "string",
+                "description": "Visible answer label shown to the user."
+               },
+               "description": {
+                "type": "string",
+                "description": "Optional helper detail for this option."
+               },
+               "answer_text": {
+                "type": "string",
+                "description": "Optional normalized answer text to store instead of the visible label."
+               },
+               "recommended": {
+                "type": "boolean",
+                "description": "Mark the recommended default option."
+               }
+              },
+              "required": [
+               "label"
+              ],
+              "additionalProperties": false
+             }
+            }
+           },
+           "required": [
+            "prompt",
+            "options"
+           ],
+           "additionalProperties": false
+          }
+         }
+        },
+        "required": [
+         "questions"
+        ],
+        "additionalProperties": false
+       },
+       {
+        "type": "string"
+       }
+      ]
+     },
+     "questions": {
+      "description": "Alias for a deck — the array of question items directly (equivalent to `question.questions`). Prefer this when asking multiple questions.",
+      "anyOf": [
+       {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string",
+           "description": "Optional stable question id."
+          },
+          "title": {
+           "type": "string",
+           "description": "Optional short heading above the prompt."
+          },
+          "prompt": {
+           "type": "string",
+           "description": "Required question text shown to the user."
+          },
+          "details": {
+           "type": "string",
+           "description": "Optional supporting detail under the prompt."
+          },
+          "allow_notes": {
+           "type": "boolean",
+           "description": "Allow a short notes field."
+          },
+          "notes_placeholder": {
+           "type": "string",
+           "description": "Optional notes input placeholder."
+          },
+          "allow_freeform": {
+           "type": "boolean",
+           "description": "Allow a natural-language answer box in addition to options."
+          },
+          "freeform_placeholder": {
+           "type": "string",
+           "description": "Optional placeholder for the freeform answer box."
+          },
+          "options": {
+           "type": "array",
+           "description": "Two or more answer choices.",
+           "minItems": 2,
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string",
+              "description": "Optional stable option id."
+             },
+             "label": {
+              "type": "string",
+              "description": "Visible answer label shown to the user."
+             },
+             "description": {
+              "type": "string",
+              "description": "Optional helper detail for this option."
+             },
+             "answer_text": {
+              "type": "string",
+              "description": "Optional normalized answer text to store instead of the visible label."
+             },
+             "recommended": {
+              "type": "boolean",
+              "description": "Mark the recommended default option."
+             }
+            },
+            "required": [
+             "label"
+            ],
+            "additionalProperties": false
+           }
+          }
+         },
+         "required": [
+          "prompt",
+          "options"
+         ],
+         "additionalProperties": false
+        }
+       },
+       {
+        "type": "string"
+       }
+      ]
+     }
+    },
+    "anyOf": [
+     {
+      "required": [
+       "question"
+      ],
+      "type": "object"
+     },
+     {
+      "required": [
+       "questions"
+      ],
+      "type": "object"
+     }
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "image_generate",
+   "description": "Generate an image file in the current workspace using the configured image generation provider and model.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "prompt": {
+      "type": "string",
+      "description": "Prompt describing the image to generate."
+     },
+     "filename": {
+      "type": "string",
+      "description": "Optional output filename for the generated image."
+     },
+     "size": {
+      "type": "string",
+      "description": "Optional provider-specific size hint such as `1024x1024`."
+     }
+    },
+    "required": [
+     "prompt"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "video_generate",
+   "description": "Generate a video file (MP4) in the current workspace from a text prompt using the configured video generation provider and model. Video generation can take a few minutes.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "prompt": {
+      "type": "string",
+      "description": "Prompt describing the video to generate."
+     },
+     "filename": {
+      "type": "string",
+      "description": "Optional output filename for the generated video (.mp4)."
+     },
+     "size": {
+      "type": "string",
+      "description": "Optional provider-specific resolution hint such as `1280x720`."
+     },
+     "seconds": {
+      "type": "number",
+      "description": "Optional clip duration in seconds (provider-specific)."
+     }
+    },
+    "required": [
+     "prompt"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "download_url",
+   "description": "Download a remote file from a URL into the current workspace and return the saved file metadata. Prefer this over ad hoc shell downloads when you already have a direct asset URL.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "url": {
+      "type": "string",
+      "description": "Direct http or https URL to download."
+     },
+     "output_path": {
+      "type": "string",
+      "description": "Optional workspace-relative destination path. If omitted, the runtime saves the file under Downloads/ with an inferred filename."
+     },
+     "expected_mime_prefix": {
+      "type": "string",
+      "description": "Optional MIME prefix such as `image/` or `application/pdf` used to fail fast if the response type is not what you expect."
+     },
+     "overwrite": {
+      "type": "boolean",
+      "description": "Overwrite an existing file when output_path is provided. Ignored when output_path is omitted."
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "send_file",
+   "description": "Deliver an EXISTING file to the user by registering it as this turn's output, so it is sent to them as an attachment (image, document, etc.) — not summarized. Use this whenever the user asks you to send, share, fetch, get, or give them a file itself (as opposed to its contents). Pass the path to the file you already found or created; do not paste or describe the file in place of sending it.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the existing file to deliver to the user — absolute, or relative to the current working directory. The file must already exist."
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "holahub_upload_image",
+   "description": "Upload a LOCAL image file to HolaHub and get back an { image_id }. Use this to attach an image (e.g. one the user gave you — pass its workspace_path) to a HolaHub post: upload it here first, then pass the returned id in the HolaHub create_post tool's imageIds. Accepts png/jpeg/webp/gif up to 4 MB.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the local image file to upload — absolute, or workspace-relative (e.g. an attachment's workspace_path). Must be png/jpeg/webp/gif, ≤ 4 MB."
+     }
+    },
+    "required": [
+     "path"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "open_macos_settings",
+   "description": "Open a macOS System Settings → Privacy & Security pane (Screen Recording, Accessibility, Full Disk Access, Automation, Files & Folders, Input Monitoring, Camera, Microphone, Location) so the user can grant Holaboss a permission. Use this when an operation fails because the macOS host lacks a privacy permission (e.g. `screencapture` reporting `could not create image from display`): open the relevant pane, tell the user to enable Holaboss there, then retry the original operation. macOS desktop host only — a no-op elsewhere.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "pane": {
+      "anyOf": [
+       {
+        "type": "string",
+        "const": "screen_recording"
+       },
+       {
+        "type": "string",
+        "const": "accessibility"
+       },
+       {
+        "type": "string",
+        "const": "input_monitoring"
+       },
+       {
+        "type": "string",
+        "const": "full_disk_access"
+       },
+       {
+        "type": "string",
+        "const": "files_and_folders"
+       },
+       {
+        "type": "string",
+        "const": "automation"
+       },
+       {
+        "type": "string",
+        "const": "camera"
+       },
+       {
+        "type": "string",
+        "const": "microphone"
+       },
+       {
+        "type": "string",
+        "const": "location"
+       },
+       {
+        "type": "string",
+        "const": "privacy"
+       }
+      ],
+      "description": "Which macOS System Settings → Privacy & Security pane to open. Use `privacy` as a fallback for the Privacy & Security root."
+     }
+    },
+    "required": [
+     "pane"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "write_report",
+   "description": "Create an HTML report artifact for the current workspace session, save it under outputs/reports/, and return the created report metadata.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string",
+      "description": "Optional report title shown in the artifact list."
+     },
+     "filename": {
+      "type": "string",
+      "description": "Optional HTML filename stem for the saved report."
+     },
+     "summary": {
+      "type": "string",
+      "description": "Optional short summary for artifact metadata and follow-up context."
+     },
+     "content": {
+      "type": "string",
+      "description": "Full self-contained HTML report content to save as an artifact. Put the detailed research findings in this field instead of in chat."
+     }
+    },
+    "required": [
+     "content"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "memory_retrieve",
+   "description": "Resolve workspace memory into a reasoning-ready retrieval pack with recalled facts, recent high-signal items, supporting evidence, unresolved gaps, and a recommended next source. Use this for memory-first context building and problem solving, not for tree browsing.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "Memory retrieval query or question."
+     },
+     "mode": {
+      "anyOf": [
+       {
+        "type": "string",
+        "const": "mixed"
+       },
+       {
+        "type": "string",
+        "const": "summaries"
+       },
+       {
+        "type": "string",
+        "const": "leaves"
+       }
+      ],
+      "description": "Retrieval mode. Use `mixed` by default, `summaries` for broad context, and `leaves` for exact evidence."
+     },
+     "tree_id": {
+      "type": "string",
+      "description": "Optional interaction tree id to scope retrieval."
+     },
+     "node_id": {
+      "type": "string",
+      "description": "Optional summary node id to expand or drill into."
+     },
+     "max_results": {
+      "type": "integer",
+      "description": "Optional maximum number of hits to return.",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "remember",
+   "description": "Record ONE durable memory the moment you learn something worth keeping across sessions: a stable user fact or preference, a project decision or constraint, a verified procedure, or a reference. Provide a short `title` and a specific `summary` (the fact itself). Optional: `scope` ('workspace' default, or 'user' for facts about the person), `memory_type` (fact | preference | identity | procedure | blocker | reference), `subject_key` (stable slug for updates/dedup), `evidence`, `tags`, `confidence`. Do NOT use it for transient turn state, tool output, or anything already in context — only durable, reusable knowledge. Recall with `memory_retrieve`.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "title": {
+      "type": "string",
+      "description": "Short human-readable title for the memory."
+     },
+     "summary": {
+      "type": "string",
+      "description": "The durable fact/preference/knowledge itself, stated specifically and self-contained."
+     },
+     "scope": {
+      "anyOf": [
+       {
+        "type": "string",
+        "const": "workspace"
+       },
+       {
+        "type": "string",
+        "const": "user"
+       }
+      ],
+      "description": "`workspace` (default) for project/task knowledge; `user` for stable facts about the person."
+     },
+     "memory_type": {
+      "anyOf": [
+       {
+        "type": "string",
+        "const": "fact"
+       },
+       {
+        "type": "string",
+        "const": "preference"
+       },
+       {
+        "type": "string",
+        "const": "identity"
+       },
+       {
+        "type": "string",
+        "const": "procedure"
+       },
+       {
+        "type": "string",
+        "const": "blocker"
+       },
+       {
+        "type": "string",
+        "const": "reference"
+       }
+      ],
+      "description": "Kind of memory. Defaults to `fact` (workspace) or `preference` (user)."
+     },
+     "subject_key": {
+      "type": "string",
+      "description": "Stable slug identifying the subject, so re-recording the same subject updates rather than duplicates. Derived from the title when omitted."
+     },
+     "tags": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Optional tags for retrieval."
+     },
+     "evidence": {
+      "type": "string",
+      "description": "Optional short quote or reference supporting the memory."
+     },
+     "confidence": {
+      "type": "number",
+      "description": "Optional confidence in [0,1].",
+      "minimum": 0,
+      "maximum": 1
+     }
+    },
+    "required": [
+     "title",
+     "summary"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "update_workspace_instructions",
+   "description": "Read or update the root AGENTS.md file to record durable workspace instructions, verified knowledge, commands, procedures, conventions, decisions, and constraints while preserving user-authored content outside the managed section. Valid `op` values are `read_current`, `append_rule`, `remove_rule`, and `replace_managed_section`; use `read_current` for reads, not `read`.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "op": {
+      "anyOf": [
+       {
+        "type": "string",
+        "const": "read_current"
+       },
+       {
+        "type": "string",
+        "const": "append_rule"
+       },
+       {
+        "type": "string",
+        "const": "remove_rule"
+       },
+       {
+        "type": "string",
+        "const": "replace_managed_section"
+       }
+      ],
+      "description": "Workspace-instruction operation. Valid values are exactly `read_current`, `append_rule`, `remove_rule`, and `replace_managed_section`. Use `read_current` for reads; do not use `read` or other aliases."
+     },
+     "rule": {
+      "type": "string",
+      "description": "Rule text for `append_rule` or `remove_rule`. Use concise one-line durable rules here."
+     },
+     "content": {
+      "type": "string",
+      "description": "Managed-section markdown content for `replace_managed_section`. Use this for structured rule sets, multi-line templates, or code fences."
+     }
+    },
+    "required": [
+     "op"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "workspace_integrations_list_catalog",
+   "description": "List the canonical integration provider ids available to app manifests and bridge clients in this workspace. Before adding any `integrations:` entry to `app.runtime.yaml` or using `createIntegrationClient(...)`, call this tool and use the exact returned `provider_id`; do not invent aliases or product names.",
+   "parameters": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "holaboss_workspace_integrations_propose_connect",
+   "description": "Ask the user to connect a Composio-backed integration (Gmail / Slack / Notion / Linear / GitHub / …) via OAuth. Use this when the user expresses intent to connect or use a known third-party service AND that toolkit is not already exposing tools to you (i.e. no `<toolkit>_<verb>` tool is currently in your tool list). DO NOT chain this with `workspace_apps_*` — connecting an integration does NOT require building an app; once OAuth completes, the toolkit's `<toolkit>_<verb>` tools become available automatically. The chat UI renders a Connect card from the result; do not write your own connect instructions, just briefly explain why this integration is needed. Args: `toolkit_slug` (one of the supported toolkit slugs from the workspace integration store catalog), optional `reason` (short user-facing one-liner shown on the card).",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "toolkit_slug": {
+      "type": "string",
+      "description": "Lowercase slug of the toolkit to connect (e.g. 'gmail', 'notion', 'linear'). Must be in the workspace integration store catalog."
+     },
+     "reason": {
+      "type": "string",
+      "description": "Optional short one-liner explaining why the user needs this integration. Surfaced inline on the Connect card."
+     }
+    },
+    "required": [
+     "toolkit_slug"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "holaboss_workspace_integrations_set_default_account",
+   "description": "Set the workspace's default account for a Composio provider when the user has multiple active accounts for the same toolkit (e.g. two Gmail accounts, three GitHub accounts). This binding persists across sessions and devices for the same workspace — it answers 'when this workspace makes a Gmail call, which of my Gmail accounts should it use?'. Setting it drops the cached integration tool listing, so your NEXT turn resolves the new account's tools; the current turn still holds the previous account's. Use when (a) the user explicitly says 'use my work gmail / personal account / etc.' in a workspace that already has multiple active accounts for that provider, or (b) the user has multiple active accounts and no default is set and you would otherwise have to guess which one to call. Args: `provider_id` (lowercase Composio slug, e.g. 'gmail'), `connection_id` (the integration connection id; obtain from `workspace_integrations_list_catalog` which lists each provider's connected accounts).",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "provider_id": {
+      "type": "string",
+      "description": "Lowercase Composio provider slug, e.g. 'gmail', 'github', 'notion'."
+     },
+     "connection_id": {
+      "type": "string",
+      "description": "The integration_connections.connection_id of the account to make this workspace's default for the provider. Obtain from `workspace_integrations_list_catalog` — the entries list connected accounts per toolkit."
+     }
+    },
+    "required": [
+     "provider_id",
+     "connection_id"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "capability_install",
+   "description": "Install a capability into the current workspace: a workspace-authored one from `capabilities/<capability_id>/`, or otherwise a built-in one from the holaOS catalog by id (for example `local-model-review`). Copies its skills (with their helper files) into `skills/`, registers its MCP servers, and returns the installed record with integration status.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "capability_id": {
+      "type": "string",
+      "description": "The id of the capability to install: the directory name under `capabilities/` for one you authored, or a built-in catalog id such as `local-model-review`."
+     }
+    },
+    "required": [
+     "capability_id"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "mcp_connect",
+   "description": "Connect an MCP (Model Context Protocol) server to this workspace so its tools become available to you. Use this ONLY to ADD a NEW server. If the server is ALREADY connected and the user wants to reconnect / reload / refresh / re-fetch its tools — including phrasings like 'reconnect the adspower mcp', 'refresh the mcp', or 'the X tools are missing/stale' — call `mcp_refresh` instead, NOT this tool (re-running mcp_connect on an already-connected server does not re-discover its tools). This is the ONLY supported way to add an MCP server here — use it whenever the user asks to add / connect / install an MCP server, whether they give a URL/webpage endpoint (e.g. 'connect https://mcp.example.com/sse'), a run command, or paste a standard MCP JSON config block. DO NOT instead edit the agent CLI's own MCP config (e.g. ~/.claude/settings.json, ~/.claude.json, ~/.codex/config.toml, ~/.mcp.json) or use an update-config / settings skill: this runtime launches the CLI against a config it generates per run (strict MCP config), so edits to those native files are IGNORED and do nothing — you must call mcp_connect. Supports every MCP transport: a REMOTE server via `url` (streamable-HTTP or SSE, with optional `headers` for auth), or a LOCAL stdio server via `command` (executable + args, with optional `env`). Pass exactly one of `url` or `command`. Mapping a pasted config block: `{\"mcpServers\":{\"NAME\":{\"command\":\"npx\",\"args\":[\"-y\",\"pkg\"],\"env\":{…}}}}` (with or without the mcpServers wrapper) → name:\"NAME\", command:[\"npx\",\"-y\",\"pkg\"], env:{…}; a `{\"NAME\":{\"url\":\"…\",\"headers\":{…}}}` entry → name, url, headers. The server is written to the workspace config and its tools become callable on your NEXT turn (not the current one) — tell the user to send one more message. Args: optional `name` (short label/id; derived from the url host or command if omitted), `url` (remote), `headers` (remote auth, e.g. {\"Authorization\":\"Bearer …\"}), `command` (local, e.g. [\"npx\",\"-y\",\"some-mcp\"]), `env` (local). Prefer remote `url` — a local `command` runs an arbitrary process on the user's machine, so only use it when the user explicitly provides the command.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "url": {
+      "type": "string",
+      "description": "The REMOTE MCP server endpoint (streamable-HTTP or SSE), e.g. 'https://mcp.example.com/sse'. Provide this OR `command`, not both."
+     },
+     "command": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "The LOCAL stdio MCP server command as [executable, ...args], e.g. ['npx','-y','@acme/mcp']. Runs a process on the user's machine — only use when the user explicitly provided it. Provide this OR `url`, not both."
+     },
+     "name": {
+      "type": "string",
+      "description": "Optional short label / id for the server (used as its tool prefix). If omitted, derived from the url host or command."
+     },
+     "headers": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "Optional request headers for a remote server, e.g. {\"Authorization\":\"Bearer …\"}. Only include tokens the user gave you."
+     },
+     "env": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "Optional environment variables for a local command server."
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "mcp_refresh",
+   "description": "Force a re-discovery of the tools exposed by the MCP servers AND the connected integrations (X/Twitter, Gmail, Reddit, …) already available to this workspace. This is the tool to use whenever the user asks to RECONNECT / reload / refresh / re-fetch an already-connected server, integration, or its tools (e.g. 'reconnect the adspower mcp', 'refresh the mcp tools') — reach for this, NOT `mcp_connect` (which only ADDS new servers). Also use it when a connected MCP server's tool set changed (the server was updated or restarted) but its tools look stale, or the user says an expected tool is missing or returns 'not found' — INCLUDING the case where an integration the user just connected has no tools yet (e.g. you cannot find the publish/post tool for an account they just authorized). This does NOT add a server (use `mcp_connect` for that) and takes NO arguments — it invalidates the whole-workspace MCP tool cache and the cached integration tool listing, so ALL connected servers and integrations are re-discovered on your NEXT turn. Tools are NOT refreshed on the current turn: end your turn and tell the user to send one more message.",
+   "parameters": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "mcp_reauthorize",
+   "description": "Re-run the OAuth sign-in for an already-connected REMOTE MCP server so the user can SWITCH the connected account (or refresh an expired / revoked authorization). Use this when the user asks to 'switch/change the <server> account', 're-authorize', 're-login', or 'sign in as a different user' for a connected MCP server — NOT `mcp_connect` (which adds a new server) or `mcp_refresh` (which only reloads tools without touching auth). Takes a single `server` arg: the id or name of the connected server (e.g. 'heygen'). It does NOT complete the sign-in itself — it surfaces an inline 'Re-authorize' button in the chat that the user clicks to open the browser and pick a different account. Tell the user to click it. (Note: to land on a DIFFERENT account they may need to sign out of that service in their browser first.)",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "server": {
+      "type": "string",
+      "description": "The id or name of the already-connected remote MCP server to re-authorize (e.g. 'heygen')."
+     }
+    },
+    "required": [
+     "server"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "local_models_discover",
+   "description": "Find model servers that are ALREADY RUNNING on the user's machine — Ollama, LM Studio, llama.cpp, MLX, vLLM, SGLang, or any OpenAI-compatible server — by probing their default local ports plus any `base_url` you pass. Returns each server's `base_url`, `engine`, the `provider_id` it registers as, whether it is already `registered`, and its chat models with `token`, context window, loaded state and vision support when the server reports them. This never installs an engine or downloads a model: if nothing is found, ask the user to start their local server (or tell you its address) and call it again.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "base_url": {
+      "type": "string",
+      "description": "Optional extra server address to probe in addition to the default local ports, e.g. `http://127.0.0.1:9000` or `192.168.1.20:11434` (with or without `/v1`)."
+     }
+    },
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "local_models_register",
+   "description": "Register a running local model server (from `local_models_discover`) as a model provider. Its models become selectable in the chat model picker and usable anywhere a model is chosen as `<provider_id>/<model_id>` (the result lists the exact tokens). Pass `base_url`; optionally `models` (model ids) to register a subset — the default is every chat model the server lists. Re-registering the same server refreshes its model list. Only works while the server is running; it does not install or download anything.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "base_url": {
+      "type": "string",
+      "description": "The server's `base_url` as returned by `local_models_discover`."
+     },
+     "models": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Optional model ids to register. Omit to register every chat model the server lists."
+     },
+     "engine": {
+      "anyOf": [
+       {
+        "type": "string",
+        "const": "ollama"
+       },
+       {
+        "type": "string",
+        "const": "lmstudio"
+       },
+       {
+        "type": "string",
+        "const": "llamacpp"
+       },
+       {
+        "type": "string",
+        "const": "vllm"
+       },
+       {
+        "type": "string",
+        "const": "sglang"
+       },
+       {
+        "type": "string",
+        "const": "mlx"
+       },
+       {
+        "type": "string",
+        "const": "openai_compatible"
+       }
+      ],
+      "description": "Optional engine override, only when the detected engine is wrong (e.g. an MLX server detected as `openai_compatible`)."
+     }
+    },
+    "required": [
+     "base_url"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "cronjobs",
+   "description": "Manage scheduled cronjobs — recurring subagent runs — for this workspace. TIMEZONE: the `cron` you pass is evaluated in the USER'S timezone, not UTC; write the hour as their local wall-clock time (e.g. 10 AM → `0 10 * * *`). The response echoes `runs_in_timezone` and `next_run_local` — report those to the user and never convert the cron hour yourself.\n\nSet `op` to one of:\n- `list` — List scheduled cronjobs for the current workspace.\n- `get` (fields: job_id) — Read one cronjob by job_id, including its cron expression, instruction prompt, delivery target, and metadata.\n- `create` (fields: cron, description) — Create a cronjob: schedule a recurring subagent run that fires on `cron` and executes `instruction`.\n- `update` (fields: job_id) — Update a cronjob by job_id.\n- `delete` (fields: job_id) — Delete a cronjob by job_id.\n- `run_now` (fields: job_id) — Fire one cronjob immediately, off-schedule, by job_id.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "op": {
+      "type": "string",
+      "enum": [
+       "list",
+       "get",
+       "create",
+       "update",
+       "delete",
+       "run_now"
+      ],
+      "description": "Which operation to run. See the operation list in this tool's description for the fields each op uses."
+     },
+     "enabled_only": {
+      "type": "boolean",
+      "description": "When true, return only enabled (currently scheduled) cronjobs."
+     },
+     "job_id": {
+      "type": "string",
+      "description": "Stable cronjob id."
+     },
+     "name": {
+      "type": "string",
+      "description": "Optional short display name shown in the Automations list."
+     },
+     "cron": {
+      "type": "string",
+      "description": "5-field cron expression (e.g. `0 9 * * 1-5` for weekday 9am). Times resolve in the workspace user's timezone."
+     },
+     "description": {
+      "type": "string",
+      "description": "Human-facing summary of what this schedule does."
+     },
+     "instruction": {
+      "type": "string",
+      "description": "Prompt handed to the spawned subagent each fire. If omitted, `description` is used as the instruction."
+     },
+     "enabled": {
+      "type": "boolean",
+      "description": "Defaults to true. Pass false to create a paused schedule."
+     },
+     "delivery": {
+      "type": "object",
+      "description": "How the cronjob is delivered when it fires. Defaults to running its instruction as a fresh scheduled session (a normal main session, grouped under \"Scheduled\") — NOT a subagent.",
+      "properties": {
+       "channel": {
+        "anyOf": [
+         {
+          "type": "string",
+          "const": "system_notification"
+         },
+         {
+          "type": "string",
+          "const": "session_run"
+         }
+        ],
+        "description": "Delivery channel. `session_run` (default) runs the cronjob's instruction as a fresh scheduled main session each fire; `system_notification` posts a system notification instead."
+       },
+       "mode": {
+        "anyOf": [
+         {
+          "type": "string",
+          "const": "announce"
+         },
+         {
+          "type": "string",
+          "const": "deliver"
+         },
+         {
+          "type": "string",
+          "const": "none"
+         }
+        ],
+        "description": "Delivery mode. `announce` (default) posts a brief notice; `deliver` hands the full output to the target; `none` records the run silently."
+       },
+       "to": {
+        "type": "string",
+        "description": "Optional delivery target (e.g. a session id or notification target). Resolved per channel."
+       }
+      },
+      "additionalProperties": false
+     },
+     "metadata": {
+      "type": "object",
+      "description": "Optional metadata bag attached to the cronjob.",
+      "additionalProperties": true
+     },
+     "project_id": {
+      "type": "string",
+      "description": "Optional project to bind this automation to: each fire runs in that project and its outputs are saved there. Defaults to the current chat's project when created from inside one; pass an empty string to explicitly create it unbound."
+     }
+    },
+    "required": [
+     "op"
+    ]
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "terminal_session",
+   "description": "Manage background terminal sessions: start a long-running command, then read output, wait for completion, send input, signal, inspect, close, or list sessions.\n\nSet `op` to one of:\n- `list` — List background terminal sessions for the current workspace.\n- `start` (fields: command) — Start a PTY-backed background terminal session in the current workspace and return its terminal session metadata.\n- `get` (fields: terminal_id) — Read one background terminal session by id.\n- `read` (fields: terminal_id) — Read terminal output events for a background terminal session, optionally after a known sequence number.\n- `wait` (fields: terminal_id) — Wait briefly for new output or a status change on a background terminal session, then return the current events and status.\n- `send_input` (fields: terminal_id, data) — Send input text to a running background terminal session.\n- `signal` (fields: terminal_id) — Send a signal such as SIGINT or SIGTERM to a background terminal session.\n- `close` (fields: terminal_id) — Close a background terminal session.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "op": {
+      "type": "string",
+      "enum": [
+       "list",
+       "start",
+       "get",
+       "read",
+       "wait",
+       "send_input",
+       "signal",
+       "close"
+      ],
+      "description": "Which operation to run. See the operation list in this tool's description for the fields each op uses."
+     },
+     "command": {
+      "type": "string",
+      "description": "Shell command text to run in a background PTY session. This command is already executed through the workspace shell."
+     },
+     "title": {
+      "type": "string",
+      "description": "Optional display title for the terminal session."
+     },
+     "cwd": {
+      "type": "string",
+      "description": "Optional workspace-relative working directory. Defaults to the workspace root."
+     },
+     "cols": {
+      "type": "number",
+      "description": "Optional terminal width in columns."
+     },
+     "rows": {
+      "type": "number",
+      "description": "Optional terminal height in rows."
+     },
+     "terminal_id": {
+      "type": "string",
+      "description": "Terminal session id."
+     },
+     "after_sequence": {
+      "type": "number",
+      "description": "Only return events with sequence greater than this number."
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum number of events to return."
+     },
+     "timeout_ms": {
+      "type": "number",
+      "description": "Maximum time to wait for new output or a status change before returning with timed_out=true."
+     },
+     "data": {
+      "type": "string",
+      "description": "Input to write to the terminal session. Include a trailing newline or carriage return when the command expects Enter."
+     },
+     "signal": {
+      "type": "string",
+      "description": "Optional signal name such as SIGINT, SIGTERM, or SIGHUP."
+     }
+    },
+    "required": [
+     "op"
+    ]
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "search_web",
+   "description": "Search the public web for current information across many sources — the PRIMARY tool for latest news, recent events, prices/quotes, general lookups, source discovery, and multi-source research, INCLUDING time-sensitive and \"today/latest/now\" questions. Prefer this over the browser for any web reading or research: it is faster, returns cited sources, and does not need a page open. Reach for browser tools only when the task genuinely needs interaction (logging in, clicking through an app or an authenticated page), direct UI/visual inspection, or a specific page this search cannot surface — NOT for general web reading or because a question is time-sensitive. It does not perform actions, read UI-only state, or reach pages behind a login; escalate to the browser only for those. Uses hosted Exa web search without authentication. The current year is 2026; include 2026 in recent-information queries.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "Search query for the public web.",
+      "minLength": 1
+     },
+     "num_results": {
+      "type": "integer",
+      "description": "Number of search results to return (1-10). Defaults to 8.",
+      "minimum": 1,
+      "maximum": 10
+     },
+     "max_results": {
+      "type": "integer",
+      "description": "Compatibility alias for num_results (1-10).",
+      "minimum": 1,
+      "maximum": 10
+     },
+     "livecrawl": {
+      "type": "string",
+      "enum": [
+       "fallback",
+       "preferred"
+      ],
+      "description": "Whether to prefer live crawling or only use it as fallback."
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "fast",
+       "deep"
+      ],
+      "description": "Search depth mode."
+     },
+     "context_max_characters": {
+      "type": "integer",
+      "description": "Maximum number of context characters to request from the search backend.",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "skill",
+   "description": "Load a workspace skill by id or name and return its canonical skill block.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Skill id or skill name to invoke."
+     },
+     "args": {
+      "type": "string",
+      "description": "Optional follow-up instructions appended after the invoked skill content."
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ }
+]
