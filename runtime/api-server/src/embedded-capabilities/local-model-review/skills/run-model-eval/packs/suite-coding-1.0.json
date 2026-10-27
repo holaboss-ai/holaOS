@@ -12,7 +12,7 @@
  },
  "holaos_snapshot": "read, edit, ls, find and search are copied unchanged from packs/agent-v1/tools-lean.json (holaOS main-session tools); write is pi-coding-agent 0.80.2's write schema",
  "system": "suite-coding-1.0/system.md",
- "system_sha256": "0bfc160a4a5fc6af6ba78299febc870d65514c64dd08f7c3b3377dbc5675875f",
+ "system_sha256": "f394f12af9438e9ebeec52abdb73b7ac04fd6555cfeb899d28b6b088b4751b6d",
  "tools": "suite-coding-1.0/tools.json",
  "tools_sha256": "f8b319cf638b61592e5942b05ca0ceb0e84686ea0229c78bdc055495a661c77b",
  "budgets": {

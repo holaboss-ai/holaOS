@@ -2261,7 +2261,7 @@ def cmd_agent(args):
 # ---------- code: coding agent on a repo copy, tests in a sandbox ----------
 
 DEFAULT_CODE_SUITE = HERE / "packs" / "suite-coding-1.0.json"
-CODE_ROOT = "/repo"
+CODE_ROOT = "/workspace"
 CODE_RESULT_TAG = "HOLAEVAL-RESULT"
 TREE_SKIP = {"__pycache__", ".DS_Store"}
 MODULE_RE = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
@@ -2492,6 +2492,17 @@ def test_module(target):
     return t if MODULE_RE.fullmatch(t) else None
 
 
+def test_names(target, files):
+    """The unittest names a run_tests target selects; [] runs every test under tests/."""
+    module = test_module(target) if target not in (None, "") else None
+    for candidate in ([module, f"tests.{module}"] if module else []):
+        parts = candidate.split(".")
+        for n in range(len(parts), 1, -1):
+            if parts[0] == "tests" and parts[n - 1].startswith("test") and "/".join(parts[:n]) + ".py" in files:
+                return [candidate]
+    return []
+
+
 def tests_summary(r, timeout):
     res = r["result"]
     if r["timed_out"]:
@@ -2515,15 +2526,12 @@ def code_tool(vfs, name, args, ctx):
         return f"Error: Tool {name} not found.", True, {}
     if name == "run_tests":
         target = args.get("target")
-        names = []
-        if target not in (None, "", ".", "tests", "tests/"):
-            module = test_module(target)
-            if not module:
-                return "Error: target must be a test module such as tests/test_example.py or tests.test_example.", True, {}
-            names = [module]
         files = {vfs.rel(p): c for p, c in vfs.files.items() if p.startswith(CODE_ROOT + "/")}
+        names = test_names(target, files)
         r = ctx["sandbox"].run(files, names, verbosity=2, timeout=b["test_timeout_s"])
         summary = tests_summary(r, b["test_timeout_s"])
+        if not names and target not in (None, "", ".", "tests", "tests/", "all"):
+            summary = f"{target!r} is not a test module, so every test under tests/ ran. " + summary
         tail = r["output"][-b["test_output_chars"]:]
         ok = bool(r["result"] and r["result"].get("ok") and r["result"]["run"] > 0 and not r["timed_out"])
         return summary + ("\n\n" + tail if tail else ""), not ok, {"summary": summary, "denials": r["denials"]}
@@ -3438,6 +3446,9 @@ def selftest_code():
     assert test_module("tests/test_pager.py") == "tests.test_pager" and test_module("tests.test_pager") == "tests.test_pager"
     assert test_module("tests/test_pager.py::PaginateTest::test_first_page") == "tests.test_pager.PaginateTest.test_first_page"
     assert test_module("tests/test pager.py") is None and test_module("../etc/passwd") is None
+    repo = {"pager.py": "", "tests/__init__.py": "", "tests/test_pager.py": ""}
+    assert test_names("test_pager", repo) == ["tests.test_pager"] and test_names("tests/test_pager.py::Case", repo) == ["tests.test_pager.Case"]
+    assert test_names("pager", repo) == [] and test_names("tests", repo) == [] and test_names("test_other", repo) == []
     pack = load_code_pack(DEFAULT_CODE_SUITE)
     tasks = {t["id"]: t for t in pack["tasks"]}
     assert [t["tier"] for t in pack["tasks"]] == [1, 2, 3, 4, 5] and len(tasks) == 5
