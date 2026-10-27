@@ -207,12 +207,57 @@ def machine_info():
             info["cpu"] = cpu[0].split(":", 1)[1].strip() if cpu else None
         except Exception:
             pass
-        if shutil.which("nvidia-smi"):
-            out = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"], capture_output=True, text=True)
-            info["gpus"] = [g.strip() for g in out.stdout.splitlines() if g.strip()]
+        if not info.get("cpu"):
+            info["cpu"] = lscpu_model_name()
+        gpus = linux_gpus()
+        if gpus:
+            info["gpus"] = gpus
     elif sys.platform == "win32":
         info.update(windows_machine_info())
     return info
+
+
+def lscpu_model_name():
+    """ARM boards list no "model name" in /proc/cpuinfo; lscpu names the cores instead."""
+    try:
+        out = subprocess.run(["lscpu"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    names = [line.split(":", 1)[1].strip() for line in out.splitlines() if line.startswith("Model name:")]
+    return " + ".join(dict.fromkeys(names)) or None
+
+
+def linux_gpus():
+    """One "<name>, <MiB> MiB" entry per NVIDIA or AMD card, the shape HolaHub's hardware classes read."""
+    gpus = []
+    if shutil.which("nvidia-smi"):
+        try:
+            out = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"],
+                                 capture_output=True, text=True, timeout=10)
+            if out.returncode == 0:
+                gpus += [g.strip() for g in out.stdout.splitlines() if g.strip()]
+        except (OSError, subprocess.SubprocessError):
+            pass
+    if shutil.which("rocm-smi"):
+        try:
+            out = subprocess.run(["rocm-smi", "--showproductname", "--showmeminfo", "vram", "--json"],
+                                 capture_output=True, text=True, timeout=10)
+            gpus += parse_rocm_smi(out.stdout)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            pass
+    return gpus
+
+
+def parse_rocm_smi(text):
+    cards = json.loads(text[text.find("{"):] or "{}")
+    gpus = []
+    for key in sorted((k for k in cards if re.fullmatch(r"card\d+", k)), key=lambda k: int(k[4:])):
+        card = {name.lower(): value for name, value in cards[key].items()}
+        name = str(card.get("card series") or card.get("card model") or "").strip()
+        vram = str(card.get("vram total memory (b)") or "")
+        if name:
+            gpus.append(f"{name}, {round(int(vram) / 2**20)} MiB" if vram.isdigit() else name)
+    return gpus
 
 
 def windows_machine_info():
