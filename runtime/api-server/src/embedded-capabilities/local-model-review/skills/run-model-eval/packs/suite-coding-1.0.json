@@ -69,7 +69,7 @@
    ],
    "expected_tests": 10,
    "repo_sha256": "bd9ddaca11c4ae46847175f076c7ba49181e94703d4501080407f1fe5e8818c3",
-   "hidden_sha256": "55419923aa000917b6ce2235fffd9bafd86bf137fd171a6cb8dfb4526c1be00f"
+   "hidden_sha256": "b7ac03dbd972b5f8538c42e8589f7b41eafbc130ab5bb63b3badb50f0b4da384"
   },
   {
    "id": "checkout-bug",

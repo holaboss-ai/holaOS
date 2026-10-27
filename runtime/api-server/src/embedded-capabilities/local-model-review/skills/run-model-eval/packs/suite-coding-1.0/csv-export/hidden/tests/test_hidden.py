@@ -40,7 +40,7 @@ class HiddenCsvTest(unittest.TestCase):
     def test_csv_output(self):
         code, out = run("--format", "csv")
         self.assertEqual(code, 0)
-        self.assertEqual(out.splitlines(), CSV_LINES)
+        self.assertEqual(out.rstrip("\r\n").splitlines(), CSV_LINES)
 
     def test_name_with_comma_is_quoted(self):
         _, out = run("--format", "csv")
@@ -50,7 +50,7 @@ class HiddenCsvTest(unittest.TestCase):
         _, table = run()
         _, csv_out = run("--format", "csv")
         table_skus = [line.split()[0] for line in table.splitlines()[2:]]
-        csv_skus = [line.split(",")[0] for line in csv_out.splitlines()[1:]]
+        csv_skus = [line.split(",")[0] for line in csv_out.rstrip("\r\n").splitlines()[1:]]
         self.assertEqual(csv_skus, table_skus)
 
     def test_price_has_two_decimals(self):
