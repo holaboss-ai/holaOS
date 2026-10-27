@@ -781,6 +781,192 @@ def loaded_model(root, model):
     return {"model_bytes": None, "vram_bytes": None, "cpu_offload": None}
 
 
+# ---------- load: what everything except Ollama used while a timed request ran ----------
+
+def parse_cpu_time(text):
+    """ps TIME, [[dd-]hh:]mm:ss[.ss], in seconds."""
+    days, _, clock = text.strip().rpartition("-")
+    seconds = 0.0
+    for part in clock.split(":"):
+        seconds = seconds * 60 + float(part)
+    return seconds + (int(days) * 86400 if days else 0)
+
+
+def read_processes():
+    """pid -> (ppid, name, CPU seconds so far), or None where there is no cheap process table."""
+    procs = {}
+    if sys.platform.startswith("linux"):
+        hz = os.sysconf("SC_CLK_TCK")
+        for entry in os.scandir("/proc"):
+            if not entry.name.isdigit():
+                continue
+            try:
+                raw = Path("/proc", entry.name, "stat").read_text()
+            except OSError:
+                continue
+            fields = raw[raw.rfind(")") + 2:].split()
+            procs[int(entry.name)] = (int(fields[1]), raw[raw.find("(") + 1:raw.rfind(")")],
+                                      (int(fields[11]) + int(fields[12])) / hz)
+        return procs
+    if sys.platform == "darwin":
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,time=,comm="], capture_output=True, text=True, timeout=5)
+        for line in out.stdout.splitlines():
+            parts = line.split(None, 3)
+            if len(parts) == 4:
+                procs[int(parts[0])] = (int(parts[1]), Path(parts[3]).name, parse_cpu_time(parts[2]))
+        return procs
+    return None
+
+
+def read_cpu_ticks():
+    """(busy, total) CPU ticks across all cores since boot, or None."""
+    if sys.platform.startswith("linux"):
+        with open("/proc/stat") as f:
+            user, nice, system, idle, iowait, irq, softirq, steal = ([int(v) for v in f.readline().split()[1:9]] + [0] * 8)[:8]
+        busy = user + nice + system + irq + softirq + steal
+        return busy, busy + idle + iowait
+    if sys.platform == "darwin":
+        import ctypes
+        lib = ctypes.CDLL("/usr/lib/libSystem.dylib")
+        lib.mach_host_self.restype = ctypes.c_uint32
+        ticks = (ctypes.c_uint32 * 4)()  # HOST_CPU_LOAD_INFO: user, system, idle, nice
+        count = ctypes.c_uint32(4)
+        if lib.host_statistics(lib.mach_host_self(), 3, ticks, ctypes.byref(count)) != 0:
+            return None
+        return ticks[0] + ticks[1] + ticks[3], ticks[0] + ticks[1] + ticks[2] + ticks[3]
+    return None
+
+
+OLLAMA_PROCESS_RE = re.compile(r"^(ollama|llama-server)", re.I)
+
+
+def ollama_tree(procs, root_pid=None):
+    """The server's process and its runners (llama-server in Ollama 0.40); without a server pid, matched by name."""
+    if root_pid in procs:
+        found = {root_pid}
+    else:
+        found = {pid for pid, (_, name, _) in procs.items() if OLLAMA_PROCESS_RE.match(name)}
+    children = {}
+    for pid, (ppid, _, _) in procs.items():
+        children.setdefault(ppid, []).append(pid)
+    queue = list(found)
+    while queue:
+        for child in children.get(queue.pop(), []):
+            if child not in found:
+                found.add(child)
+                queue.append(child)
+    return found
+
+
+def others_cpu_pct(before, after, wall_s, cpus, root_pid=None):
+    """Busy share of all cores minus Ollama's share, from two (ticks, procs) snapshots."""
+    (ticks0, procs0), (ticks1, procs1) = before, after
+    if ticks0 is None or ticks1 is None or procs0 is None or procs1 is None or wall_s <= 0:
+        return None
+    busy, total = ticks1[0] - ticks0[0], ticks1[1] - ticks0[1]
+    if busy < 0 or total <= 0:
+        return None
+    pids = ollama_tree(procs0, root_pid) | ollama_tree(procs1, root_pid)
+    ollama_s = sum(procs1[pid][2] - procs0.get(pid, (0, "", 0.0))[2] for pid in pids if pid in procs1)
+    return round(min(100.0, max(0.0, 100 * busy / total - 100 * ollama_s / (wall_s * cpus))), 1)
+
+
+def parse_pmon(text, ollama_pids):
+    """`nvidia-smi pmon -s u`: SM % used by processes outside Ollama (by pid, else by name), as a share of all GPUs."""
+    gpus, others = set(), 0.0
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or not parts[0].isdigit():
+            continue
+        gpus.add(parts[0])
+        if not parts[1].isdigit() or parts[3] == "-":
+            continue
+        ollama = int(parts[1]) in ollama_pids if ollama_pids else OLLAMA_PROCESS_RE.match(parts[-1])
+        if not ollama:
+            others += float(parts[3])
+    return round(min(100.0, others / len(gpus)), 1) if gpus else None
+
+
+def parse_typeperf(text, cpus):
+    """`typeperf` CSV with _Total and per-process columns: total CPU % minus Ollama's processes' share."""
+    import csv
+    rows = list(csv.reader(line for line in text.splitlines() if line.startswith('"')))
+    if len(rows) < 2:
+        return None
+    total, ollama = None, 0.0
+    for name, value in zip(rows[0][1:], rows[-1][1:]):
+        number = float(value) if value.strip() else 0.0
+        if "\\Processor(_Total)\\" in name:
+            total = number
+        elif (m := re.search(r"\\Process\(([^)]*)\)\\", name)) and OLLAMA_PROCESS_RE.match(m.group(1)):
+            ollama += number
+    return None if total is None else round(min(100.0, max(0.0, total - ollama / cpus)), 1)
+
+
+class LoadSampler:
+    """Others' CPU (and NVIDIA GPU) use across one timed request: a process-table read at each end, or one
+    1-second typeperf/nvidia-smi sample in a thread while the request runs, so the sampler's own cost stays small."""
+
+    def __init__(self, ollama_pid=None, read_procs=read_processes, read_ticks=read_cpu_ticks, clock=time.monotonic,
+                 cpus=None, gpu=None, windows=None):
+        self.ollama_pid = ollama_pid
+        self.read_procs, self.read_ticks, self.clock = read_procs, read_ticks, clock
+        self.cpus = cpus or os.cpu_count() or 1
+        self.gpu = gpu if gpu is not None else (self.nvidia_sample if shutil.which("nvidia-smi") else None)
+        self.windows = windows if windows is not None else (self.typeperf_sample if sys.platform == "win32" else None)
+
+    @staticmethod
+    def _read(fn, *args):
+        try:
+            return fn(*args)
+        except Exception:
+            return None
+
+    def nvidia_sample(self, procs):
+        out = subprocess.run(["nvidia-smi", "pmon", "-c", "1", "-s", "u"], capture_output=True, text=True, timeout=15)
+        return parse_pmon(out.stdout, ollama_tree(procs, self.ollama_pid) if procs else set())
+
+    def typeperf_sample(self, _procs):
+        out = subprocess.run(["typeperf", r"\Processor(_Total)\% Processor Time", r"\Process(*)\% Processor Time",
+                              "-sc", "1"], capture_output=True, text=True, timeout=30)
+        return parse_typeperf(out.stdout, self.cpus)
+
+    def begin(self):
+        # Ollama is idle at both ends of a request, so reading its processes outside the tick window costs nothing.
+        procs = None if self.windows else self._read(self.read_procs)
+        threads = {}
+        for key, fn in (("others_cpu_busy_pct", self.windows), ("others_gpu_busy_pct", self.gpu)):
+            if fn:
+                box = {}
+                thread = threading.Thread(target=lambda fn=fn, box=box: box.update(value=self._read(fn, procs)), daemon=True)
+                thread.start()
+                threads[key] = (thread, box)
+        ticks = None if self.windows else self._read(self.read_ticks)
+        return {"ticks": ticks, "procs": procs, "t": self.clock(), "threads": threads}
+
+    def end(self, state):
+        out = {}
+        if not self.windows:
+            ticks, wall = self._read(self.read_ticks), self.clock() - state["t"]
+            procs = self._read(self.read_procs)
+            out["others_cpu_busy_pct"] = others_cpu_pct((state["ticks"], state["procs"]), (ticks, procs), wall,
+                                                        self.cpus, self.ollama_pid)
+        for key, (thread, box) in state["threads"].items():
+            thread.join(30)
+            out[key] = box.get("value")
+        return out
+
+
+def median_load(runs):
+    """Medians of the per-request load readings; a key is present only when some request carried it."""
+    out = {}
+    for key in ("others_cpu_busy_pct", "others_gpu_busy_pct"):
+        if any(key in run for run in runs):
+            vals = [run[key] for run in runs if run.get(key) is not None]
+            out[key] = round(statistics.median(vals), 1) if vals else None
+    return out
+
+
 class Emitter:
     """JSON lines on stdout; text deltas are batched so the run view gets ~10 updates a second."""
 
@@ -811,7 +997,7 @@ def speed_task_id(depth):
     return "speed@0" if depth == 0 else f"speed@{depth // 1024}k"
 
 
-def bench_speed(root, model, depth, cfg, base_options, extra, emit):
+def bench_speed(root, model, depth, cfg, base_options, extra, emit, load=None):
     task = speed_task_id(depth)
     emit.task = task
     emit("task_start", task=task, kind="speed", depth=depth)
@@ -826,7 +1012,10 @@ def bench_speed(root, model, depth, cfg, base_options, extra, emit):
             payload = {"model": model, "messages": [{"role": "user", "content": f"[{nonce}] {prefix}{COUNT_PROMPT}"}],
                        "options": dict(base_options, temperature=0, num_predict=cfg["gen_tokens"]),
                        "keep_alive": BENCH_KEEP_ALIVE, **extra}
-            return ollama_chat(root, payload, on_text=emit.text)
+            sample = load.begin() if load else None
+            r = ollama_chat(root, payload, on_text=emit.text)
+            r["load"] = load.end(sample) if load else {}
+            return r
         r = request()
         if rep < cfg.get("warmup_reps", 1):
             if depth and r["prompt_eval_count"]:
@@ -847,6 +1036,7 @@ def bench_speed(root, model, depth, cfg, base_options, extra, emit):
             "load_ms": round(r["load_s"] * 1000),
             "reloaded": reloaded,
             "seconds": round(r["total_s"], 2),
+            **r["load"],
         })
     metrics = {"depth": depth, "runs": runs}
     for key in ("ttft_ms", "decode_tps", "engine_decode_tps", "engine_prefill_tps"):
@@ -854,6 +1044,7 @@ def bench_speed(root, model, depth, cfg, base_options, extra, emit):
         if vals:
             metrics[key] = round(statistics.mean(vals), 1)
             metrics[key + "_sd"] = round(statistics.pstdev(vals), 1)
+    metrics.update(median_load(runs))
     metrics.update(loaded_model(root, model))
     result = {"task": task, "kind": "speed", "status": "ok", "metrics": metrics,
               "tokens": sum(run["completion_tokens"] for run in runs), "time": round(sum(run["seconds"] for run in runs), 1)}
@@ -921,6 +1112,7 @@ def cmd_bench(args):
     base_options = {"num_ctx": pack["num_ctx"]}
     samples = args.samples or pack.get("samples", 3)
     machine = machine_info()
+    load = LoadSampler(getattr(args, "ollama_pid", None))
     emit("start", model=model, suite=f"{pack['id']}@{pack['version']}", capabilities=capabilities, machine=machine)
 
     emit.task = "warmup"
@@ -934,7 +1126,7 @@ def cmd_bench(args):
     only = [s for s in (args.only or "").split(",") if s]
     for depth in pack["speed"]["depths"]:
         if not only or speed_task_id(depth) in only:
-            results.append(bench_speed(root, model, depth, pack["speed"], base_options, extra, emit))
+            results.append(bench_speed(root, model, depth, pack["speed"], base_options, extra, emit, load))
     for task in pack["tasks"]:
         if not only or task["id"] in only:
             results.append(bench_task(root, model, task, samples, dict(base_options, **sampling), extra, capabilities, emit))
@@ -949,6 +1141,7 @@ def cmd_bench(args):
         "request": {"num_ctx": pack["num_ctx"], "sampling": sampling, "samples": samples, "keep_alive": BENCH_KEEP_ALIVE, **extra},
         "warmup_load_ms": round(warm["load_s"] * 1000),
         "machine": machine,
+        "conditions": median_load([run for r in results if r["kind"] == "speed" for run in r["metrics"]["runs"]]),
         "results": results,
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
         "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -2616,6 +2809,7 @@ def main():
     p.add_argument("--model", required=True)
     p.add_argument("--pack", default=str(DEFAULT_SUITE))
     p.add_argument("--subject")
+    p.add_argument("--ollama-pid", dest="ollama_pid", type=int)
     p.add_argument("--out", required=True)
     p.add_argument("--label", default="main")
     p.add_argument("--samples", type=int)
