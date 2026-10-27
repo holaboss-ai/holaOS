@@ -29,7 +29,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-HOLAEVAL_VERSION = "1.1.0"
+HOLAEVAL_VERSION = "1.2.0"
 HERE = Path(__file__).resolve().parent
 DEFAULT_PACK = HERE / "packs" / "general-v1.json"
 OTHER_VENDORS = {
@@ -2710,6 +2710,7 @@ def run_code_attempt(engine, task, sample, pack, sandbox, emit, transcript_path=
         if not r["calls"]:
             if r["length"]:
                 finish = "turn_token_limit" if n == b["turn_tokens"] else "context_full" if n == room else "token_budget"
+                cut_while = "thinking" if r["thinking"] and not strip_think(r["content"]) else "replying"
             else:
                 finish = "answered"
                 rec["final_answer"] = strip_think(r["content"])
@@ -2741,6 +2742,8 @@ def run_code_attempt(engine, task, sample, pack, sandbox, emit, transcript_path=
             reason = "request failed"
         elif finish == "malformed_tool_call":
             reason = "malformed tool call"
+        elif finish == "turn_token_limit":
+            reason = f"stopped at the {b['turn_tokens']:,}-token reply limit while {cut_while}"
         elif finish == "wall_guard":
             reason = "stopped by the safety time limit"
         elif finish == "sandbox_violation":
@@ -3553,8 +3556,14 @@ def selftest_code():
         rec = run_code_attempt(dropped, tasks["fix-pagination"], 0, dict(pack, num_ctx=6000),
                                CodeSandbox(Path(d) / "a", deny_read=pack["_root"]), lambda *a, **k: None)
         assert rec["finish"] == "answered", "thinking the template drops must not count against the context"
-        rec, _, _ = attempt("fix-pagination", ["thinking..."], length=True)
+        rec, _, _ = attempt("fix-pagination", ["half an answer"], length=True)
         assert rec["finish"] == "turn_token_limit" and rec["final_answer"] is None
+        assert rec["reason"] == "stopped at the 8,192-token reply limit while replying", rec["reason"]
+        thinker = ScriptedCodeEngine([""], length=True)
+        thinker.chat = lambda messages, tools, n, real=thinker.chat: dict(real(messages, tools, n), thinking="let me consider")
+        rec = run_code_attempt(thinker, tasks["fix-pagination"], 0, pack, CodeSandbox(Path(d) / "a", deny_read=pack["_root"]),
+                               lambda *a, **k: None)
+        assert rec["reason"] == "stopped at the 8,192-token reply limit while thinking", rec["reason"]
         rec, _, _ = attempt("fix-pagination", [RuntimeError("HTTP 500: model crashed")])
         assert rec["finish"] == "request_error" and rec["reason"] == "request failed" and rec["turns"] == 0
         bad_json = RuntimeError('llama-server returned invalid tool call arguments for "write": unexpected end of JSON input')
