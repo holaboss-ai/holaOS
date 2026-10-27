@@ -420,7 +420,7 @@ export class BenchRunner {
         subject,
         digest,
         evidence: instance.evidence(),
-        appVersion: this.deps.appVersion(),
+        client: { app: "holaOS", version: this.deps.appVersion() },
         artifacts: { recording: null, cards: [], highlights: benchHighlights(entry.events) },
         conditions: { cpu_busy_pct: cpuBusy },
       });

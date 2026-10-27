@@ -13,6 +13,7 @@ import {
   type BenchSubject,
   type HolaevalBenchOutput,
 } from "./bench-run-record.js";
+import { benchHighlights } from "./bench-runner.js";
 import { OLLAMA_BENCH_ENV, compareOllamaVersions } from "./ollama-instance.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -32,7 +33,13 @@ const subject: BenchSubject = {
 
 const evidence = {
   kind: "local" as const,
-  provider: { engine: "ollama" as const, version: "0.12.6", env: { ...OLLAMA_BENCH_ENV }, flash_attention: "auto" as const },
+  provider: {
+    engine: "ollama" as const,
+    version: "0.12.6",
+    env: { ...OLLAMA_BENCH_ENV },
+    flash_attention: "auto" as const,
+    managed: true,
+  },
 };
 
 function record(digest: string | null) {
@@ -42,7 +49,7 @@ function record(digest: string | null) {
     subject,
     digest,
     evidence,
-    appVersion: "0.9.0",
+    client: { app: "holaOS" as const, version: "0.9.0" },
     artifacts: { recording: null, cards: [], highlights: [] },
     conditions: { cpu_busy_pct: 4 },
   });
@@ -92,4 +99,35 @@ test("the Ollama floor is the higher of the suite's and the model's", () => {
   assert.equal(minOllamaVersion("0.12.0", subject, compareOllamaVersions), "0.12.6");
   assert.equal(minOllamaVersion("0.13.1", subject, compareOllamaVersions), "0.13.1");
   assert.equal(minOllamaVersion(undefined, { ...subject, ollama: { tag: "x" } }, compareOllamaVersions), null);
+});
+
+/** JSON.stringify with every object's keys sorted, so key order can't make two equal records differ. */
+function canonicalJson(value: unknown): string {
+  const sortKeys = (v: unknown): unknown => {
+    if (Array.isArray(v)) {
+      return v.map(sortKeys);
+    }
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.keys(v).sort().map((key) => [key, sortKeys((v as Record<string, unknown>)[key])]));
+    }
+    return v;
+  };
+  return `${JSON.stringify(sortKeys(value), null, 2)}\n`;
+}
+
+test("parity golden: the desktop builds the exact Run Record the hola CLI's test expects", () => {
+  const dir = path.join(here, "__fixtures__", "parity");
+  const read = (name: string) => JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+  const inputs = read("inputs.json");
+  const built = buildRunRecord({
+    runId: inputs.run_id,
+    bench: read("bench-output.json"),
+    subject: read("subject.json"),
+    digest: inputs.digest,
+    evidence: read("evidence.json"),
+    client: inputs.client,
+    artifacts: { recording: null, cards: [], highlights: benchHighlights(inputs.events) },
+    conditions: inputs.conditions,
+  });
+  assert.equal(canonicalJson(built), fs.readFileSync(path.join(dir, "run-record.json"), "utf8"));
 });

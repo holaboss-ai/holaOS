@@ -145,6 +145,7 @@ test("start, pull, digest and stop a real child process", { skip: process.platfo
       version: "0.12.6",
       env: { ...OLLAMA_BENCH_ENV },
       flash_attention: "auto",
+      managed: true,
     });
     assert.doesNotThrow(() => instance.assertMinVersion("0.12.0"));
     assert.throws(() => instance.assertMinVersion("0.13.0"), (error: unknown) => {

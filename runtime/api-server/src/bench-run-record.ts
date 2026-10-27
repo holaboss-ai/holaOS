@@ -62,7 +62,7 @@ export interface RunRecord {
     kind: "local";
     hardware: Record<string, unknown>;
     provider: OllamaEvidence["provider"];
-    client: { app: "holaOS"; version: string };
+    client: BenchClient;
     conditions: BenchConditions;
   };
   results: Array<Record<string, unknown>>;
@@ -76,9 +76,18 @@ export interface RunRecord {
   wall_seconds: number;
 }
 
+/** The only field a desktop record and a `hola` CLI record of the same run differ in. */
+export interface BenchClient {
+  app: "holaOS" | "hola-cli";
+  version: string;
+}
+
 /** What else the machine was doing; a busy machine measures slower. */
 export interface BenchConditions {
   cpu_busy_pct: number | null;
+  /** CPU and NVIDIA GPU used by everything except Ollama during the speed tasks; only the CLI records them so far. */
+  others_cpu_busy_during_pct?: number | null;
+  others_gpu_busy_pct?: number | null;
 }
 
 export class BenchSubjectError extends Error {
@@ -123,7 +132,7 @@ export function buildRunRecord(params: {
   subject: BenchSubject;
   digest: string | null;
   evidence: OllamaEvidence;
-  appVersion: string;
+  client: BenchClient;
   artifacts: BenchArtifacts;
   conditions: BenchConditions;
 }): RunRecord {
@@ -148,7 +157,7 @@ export function buildRunRecord(params: {
       kind: params.evidence.kind,
       hardware: bench.machine,
       provider: params.evidence.provider,
-      client: { app: "holaOS", version: params.appVersion },
+      client: params.client,
       conditions: params.conditions,
     },
     results: bench.results,

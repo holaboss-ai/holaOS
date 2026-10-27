@@ -1,0 +1,15 @@
+{
+  "kind": "local",
+  "provider": {
+    "engine": "ollama",
+    "version": "0.40.10",
+    "env": {
+      "OLLAMA_KV_CACHE_TYPE": "f16",
+      "OLLAMA_NUM_PARALLEL": "1",
+      "OLLAMA_MAX_LOADED_MODELS": "1",
+      "OLLAMA_NOPRUNE": "1"
+    },
+    "flash_attention": "auto",
+    "managed": true
+  }
+}

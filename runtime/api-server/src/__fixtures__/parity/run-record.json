@@ -1,0 +1,386 @@
+{
+  "artifacts": {
+    "cards": [],
+    "highlights": [
+      {
+        "label": "first_token",
+        "t": 4.3,
+        "task": "speed@0"
+      },
+      {
+        "label": "task_done",
+        "t": 9.1,
+        "task": "speed@0"
+      },
+      {
+        "label": "first_token",
+        "t": 11,
+        "task": "speed@8k"
+      },
+      {
+        "label": "task_done",
+        "t": 20,
+        "task": "speed@8k"
+      },
+      {
+        "label": "first_token",
+        "t": 21,
+        "task": "code-intervals"
+      },
+      {
+        "label": "task_done",
+        "t": 30.3,
+        "task": "code-intervals"
+      },
+      {
+        "label": "error",
+        "t": 31,
+        "task": "tool-flight"
+      },
+      {
+        "label": "error",
+        "t": 33,
+        "task": "tool-flight"
+      },
+      {
+        "label": "first_token",
+        "t": 34.2,
+        "task": "needle-8k"
+      },
+      {
+        "label": "task_done",
+        "t": 72,
+        "task": "needle-8k"
+      }
+    ],
+    "recording": null
+  },
+  "finished_at": "2026-10-27T05:33:17Z",
+  "provenance": null,
+  "results": [
+    {
+      "kind": "speed",
+      "metrics": {
+        "cpu_offload": true,
+        "decode_tps": 129381.2,
+        "decode_tps_sd": 4728.9,
+        "depth": 0,
+        "engine_decode_tps": 100,
+        "engine_decode_tps_sd": 0,
+        "engine_prefill_tps": 1450,
+        "engine_prefill_tps_sd": 0,
+        "model_bytes": 2000,
+        "runs": [
+          {
+            "completion_tokens": 256,
+            "decode_tps": 128831.3,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 1450,
+            "load_ms": 1,
+            "prompt_tokens": 29,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          },
+          {
+            "completion_tokens": 256,
+            "decode_tps": 135428.3,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 1450,
+            "load_ms": 1,
+            "prompt_tokens": 29,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          },
+          {
+            "completion_tokens": 256,
+            "decode_tps": 123884.1,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 1450,
+            "load_ms": 1,
+            "prompt_tokens": 29,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 0
+          }
+        ],
+        "ttft_ms": 1,
+        "ttft_ms_sd": 0,
+        "vram_bytes": 1500
+      },
+      "status": "ok",
+      "task": "speed@0",
+      "time": 0,
+      "tokens": 768
+    },
+    {
+      "kind": "speed",
+      "metrics": {
+        "cpu_offload": true,
+        "decode_tps": 138545,
+        "decode_tps_sd": 9919.4,
+        "depth": 8192,
+        "engine_decode_tps": 100,
+        "engine_decode_tps_sd": 0,
+        "engine_prefill_tps": 431983.3,
+        "engine_prefill_tps_sd": 330,
+        "model_bytes": 2000,
+        "runs": [
+          {
+            "completion_tokens": 256,
+            "decode_tps": 128138,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 431750,
+            "load_ms": 1,
+            "prompt_tokens": 8635,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          },
+          {
+            "completion_tokens": 256,
+            "decode_tps": 151894.9,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 432450,
+            "load_ms": 1,
+            "prompt_tokens": 8649,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          },
+          {
+            "completion_tokens": 256,
+            "decode_tps": 135602.2,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 431750,
+            "load_ms": 1,
+            "prompt_tokens": 8635,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          }
+        ],
+        "ttft_ms": 1,
+        "ttft_ms_sd": 0,
+        "vram_bytes": 1500
+      },
+      "status": "ok",
+      "task": "speed@8k",
+      "time": 0,
+      "tokens": 768
+    },
+    {
+      "attempts": [
+        {
+          "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef merge_intervals(intervals):\n    out = []\n    for s, e in sorted(intervals):\n        if out and s <= out[-1][1]:\n            out[-1][1] = max(out[-1][1], e)\n        else:\n            out.append([s, e])\n    return out\n```",
+          "passed": true,
+          "reason": null,
+          "sample": 0,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        },
+        {
+          "content": "<think>先写测试：“merge” \t\\ \u0001 — ok</think>```python\ndef m",
+          "passed": true,
+          "reason": null,
+          "sample": 1,
+          "seconds": 0,
+          "thinking": "按起点排序。",
+          "tokens": 2,
+          "tool_calls": null
+        },
+        {
+          "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef m",
+          "passed": true,
+          "reason": null,
+          "sample": 2,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        }
+      ],
+      "category": "code",
+      "kind": "task",
+      "pass": true,
+      "passed": 3,
+      "reasons": {},
+      "samples": 3,
+      "score": 1,
+      "status": "ok",
+      "task": "code-intervals",
+      "time": 0,
+      "tokens": 6
+    },
+    {
+      "attempts": [
+        {
+          "content": "",
+          "passed": false,
+          "reason": "request failed: HTTP 500",
+          "sample": 0,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 0,
+          "tool_calls": null
+        },
+        {
+          "content": "",
+          "passed": false,
+          "reason": "request failed: HTTP 500",
+          "sample": 1,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 0,
+          "tool_calls": null
+        },
+        {
+          "content": "",
+          "passed": false,
+          "reason": "request failed: HTTP 500",
+          "sample": 2,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 0,
+          "tool_calls": null
+        }
+      ],
+      "category": "tool",
+      "kind": "task",
+      "pass": false,
+      "passed": 0,
+      "reasons": {
+        "request failed: HTTP 500": 3
+      },
+      "samples": 3,
+      "score": 0,
+      "status": "error",
+      "task": "tool-flight",
+      "time": 0,
+      "tokens": 3
+    },
+    {
+      "attempts": [
+        {
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "passed": true,
+          "reason": null,
+          "sample": 0,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        },
+        {
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "passed": true,
+          "reason": null,
+          "sample": 1,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        },
+        {
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "passed": true,
+          "reason": null,
+          "sample": 2,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        }
+      ],
+      "category": "long_context",
+      "kind": "task",
+      "pass": true,
+      "passed": 3,
+      "reasons": {},
+      "samples": 3,
+      "score": 1,
+      "status": "ok",
+      "task": "needle-8k",
+      "time": 0,
+      "tokens": 6
+    }
+  ],
+  "run_id": "6f1c2a9e-3b7d-4e1a-9c55-0d2f8e7a4b11",
+  "runtime": {
+    "client": {
+      "app": "holaOS",
+      "version": "0.9.0"
+    },
+    "conditions": {
+      "cpu_busy_pct": 8,
+      "others_cpu_busy_during_pct": 3,
+      "others_gpu_busy_pct": null
+    },
+    "hardware": {
+      "cpu": "Apple M5 Pro",
+      "machine": "arm64",
+      "memory_gb": 48,
+      "model": "Mac17,8",
+      "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+      "power": "AC",
+      "python": "3.13.13"
+    },
+    "kind": "local",
+    "provider": {
+      "engine": "ollama",
+      "env": {
+        "OLLAMA_KV_CACHE_TYPE": "f16",
+        "OLLAMA_MAX_LOADED_MODELS": "1",
+        "OLLAMA_NOPRUNE": "1",
+        "OLLAMA_NUM_PARALLEL": "1"
+      },
+      "flash_attention": "auto",
+      "managed": true,
+      "version": "0.40.10"
+    }
+  },
+  "schema": "hola.run-record/0.1",
+  "signature": null,
+  "started_at": "2026-10-27T05:32:05Z",
+  "subject": {
+    "capabilities": [
+      "completion",
+      "tools",
+      "thinking"
+    ],
+    "digest_registered": true,
+    "id": "openbmb-minicpm5-2b",
+    "name": "MiniCPM5-2B",
+    "quant": "Q4_K_M",
+    "tag": "openbmb/minicpm5-2b:q4_K_M",
+    "type": "model",
+    "vendor": "OpenBMB",
+    "version": "71a44e98400fbd490d66332a0ebba31143479a714987c13f45c82e94025cbfa7"
+  },
+  "submitter": null,
+  "suite": {
+    "id": "suite-standard",
+    "sha256": "4bbdf2da8b959801bb223c2a13d71fe952604138798ef2da0705df45794b6f67",
+    "version": "1.0"
+  },
+  "test_agent": {
+    "executor": "holaeval@1.1.0",
+    "judge": "holaeval@1.1.0",
+    "settings": {
+      "keep_alive": "30m",
+      "num_ctx": 16384,
+      "samples": 3,
+      "sampling": {
+        "min_p": 0,
+        "temperature": 0.7,
+        "top_p": 0.8
+      },
+      "warmup_load_ms": 1
+    }
+  },
+  "verification": null,
+  "wall_seconds": 72.4
+}

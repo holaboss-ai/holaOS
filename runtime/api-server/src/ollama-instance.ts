@@ -42,6 +42,8 @@ export interface OllamaEvidence {
     version: string | null;
     env: Record<string, string>;
     flash_attention: "auto";
+    /** Started by holaOS or the CLI under the pinned conditions, not someone's own server; HolaHub publishes only these. */
+    managed: boolean;
   };
 }
 
@@ -404,7 +406,7 @@ export class OllamaInstance {
   evidence(): OllamaEvidence {
     return {
       kind: "local",
-      provider: { engine: "ollama", version: this.version, env: { ...OLLAMA_BENCH_ENV }, flash_attention: "auto" },
+      provider: { engine: "ollama", version: this.version, env: { ...OLLAMA_BENCH_ENV }, flash_attention: "auto", managed: true },
     };
   }
 
