@@ -124,7 +124,10 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
             instance.assert_min_version(floor)
 
         run.emit("phase", {"phase": "pulling"})
-        had_model = instance.has_model(tag)
+        try:
+            had_model = instance.has_model(tag)
+        except (OSError, ValueError):
+            had_model = True  # unsure means it may be the user's: never remove it
 
         def on_pull(progress):
             run.emit("pull_progress", dict(progress))
@@ -147,9 +150,12 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
         record_path = run.run_dir / "run-record.json"
         record_path.write_text(dumps(record), encoding="utf-8")
         if not had_model and not keep_model:
-            instance.delete(tag)
-            run.emit("model_removed", {"tag": tag})
-            ui("model_removed", {"tag": tag})
+            try:
+                instance.delete(tag)
+                run.emit("model_removed", {"tag": tag})
+                ui("model_removed", {"tag": tag})
+            except OSError:
+                ui("model_kept", {"tag": tag})
         status = "done"
         summary = runs.summarize(run.run_dir, record)
         return {"ok": True, "run_id": run.run_id, "run_dir": str(run.run_dir), "record_path": str(record_path),

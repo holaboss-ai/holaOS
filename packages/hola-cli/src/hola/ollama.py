@@ -27,6 +27,8 @@ STOP_TIMEOUT_S = 5
 PULL_IDLE_TIMEOUT_S = 300
 PID_FILE = "ollama-bench.json"
 LOG_TAIL_BYTES = 4000
+FAKE_IP_NEXT_STEP = ("Send Ollama's downloads through your proxy: `export HTTPS_PROXY=http://127.0.0.1:7890` (your "
+                     "proxy's HTTP port; Clash Verge uses 7897), then run this again. Or switch the proxy's DNS mode to real IP.")
 
 # Loopback calls never go through the user's proxy, which on macOS urllib would otherwise read from the system.
 _LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -230,8 +232,7 @@ def kill_tree(pid, sig=signal.SIGTERM):
 def pull_failure(model, reason):
     message = f"Pulling {model} failed: {reason}."
     if "resolves to non-public" in reason:
-        hint = ("Your proxy resolves the download host to a private address (fake-ip mode). Turn on your proxy's "
-                "system proxy, or set its DNS mode to real IP, then try again.")
+        hint = "Your proxy resolves the download host to a private address (fake-ip mode). " + FAKE_IP_NEXT_STEP
     elif "proxyconnect" in reason:
         hint = "Ollama couldn't reach your proxy. Start the proxy or unset HTTPS_PROXY, then try again."
     elif re.search(r"no such host|network is unreachable|i/o timeout|connection refused|connection reset|"

@@ -85,6 +85,17 @@ class EvalTest(unittest.TestCase):
         bench.run_eval(support.SUBJECT, env=box.env, cpu_busy=lambda: 1, hardware=lambda: dict(support.SMALL_MACHINE))
         self.assertNotIn("/api/delete", [r["path"] for r in box.requests()])
 
+    def test_when_presence_cant_be_checked_the_model_is_treated_as_the_users(self):
+        real = ollama.OllamaInstance.has_model
+
+        def broken(instance, model):
+            raise OSError("tags unavailable")
+
+        ollama.OllamaInstance.has_model = broken
+        self.addCleanup(setattr, ollama.OllamaInstance, "has_model", real)
+        self.assertTrue(self.run_eval()["ok"])
+        self.assertNotIn("/api/delete", [r["path"] for r in self.box.requests()])
+
     def test_an_unregistered_build_still_runs_but_cannot_be_published(self):
         subject = {**support.SUBJECT, "ollama": {"tag": "m:q4", "known_digests": ["another"]}}
         result = self.run_eval(subject)

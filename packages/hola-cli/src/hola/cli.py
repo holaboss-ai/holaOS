@@ -26,6 +26,7 @@ TASK_LABELS = {"code-intervals": "code", "tool-flight": "tool call", "needle-8k"
 SPEED_LABELS = {"speed@0": "generation", "speed@8k": "generation with 8K context"}
 LOW_DISK_GB = 10
 FAKE_IP_NET = ipaddress.ip_network("198.18.0.0/15")
+FAKE_IP_NEXT_STEP = ollama.FAKE_IP_NEXT_STEP
 EXIT_CANCELLED = 130
 
 
@@ -142,6 +143,9 @@ class EvalView(Out):
         else:
             self.warn(f"{d['name']} {d['quant']}{size} {self.sep} unverified build ({(d['digest'] or 'no digest')[:12]})",
                       "HolaHub hasn't registered this build, so the run will stay on this machine.")
+
+    def on_model_kept(self, d):
+        self.warn(f"Couldn't remove {d['tag']}, which this run downloaded.", f"Remove it yourself with `ollama rm {d['tag']}`.")
 
     def on_model_removed(self, d):
         self.good(f"Removed {d['tag']}, downloaded for this run (keep it next time with --keep-model)")
@@ -362,7 +366,7 @@ def doctor_checks(env=None):
               "Runs of models you already have still work. Downloads need a connection.")
     elif fake and not proxy:
         check(checks, "network", "warn", f"registry.ollama.ai resolves to {fake[0]}, a fake-ip proxy address, and no HTTPS proxy is set.",
-              "Turn on your proxy's system proxy (or set HTTPS_PROXY), or set its DNS mode to real IP, so downloads work.")
+              FAKE_IP_NEXT_STEP)
     else:
         via = f" through {proxy}" if proxy else ""
         check(checks, "network", "ok", f"Model downloads go{via or ' direct'}")
