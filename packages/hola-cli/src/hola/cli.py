@@ -211,7 +211,7 @@ def cmd_eval(args, out):
     config, config_source = hub.fetch_subject(entry["id"])
     view = EvalView(config, out.stream)
     if not args.json and config_source == "bundled":
-        view.warn("HolaHub can't be reached, so this uses the model config bundled with hola.")
+        view.warn("HolaHub's config for this model couldn't be loaded, so this uses the one bundled with hola.")
 
     def confirm(models):
         if args.json or not sys.stdin.isatty():
@@ -240,7 +240,7 @@ def cmd_list(args, out):
         emit_json({"ok": True, "source": source, "subjects": entries})
         return 0
     if source == "bundled":
-        out.warn("HolaHub can't be reached; this is the list bundled with hola.")
+        out.warn("HolaHub's model list couldn't be loaded; these are the models bundled with hola.")
     rows = [("Model", "Quant", "Download", "Memory", "Suites", "Run it with")]
     for e in entries:
         short = min([e["id"], *[a for a in e["aliases"] if ":" not in a]], key=len)
@@ -366,7 +366,8 @@ def doctor_checks(env=None):
 
     entries, source = hub.fetch_subjects_index(env)
     check(checks, "holahub", "ok" if source == "hub" else "warn",
-          f"HolaHub lists {len(entries)} models" if source == "hub" else f"HolaHub can't be reached; using the {len(entries)} bundled models",
+          f"HolaHub lists {len(entries)} models" if source == "hub"
+          else f"HolaHub's model list couldn't be loaded; hola falls back to its {len(entries)} bundled models",
           None if source == "hub" else "Check your connection; publishing needs HolaHub.")
     status = hub.version_status(hub.fetch_cli_policy(env))
     if status["latest"] is None:

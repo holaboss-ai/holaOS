@@ -56,7 +56,7 @@ class CliTest(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         text = out.stdout
         for expected in (f"Ollama 0.40.10 · private instance on 127.0.0.1:{self.box.port}", "background load",
-                         "HolaHub can't be reached", "downloading MiniCPM5-2B Q4_K_M", "unverified build",
+                         "bundled with hola", "downloading MiniCPM5-2B Q4_K_M", "unverified build",
                          "warming up … done", "generation … ", "tok/s", "code ●●●  3/3", "generation   ",
                          "Saved ", "This run stays on this machine"):
             self.assertIn(expected, text)
