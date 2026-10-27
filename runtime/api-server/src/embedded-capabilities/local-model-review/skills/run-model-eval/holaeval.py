@@ -2669,12 +2669,18 @@ def run_code_attempt(engine, task, sample, pack, sandbox, emit, transcript_path=
     transcript = []
     started = time.time()
     finish = "turn_limit"
+    # The engine's own count of the last prompt and reply, and how many messages it covered.
+    known = None
     for _ in range(b["max_turns"]):
         if time.time() - started > b["attempt_wall_s"]:
             finish = "wall_guard"
             break
-        est = math.ceil((tools_chars + len(json.dumps(messages, ensure_ascii=False))) / b["chars_per_token"])
-        rec["peak_context_tokens"] = max(rec["peak_context_tokens"], est)
+        # The chat template may drop earlier thinking, so only messages the engine hasn't counted are estimated.
+        if known:
+            prompt_tokens, reply_tokens, counted = known
+            est = prompt_tokens + reply_tokens + math.ceil(len(json.dumps(messages[counted:], ensure_ascii=False)) / b["chars_per_token"])
+        else:
+            est = math.ceil((tools_chars + len(json.dumps(messages, ensure_ascii=False))) / b["chars_per_token"])
         left, room = b["attempt_tokens"] - rec["completion_tokens"], pack["num_ctx"] - est
         if left < b["min_turn_tokens"]:
             finish = "token_budget"
@@ -2691,7 +2697,9 @@ def run_code_attempt(engine, task, sample, pack, sandbox, emit, transcript_path=
         rec["turns"] += 1
         rec["completion_tokens"] += r["completion_tokens"]
         rec["prompt_eval_tokens"] += r["prompt_tokens"]
+        rec["peak_context_tokens"] = max(rec["peak_context_tokens"], r["prompt_tokens"] + r["completion_tokens"])
         messages.append(engine.assistant_message(r))
+        known = (r["prompt_tokens"], r["completion_tokens"], len(messages)) if r["prompt_tokens"] else None
         transcript.append({"turn": rec["turns"], "role": "assistant", "content": r["content"], "thinking": r["thinking"],
                            "tool_calls": [{"name": c["name"], "arguments": c["arguments"]} for c in r["calls"]],
                            "num_predict": n, "completion_tokens": r["completion_tokens"], "prompt_tokens": r["prompt_tokens"],
@@ -3436,7 +3444,8 @@ class ScriptedCodeEngine(OllamaCodeEngine):
         raw = [] if isinstance(step, str) else [{"function": {"name": n, "arguments": a}} for n, a in step]
         calls = [{"id": None, "name": c["function"]["name"], "arguments": c["function"]["arguments"]} for c in raw]
         return {"content": step if isinstance(step, str) else "", "thinking": "", "calls": calls, "raw_calls": raw,
-                "length": self.length, "completion_tokens": self.tokens, "prompt_tokens": 50, "seconds": 0.01}
+                "length": self.length, "completion_tokens": self.tokens,
+                "prompt_tokens": len(json.dumps(messages)) // 4, "seconds": 0.01}
 
 
 def selftest_code():
@@ -3528,8 +3537,17 @@ def selftest_code():
         assert rec["tool_calls"] == {"write": 1, "bash": 1} and not rec["passed"]
         rec, engine, _ = attempt("fix-pagination", [[("ls", {})]] * 20, tokens=5000)
         assert rec["finish"] == "token_budget" and rec["turns"] == 3 and engine.requests[2]["num_predict"] == 2288
-        rec, _, _ = attempt("fix-pagination", [[("read", {"path": "pager.py"})]] * 20, num_ctx=3000)
-        assert rec["finish"] == "context_full" and rec["peak_context_tokens"] > 1976
+        rec, engine, _ = attempt("fix-pagination", [[("read", {"path": "pager.py"})]] * 20, num_ctx=4000)
+        assert rec["finish"] == "context_full" and 1 < rec["turns"] < 15, (rec["finish"], rec["turns"])
+        assert rec["peak_context_tokens"] == max(len(json.dumps(q["messages"])) // 4 + 10 for q in engine.requests)
+        thinking = {"content": "", "thinking": "x" * 40000, "calls": [{"id": None, "name": "ls", "arguments": {}}],
+                    "raw_calls": [{"function": {"name": "ls", "arguments": {}}}], "length": False,
+                    "completion_tokens": 300, "prompt_tokens": 2000, "seconds": 0.01}
+        dropped = ScriptedCodeEngine([[("ls", {})]] * 3 + ["done"])
+        dropped.chat = lambda messages, tools, n, real=dropped.chat: dict(real(messages, tools, n), **{k: thinking[k] for k in ("thinking", "prompt_tokens")})
+        rec = run_code_attempt(dropped, tasks["fix-pagination"], 0, dict(pack, num_ctx=6000),
+                               CodeSandbox(Path(d) / "a", deny_read=pack["_root"]), lambda *a, **k: None)
+        assert rec["finish"] == "answered", "thinking the template drops must not count against the context"
         rec, _, _ = attempt("fix-pagination", ["thinking..."], length=True)
         assert rec["finish"] == "turn_token_limit" and rec["final_answer"] is None
         rec, _, _ = attempt("fix-pagination", [RuntimeError("HTTP 500: model crashed")])
