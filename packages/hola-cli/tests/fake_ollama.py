@@ -8,6 +8,7 @@ runner.pid for a child process that stands in for a model runner.
 import importlib.util
 import json
 import os
+import socketserver
 import subprocess
 import sys
 import threading
@@ -130,7 +131,14 @@ def serve():
         runner = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
         (STATE / "runner.pid").write_text(str(runner.pid))
     host, port = env["OLLAMA_HOST"].rsplit(":", 1)
-    ThreadingHTTPServer((host, int(port)), Handler).serve_forever()
+    Server((host, int(port)), Handler).serve_forever()
+
+
+class Server(ThreadingHTTPServer):
+    def server_bind(self):
+        # The stock bind reverse-resolves the address, which takes ~35 s on GitHub's macOS runners.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 if __name__ == "__main__":

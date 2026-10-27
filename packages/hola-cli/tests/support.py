@@ -1,9 +1,20 @@
 """Shared test setup: puts src/ on the path and locates the repo's parity fixtures."""
 
+import http.server
+import socketserver
 import sys
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent.parent
+
+
+def _bind_without_fqdn(server):
+    socketserver.TCPServer.server_bind(server)
+    server.server_name, server.server_port = server.server_address[:2]
+
+
+# HTTPServer reverse-resolves its address on bind, which takes ~35 s on GitHub's macOS runners.
+http.server.HTTPServer.server_bind = _bind_without_fqdn
 sys.path.insert(0, str(PACKAGE / "src"))
 REPO = PACKAGE.parent.parent
 PARITY = REPO / "runtime" / "api-server" / "src" / "__fixtures__" / "parity"
