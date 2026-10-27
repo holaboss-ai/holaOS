@@ -52,6 +52,9 @@ class LinuxGpusTest(unittest.TestCase):
             stub(bin_dir, "lscpu", out)
             with mock.patch.dict(os.environ, {"PATH": bin_dir}):
                 self.assertEqual(holaeval.lscpu_model_name(), "Cortex-A76 + Cortex-A55")
+            stub(bin_dir, "lscpu", "Architecture: aarch64\nModel name: -")
+            with mock.patch.dict(os.environ, {"PATH": bin_dir}):
+                self.assertIsNone(holaeval.lscpu_model_name())
 
 
 if __name__ == "__main__":

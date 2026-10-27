@@ -224,7 +224,7 @@ def lscpu_model_name():
     except (OSError, subprocess.SubprocessError):
         return None
     names = [line.split(":", 1)[1].strip() for line in out.splitlines() if line.startswith("Model name:")]
-    return " + ".join(dict.fromkeys(names)) or None
+    return " + ".join(dict.fromkeys(n for n in names if n.strip("- "))) or None
 
 
 def linux_gpus():
