@@ -218,7 +218,10 @@ def cmd_eval(args, out):
             return False
         names = ", ".join(f"{m['name']} ({gb(m['size_vram'])})" if m.get("size_vram") else m["name"] for m in models)
         view.warn(f"Your own Ollama has {names} in memory, which would slow the benchmark down.")
-        return input("    Unload now? [y/N] ").strip().lower() in ("y", "yes")
+        try:
+            return input("    Unload now? [y/N] ").strip().lower() in ("y", "yes")
+        except EOFError:
+            return False
 
     try:
         result = bench.run_eval(config, suite=args.suite, ollama_url=args.ollama_url, keep_model=args.keep_model,
