@@ -272,6 +272,10 @@ export class OllamaInstance {
     this.deps = deps;
   }
 
+  get pid(): number | null {
+    return this.child?.pid ?? null;
+  }
+
   get baseUrl(): string {
     if (this.port === null) {
       throw new Error("Ollama instance is not running");

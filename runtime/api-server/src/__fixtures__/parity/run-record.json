@@ -70,6 +70,8 @@
         "engine_prefill_tps": 1450,
         "engine_prefill_tps_sd": 0,
         "model_bytes": 2000,
+        "others_cpu_busy_pct": 3,
+        "others_gpu_busy_pct": 0,
         "runs": [
           {
             "completion_tokens": 256,
@@ -77,6 +79,8 @@
             "engine_decode_tps": 100,
             "engine_prefill_tps": 1450,
             "load_ms": 1,
+            "others_cpu_busy_pct": 2.5,
+            "others_gpu_busy_pct": 0,
             "prompt_tokens": 29,
             "reloaded": false,
             "seconds": 0,
@@ -88,6 +92,8 @@
             "engine_decode_tps": 100,
             "engine_prefill_tps": 1450,
             "load_ms": 1,
+            "others_cpu_busy_pct": 3,
+            "others_gpu_busy_pct": 1.5,
             "prompt_tokens": 29,
             "reloaded": false,
             "seconds": 0,
@@ -99,6 +105,8 @@
             "engine_decode_tps": 100,
             "engine_prefill_tps": 1450,
             "load_ms": 1,
+            "others_cpu_busy_pct": 4.5,
+            "others_gpu_busy_pct": 0,
             "prompt_tokens": 29,
             "reloaded": false,
             "seconds": 0,
@@ -126,6 +134,8 @@
         "engine_prefill_tps": 431983.3,
         "engine_prefill_tps_sd": 330,
         "model_bytes": 2000,
+        "others_cpu_busy_pct": 4.8,
+        "others_gpu_busy_pct": 0,
         "runs": [
           {
             "completion_tokens": 256,
@@ -133,6 +143,8 @@
             "engine_decode_tps": 100,
             "engine_prefill_tps": 431750,
             "load_ms": 1,
+            "others_cpu_busy_pct": 3.5,
+            "others_gpu_busy_pct": 2,
             "prompt_tokens": 8635,
             "reloaded": false,
             "seconds": 0,
@@ -144,6 +156,8 @@
             "engine_decode_tps": 100,
             "engine_prefill_tps": 432450,
             "load_ms": 1,
+            "others_cpu_busy_pct": null,
+            "others_gpu_busy_pct": 0,
             "prompt_tokens": 8649,
             "reloaded": false,
             "seconds": 0,
@@ -155,6 +169,8 @@
             "engine_decode_tps": 100,
             "engine_prefill_tps": 431750,
             "load_ms": 1,
+            "others_cpu_busy_pct": 6,
+            "others_gpu_busy_pct": 0,
             "prompt_tokens": 8635,
             "reloaded": false,
             "seconds": 0,
@@ -316,8 +332,8 @@
     },
     "conditions": {
       "cpu_busy_pct": 8,
-      "others_cpu_busy_during_pct": 3,
-      "others_gpu_busy_pct": null
+      "others_cpu_busy_pct": 3.5,
+      "others_gpu_busy_pct": 0
     },
     "hardware": {
       "cpu": "Apple M5 Pro",

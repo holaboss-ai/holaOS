@@ -104,6 +104,8 @@ export class BenchError extends Error {
 
 export interface BenchInstance {
   readonly baseUrl: string;
+  /** The server's pid, so holaeval can tell Ollama's processes from everything else. */
+  readonly pid?: number | null;
   start(): Promise<{ baseUrl: string; version: string }>;
   assertMinVersion(minVersion: string): void;
   pull(model: string, onProgress?: (progress: OllamaPullProgress) => void): Promise<void>;
@@ -411,7 +413,7 @@ export class BenchRunner {
       this.throwIfCancelled(entry);
 
       this.setPhase(entry, "running");
-      const bench = await this.runHolaeval(entry, instance.baseUrl, packPath);
+      const bench = await this.runHolaeval(entry, instance.baseUrl, packPath, instance.pid ?? null);
 
       this.setPhase(entry, "finishing");
       const record = buildRunRecord({
@@ -452,7 +454,7 @@ export class BenchRunner {
     }
   }
 
-  private async runHolaeval(entry: RunEntry, baseUrl: string, packPath: string): Promise<HolaevalBenchOutput> {
+  private async runHolaeval(entry: RunEntry, baseUrl: string, packPath: string, ollamaPid: number | null): Promise<HolaevalBenchOutput> {
     const runDir = entry.state.run_dir;
     const args = [
       "-I",
@@ -470,6 +472,7 @@ export class BenchRunner {
       runDir,
       "--label",
       BENCH_LABEL,
+      ...(ollamaPid ? ["--ollama-pid", String(ollamaPid)] : []),
     ];
     const spawnImpl: SpawnImpl = this.deps.spawnImpl ?? ((command, spawnArgs, options) => spawn(command, spawnArgs, options));
     const python = this.deps.python ?? (process.platform === "win32" ? "python" : "python3");

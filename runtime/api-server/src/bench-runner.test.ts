@@ -115,7 +115,10 @@ test("one click runs the standard suite end to end and writes a Run Record", { s
   );
   assert.ok(record.artifacts.highlights.some((h) => h.label === "first_token" && h.task === "speed@0"));
   assert.equal(record.verification, null);
-  assert.deepEqual(record.runtime.conditions, { cpu_busy_pct: 40 });
+  assert.equal(record.runtime.conditions.cpu_busy_pct, 40);
+  assert.ok("others_cpu_busy_pct" in record.runtime.conditions, "holaeval's during-run sample reaches the record");
+  const speedRuns = (record.results[0] as { metrics: { runs: Array<Record<string, unknown>> } }).metrics.runs;
+  assert.ok(speedRuns.every((run) => "others_cpu_busy_pct" in run));
   assert.ok(events.some((event) => event.type === "machine_busy" && event.cpu_busy_pct === 40));
 
   const types = events.map((event) => event.type);

@@ -6,9 +6,7 @@
     "version": "0.9.0"
   },
   "conditions": {
-    "cpu_busy_pct": 8,
-    "others_cpu_busy_during_pct": 3,
-    "others_gpu_busy_pct": null
+    "cpu_busy_pct": 8
   },
   "events": [
     {

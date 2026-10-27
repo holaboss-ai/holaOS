@@ -64,7 +64,7 @@ def build_run_record(*, run_id, bench, subject, digest, evidence, client, artifa
             "hardware": bench["machine"],
             "provider": evidence["provider"],
             "client": client,
-            "conditions": conditions,
+            "conditions": {**conditions, **(bench.get("conditions") or {})},
         },
         "results": bench["results"],
         "artifacts": artifacts,

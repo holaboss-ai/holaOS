@@ -36,6 +36,8 @@ export interface HolaevalBenchOutput {
   request: Record<string, unknown>;
   warmup_load_ms: number;
   machine: Record<string, unknown>;
+  /** What other programs used during the timed speed requests; absent from engines older than this field. */
+  conditions?: Pick<BenchConditions, "others_cpu_busy_pct" | "others_gpu_busy_pct">;
   results: Array<Record<string, unknown>>;
   started_at: string;
   finished_at: string;
@@ -84,9 +86,10 @@ export interface BenchClient {
 
 /** What else the machine was doing; a busy machine measures slower. */
 export interface BenchConditions {
+  /** Whole-machine CPU busy in the second before the run; charts use this. */
   cpu_busy_pct: number | null;
-  /** CPU and NVIDIA GPU used by everything except Ollama during the speed tasks; only the CLI records them so far. */
-  others_cpu_busy_during_pct?: number | null;
+  /** Median CPU (and NVIDIA GPU) share used by everything except Ollama across the timed speed requests. */
+  others_cpu_busy_pct?: number | null;
   others_gpu_busy_pct?: number | null;
 }
 
@@ -158,7 +161,7 @@ export function buildRunRecord(params: {
       hardware: bench.machine,
       provider: params.evidence.provider,
       client: params.client,
-      conditions: params.conditions,
+      conditions: { ...params.conditions, ...bench.conditions },
     },
     results: bench.results,
     artifacts: params.artifacts,

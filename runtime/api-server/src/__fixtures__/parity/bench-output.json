@@ -34,6 +34,10 @@
     "memory_gb": 48,
     "power": "AC"
   },
+  "conditions": {
+    "others_cpu_busy_pct": 3.5,
+    "others_gpu_busy_pct": 0.0
+  },
   "results": [
     {
       "task": "speed@0",
@@ -51,7 +55,9 @@
             "engine_prefill_tps": 1450.0,
             "load_ms": 1,
             "reloaded": false,
-            "seconds": 0.0
+            "seconds": 0.0,
+            "others_cpu_busy_pct": 2.5,
+            "others_gpu_busy_pct": 0.0
           },
           {
             "ttft_ms": 1,
@@ -62,7 +68,9 @@
             "engine_prefill_tps": 1450.0,
             "load_ms": 1,
             "reloaded": false,
-            "seconds": 0.0
+            "seconds": 0.0,
+            "others_cpu_busy_pct": 3.0,
+            "others_gpu_busy_pct": 1.5
           },
           {
             "ttft_ms": 0,
@@ -73,7 +81,9 @@
             "engine_prefill_tps": 1450.0,
             "load_ms": 1,
             "reloaded": false,
-            "seconds": 0.0
+            "seconds": 0.0,
+            "others_cpu_busy_pct": 4.5,
+            "others_gpu_busy_pct": 0.0
           }
         ],
         "ttft_ms": 1,
@@ -84,6 +94,8 @@
         "engine_decode_tps_sd": 0.0,
         "engine_prefill_tps": 1450.0,
         "engine_prefill_tps_sd": 0.0,
+        "others_cpu_busy_pct": 3.0,
+        "others_gpu_busy_pct": 0.0,
         "model_bytes": 2000,
         "vram_bytes": 1500,
         "cpu_offload": true
@@ -107,7 +119,9 @@
             "engine_prefill_tps": 431750.0,
             "load_ms": 1,
             "reloaded": false,
-            "seconds": 0.0
+            "seconds": 0.0,
+            "others_cpu_busy_pct": 3.5,
+            "others_gpu_busy_pct": 2.0
           },
           {
             "ttft_ms": 1,
@@ -118,7 +132,9 @@
             "engine_prefill_tps": 432450.0,
             "load_ms": 1,
             "reloaded": false,
-            "seconds": 0.0
+            "seconds": 0.0,
+            "others_cpu_busy_pct": null,
+            "others_gpu_busy_pct": 0.0
           },
           {
             "ttft_ms": 1,
@@ -129,7 +145,9 @@
             "engine_prefill_tps": 431750.0,
             "load_ms": 1,
             "reloaded": false,
-            "seconds": 0.0
+            "seconds": 0.0,
+            "others_cpu_busy_pct": 6.0,
+            "others_gpu_busy_pct": 0.0
           }
         ],
         "ttft_ms": 1,
@@ -140,6 +158,8 @@
         "engine_decode_tps_sd": 0.0,
         "engine_prefill_tps": 431983.3,
         "engine_prefill_tps_sd": 330.0,
+        "others_cpu_busy_pct": 4.8,
+        "others_gpu_busy_pct": 0.0,
         "model_bytes": 2000,
         "vram_bytes": 1500,
         "cpu_offload": true
