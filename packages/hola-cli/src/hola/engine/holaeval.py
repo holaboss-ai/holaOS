@@ -2265,6 +2265,8 @@ CODE_ROOT = "/workspace"
 CODE_RESULT_TAG = "HOLAEVAL-RESULT"
 TREE_SKIP = {"__pycache__", ".DS_Store"}
 MODULE_RE = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
+# The engine refusing a tool call the model wrote badly is the model's failure, not the setup's.
+MALFORMED_TOOL_CALL_RE = re.compile(r"invalid tool call|tool call arguments|error parsing tool call", re.I)
 
 
 def tree_files(root):
@@ -2692,7 +2694,8 @@ def run_code_attempt(engine, task, sample, pack, sandbox, emit, transcript_path=
         try:
             r = engine.chat(messages, tools, n)
         except Exception as exc:
-            finish, rec["error"] = "request_error", repr(exc)[:500]
+            finish = "malformed_tool_call" if MALFORMED_TOOL_CALL_RE.search(str(exc)) else "request_error"
+            rec["error"] = repr(exc)[:500]
             break
         rec["turns"] += 1
         rec["completion_tokens"] += r["completion_tokens"]
@@ -2736,6 +2739,8 @@ def run_code_attempt(engine, task, sample, pack, sandbox, emit, transcript_path=
     if not passed:
         if finish == "request_error":
             reason = "request failed"
+        elif finish == "malformed_tool_call":
+            reason = "malformed tool call"
         elif finish == "wall_guard":
             reason = "stopped by the safety time limit"
         elif finish == "sandbox_violation":
@@ -3552,6 +3557,9 @@ def selftest_code():
         assert rec["finish"] == "turn_token_limit" and rec["final_answer"] is None
         rec, _, _ = attempt("fix-pagination", [RuntimeError("HTTP 500: model crashed")])
         assert rec["finish"] == "request_error" and rec["reason"] == "request failed" and rec["turns"] == 0
+        bad_json = RuntimeError('llama-server returned invalid tool call arguments for "write": unexpected end of JSON input')
+        rec, _, _ = attempt("fix-pagination", [[("ls", {})], bad_json])
+        assert rec["finish"] == "malformed_tool_call" and rec["reason"] == "malformed tool call"
         rec, _, _ = attempt("fix-pagination", [[("write", {"path": f"junk/{i}.txt", "content": "x"}) for i in range(5)]],
                             budgets={"repo_max_files": 6})
         assert rec["finish"] == "sandbox_violation" and rec["reason"] == "repository grew past the sandbox limit"
