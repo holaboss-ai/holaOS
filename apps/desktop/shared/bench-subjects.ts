@@ -39,7 +39,7 @@ export const BUNDLED_BENCH_SUBJECTS: ReadonlyArray<
       known_digests: ["5d5aafb9f22cc67d4d2b359dde9aa3659410be7eab884b28ab45d31a8e2f9567"],
     },
     sampling: { temperature: 1.0, top_p: 0.95, min_p: 0 },
-    suites: ["suite-standard@1.0"],
+    suites: ["suite-standard@1.0", "suite-coding@1.0"],
   },
   {
     type: "model",

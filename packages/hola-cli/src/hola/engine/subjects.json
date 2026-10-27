@@ -43,7 +43,8 @@
       "min_p": 0
     },
     "suites": [
-      "suite-standard@1.0"
+      "suite-standard@1.0",
+      "suite-coding@1.0"
     ]
   },
   {
