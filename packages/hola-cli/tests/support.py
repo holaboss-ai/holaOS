@@ -33,9 +33,10 @@ def free_port():
 
 
 def fake_binary(directory):
-    """An executable named ollama that runs fake_ollama.py with this interpreter."""
+    """An executable named ollama that runs fake_ollama.py; its command line names it, as a real binary's does."""
     path = Path(directory) / "ollama"
-    path.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{FAKE_OLLAMA}" "$@"\n')
+    path.write_text(f"#!{sys.executable}\nimport runpy, sys\nsys.argv[0] = {str(FAKE_OLLAMA)!r}\n"
+                    f"runpy.run_path({str(FAKE_OLLAMA)!r}, run_name='__main__')\n")
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
     return str(path)
 

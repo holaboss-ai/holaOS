@@ -112,11 +112,13 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
             instance = ollama.ExternalOllama(ollama_url)
         else:
             state = Path(state_dir) if state_dir else paths.state_dir(env)
-            ollama.cleanup_orphan(state)
             instance = ollama.OllamaInstance(binary, state, port or ollama.default_port(env), env=env,
                                              log_path=run.run_dir / "ollama.log")
         run.emit("phase", {"phase": "starting"})
         version = instance.start()
+        if getattr(instance, "stopped_leftover", False):
+            run.emit("leftover_stopped", {"port": instance.port})
+            ui("leftover_stopped", {"port": instance.port})
         run.emit("engine_ready", {"engine": "ollama", "version": version})
         ui("ollama", {"version": version, "base_url": instance.base_url, "managed": not ollama_url})
         floor = min_ollama_version(pack.get("min_ollama_version"), subject, ollama.compare_versions)

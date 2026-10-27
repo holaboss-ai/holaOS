@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, test } from "node:test";
@@ -13,6 +15,7 @@ import {
   compareOllamaVersions,
   defaultOllamaModelsDir,
   findOllamaBinary,
+  leftoverBenchPid,
   ollamaBinaryCandidates,
   parseScutilProxy,
   parseWindowsProxy,
@@ -198,6 +201,94 @@ test("a bench port another Ollama already answers on is not taken over", { skip:
   } finally {
     await first.stop();
   }
+});
+
+async function freePortForTest(): Promise<number> {
+  return await new Promise((resolve) => {
+    const server = net.createServer().listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as net.AddressInfo;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Starts the fake from another process that records it as the runner would, then exits (a crash) or stays (a live run). */
+async function startElsewhere(binary: string, stateDir: string, port: number, stay: boolean) {
+  const script = `
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const [binary, stateDir, port] = process.argv.slice(1);
+const child = spawn(binary, ["serve"], { env: { ...process.env, OLLAMA_HOST: "127.0.0.1:" + port }, stdio: "ignore", detached: true });
+fs.mkdirSync(stateDir, { recursive: true });
+fs.writeFileSync(stateDir + "/ollama-bench.json", JSON.stringify({ pid: child.pid, port: Number(port), started_at: new Date().toISOString(), binary, parent_pid: process.pid }));
+const poll = () => fetch("http://127.0.0.1:" + port + "/api/version").then(() => true, () => false);
+(async () => {
+  while (!(await poll())) await new Promise((r) => setTimeout(r, 100));
+  console.log("ready");
+  if (${stay}) setInterval(() => {}, 1000); else process.exit(0);
+})();
+`;
+  const helper = spawn(process.execPath, ["-e", script, binary, stateDir, String(port)], { stdio: ["ignore", "pipe", "inherit"] });
+  await new Promise<void>((resolve) => helper.stdout?.once("data", () => resolve()));
+  const record = JSON.parse(fs.readFileSync(path.join(stateDir, "ollama-bench.json"), "utf8")) as { pid: number; parent_pid: number };
+  return { helper, record };
+}
+
+test("a crashed run's instance on the bench port is stopped and the port reused", { skip: process.platform === "win32" }, async () => {
+  const dir = tempDir();
+  const stateDir = path.join(dir, "state");
+  const binary = fakeOllamaBinary(dir);
+  const port = await freePortForTest();
+  const { helper, record } = await startElsewhere(binary, stateDir, port, false);
+  await new Promise((resolve) => helper.once("exit", resolve));
+  assert.ok(alive(record.pid));
+  const instance = new OllamaInstance({ binary, stateDir, port, env: { PATH: process.env.PATH }, homedir: dir });
+  const started = await instance.start();
+  try {
+    assert.equal(started.stoppedLeftover, true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.ok(!alive(record.pid));
+  } finally {
+    await instance.stop();
+  }
+});
+
+test("a live run started by another process is never touched", { skip: process.platform === "win32" }, async () => {
+  const dir = tempDir();
+  const stateDir = path.join(dir, "state");
+  const binary = fakeOllamaBinary(dir);
+  const port = await freePortForTest();
+  const { helper, record } = await startElsewhere(binary, stateDir, port, true);
+  try {
+    const instance = new OllamaInstance({ binary, stateDir, port, env: { PATH: process.env.PATH }, homedir: dir });
+    await assert.rejects(instance.start(), (error: unknown) => {
+      return error instanceof OllamaInstanceError && error.code === "start_failed" && error.message.includes(`lsof -i :${port}`);
+    });
+    assert.ok(alive(record.pid));
+  } finally {
+    helper.kill("SIGKILL");
+    process.kill(record.pid, "SIGKILL");
+  }
+});
+
+test("a recorded pid that now runs something else is not ours", () => {
+  const dir = tempDir();
+  fs.writeFileSync(
+    path.join(dir, "ollama-bench.json"),
+    JSON.stringify({ pid: process.pid, port: 11531, binary: "/opt/ollama/bin/ollama", parent_pid: 1 }),
+  );
+  assert.equal(leftoverBenchPid(dir, 11531), null);
+  fs.writeFileSync(path.join(dir, "ollama-bench.json"), JSON.stringify({ pid: process.pid, port: 11531 }));
+  assert.equal(leftoverBenchPid(dir, 11531), null);
 });
 
 test("orphan cleanup kills a leftover instance that still answers", { skip: process.platform === "win32" }, async () => {

@@ -1,5 +1,10 @@
+import json
 import os
+import signal
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -94,18 +99,52 @@ class InstanceTest(unittest.TestCase):
             self.assertEqual(caught.exception.code, "start_failed")
             self.assertIn("address already in use", caught.exception.message)
 
-    def test_orphan_cleanup_kills_a_leftover_instance_that_still_answers(self):
+    def start_elsewhere(self, box, state, stay):
+        """Starts an instance from another process, which then exits (a crashed run) or stays (a live run)."""
+        script = (f"import os, sys, time; sys.path.insert(0, {str(support.PACKAGE / 'src')!r}); from hola import ollama; "
+                  f"i = ollama.OllamaInstance({box.binary!r}, {str(state)!r}, {box.port}, env={box.env!r}); i.start(); "
+                  "print('ready', flush=True); " + ("time.sleep(600)" if stay else "os._exit(0)"))
+        helper = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+        ready = helper.stdout.readline().strip()
+        helper.stdout.close()
+        self.assertEqual(ready, "ready")
+        return helper, json.loads((state / ollama.PID_FILE).read_text())
+
+    def test_a_crashed_runs_instance_is_stopped_and_its_port_reused(self):
         box = support.Sandbox()
         self.addCleanup(box.close)
         state = box.dir / "state"
-        crashed = ollama.OllamaInstance(box.binary, state, box.port, env=box.env)
-        crashed.start()
-        self.addCleanup(crashed.stop)
-        self.assertTrue((state / ollama.PID_FILE).exists())
-        self.assertTrue(ollama.cleanup_orphan(state))
-        self.assertIsNone(ollama.server_version(crashed.base_url))
-        self.assertFalse(ollama.cleanup_orphan(state))
+        helper, record = self.start_elsewhere(box, state, stay=False)
+        helper.wait()
+        self.assertEqual((record["binary"], record["parent_pid"]), (box.binary, helper.pid))
+        self.assertTrue(ollama.pid_alive(record["pid"]))
+        instance = ollama.OllamaInstance(box.binary, state, box.port, env=box.env)
+        instance.start()
+        self.addCleanup(instance.stop)
+        self.assertTrue(instance.stopped_leftover)
+        time.sleep(0.3)
+        self.assertFalse(ollama.pid_alive(record["pid"]))
+        self.assertEqual(json.loads((state / ollama.PID_FILE).read_text())["pid"], instance.pid)
 
+    def test_a_live_benchmark_started_by_another_process_is_never_touched(self):
+        box = support.Sandbox()
+        self.addCleanup(box.close)
+        state = box.dir / "state"
+        helper, record = self.start_elsewhere(box, state, stay=True)
+        self.addCleanup(lambda: (os.killpg(record["pid"], signal.SIGKILL), helper.kill(), helper.wait()))
+        with self.assertRaises(HolaError) as caught:
+            ollama.OllamaInstance(box.binary, state, box.port, env=box.env).start()
+        self.assertEqual(caught.exception.code, "busy")
+        self.assertIn(f"lsof -i :{box.port}", caught.exception.next_step)
+        self.assertIsNotNone(ollama.server_version(f"http://127.0.0.1:{box.port}"))
+
+    def test_a_recorded_pid_now_running_something_else_is_not_ours(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, ollama.PID_FILE).write_text(json.dumps(
+                {"pid": os.getpid(), "port": 11531, "binary": "/opt/ollama/bin/ollama", "parent_pid": 1}))
+            self.assertIsNone(ollama.leftover_pid(d, 11531))
+            Path(d, ollama.PID_FILE).write_text(json.dumps({"pid": os.getpid(), "port": 11531}))
+            self.assertIsNone(ollama.leftover_pid(d, 11531))
 
 if __name__ == "__main__":
     unittest.main()

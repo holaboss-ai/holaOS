@@ -119,6 +119,24 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 130)
         self.assertIn("Stopped. The private Ollama instance is shut down", out)
 
+    def test_after_a_kill_9_the_next_run_stops_the_leftover_and_goes_ahead(self):
+        box = support.Sandbox(runner=1, token_delay=0.05)
+        self.addCleanup(box.close)
+        proc = subprocess.Popen([sys.executable, "-m", "hola", "eval", "minicpm5-2b", "--ignore-memory"], env=self.env(box),
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and not any(r["path"] == "/api/chat" for r in box.requests()):
+            time.sleep(0.2)
+        proc.kill()
+        proc.wait()
+        leftover = int((box.state / "serve.pid").read_text())
+        self.assertTrue(alive(leftover), "kill -9 leaves the private instance running")
+        box.env["FAKE_OLLAMA_TOKEN_DELAY"] = "0"
+        out = self.hola("eval", "minicpm5-2b", "--ignore-memory", box=box)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("Stopped a benchmark Ollama left over from an earlier run", out.stdout)
+        self.assertFalse(alive(leftover))
+
     def test_sigterm_mid_run_cleans_up_the_same_way(self):
         code, _ = self.interrupt_mid_run(lambda proc: proc.terminate())
         self.assertEqual(code, 130)

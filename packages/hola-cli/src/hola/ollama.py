@@ -255,6 +255,7 @@ def pull_failure(model, reason):
 
 class OllamaInstance:
     def __init__(self, binary, state_dir, port, *, env=None, home=None, system_proxy=system_https_proxy, log_path=None):
+        self.stopped_leftover = False
         self.binary = binary
         self.state_dir = Path(state_dir)
         self.port = port
@@ -278,14 +279,18 @@ class OllamaInstance:
         return self.state_dir / PID_FILE
 
     def start(self):
-        if server_version(self.base_url) is not None:
-            raise HolaError("busy", f"Another Ollama is already running on port {self.port}, probably a benchmark "
-                                    "started elsewhere (holaOS or another hola eval).",
-                            "Wait for it to finish, then run this again. If nothing is running, quit holaOS or stop "
-                            f"the `ollama serve` left on port {self.port}.")
-        if not port_bindable(self.port):
-            raise HolaError("start_failed", f"Port {self.port} is in use by another program.",
-                            "Free the port, or choose another one with HOLA_OLLAMA_PORT.")
+        self.stopped_leftover = False
+        if server_version(self.base_url) is not None or not port_bindable(self.port):
+            if stop_leftover(self.state_dir, self.port):
+                self.stopped_leftover = True
+            elif server_version(self.base_url) is not None:
+                raise HolaError("busy", f"Another Ollama is already running on port {self.port}, probably a benchmark "
+                                        "started elsewhere (holaOS or another hola eval).",
+                                "Wait for it to finish, then run this again. If nothing is running, find what holds "
+                                f"the port with `{port_finder(self.port)}` and stop it.")
+            else:
+                raise HolaError("start_failed", f"Port {self.port} is in use by another program.",
+                                f"Find it with `{port_finder(self.port)}`, or choose another port with HOLA_OLLAMA_PORT.")
         env = bench_env(self.env, self.port, default_models_dir(self.env, self.home), self.system_proxy())
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -296,7 +301,8 @@ class OllamaInstance:
                                          stdout=log, stderr=log, **kwargs)
         self.pid_file.write_text(json.dumps({
             "pid": self.proc.pid, "port": self.port,
-            "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"}))
+            "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "binary": str(self.binary), "parent_pid": os.getpid()}))
         deadline = time.monotonic() + READY_TIMEOUT_S
         while time.monotonic() < deadline and self.proc.poll() is None:
             version = server_version(self.base_url)
@@ -426,25 +432,70 @@ class ExternalOllama:
         pass
 
 
-def cleanup_orphan(state_dir):
-    """Kills a bench instance left behind by a crash, but only if it still answers as Ollama on its recorded port."""
-    file = Path(state_dir) / PID_FILE
+def port_finder(port):
+    return f"netstat -ano | findstr :{port}" if sys.platform == "win32" else f"lsof -i :{port}"
+
+
+def process_info(pid):
+    """(parent pid, command line) of a running process, or None."""
     try:
-        record = json.loads(file.read_text())
+        if sys.platform.startswith("linux") and os.path.isdir(f"/proc/{pid}"):
+            stat = Path(f"/proc/{pid}/stat").read_text()
+            command = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+            return int(stat[stat.rfind(")") + 2:].split()[1]), command.strip()
+        if sys.platform == "win32":
+            query = (f"$p = Get-CimInstance Win32_Process -Filter 'ProcessId={pid}'; "
+                     "if ($p) { \"$($p.ParentProcessId)|$($p.CommandLine)\" }")
+            out = subprocess.run(["powershell", "-NoProfile", "-Command", query], capture_output=True, text=True,
+                                 timeout=30).stdout.strip()
+        else:
+            out = subprocess.run(["ps", "-o", "ppid=,args=", "-p", str(pid)], capture_output=True, text=True,
+                                 timeout=5).stdout.strip().replace(" ", "|", 1)
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+    ppid, sep, command = out.partition("|")
+    return (int(ppid), command.strip()) if sep and ppid.strip().isdigit() else None
+
+
+def leftover_pid(state_dir, port, self_pid=None):
+    """Our bench instance left behind by a run that crashed or was killed, or None unless the state file proves it.
+
+    Proof: the recorded process still runs our recorded binary's `serve`, on this port, and either the process
+    that started it is gone or it is this process.
+    """
+    try:
+        record = json.loads((Path(state_dir) / PID_FILE).read_text())
     except (OSError, ValueError):
-        return False
-    file.unlink(missing_ok=True)
-    pid, port = record.get("pid"), record.get("port")
-    if not isinstance(pid, int) or not isinstance(port, int) or not pid_alive(pid):
-        return False
-    if server_version(f"http://127.0.0.1:{port}") is None:
+        return None
+    pid, parent, binary = record.get("pid"), record.get("parent_pid"), record.get("binary")
+    if (not isinstance(pid, int) or not isinstance(parent, int) or not isinstance(binary, str) or not binary
+            or record.get("port") != port):
+        return None
+    info = process_info(pid)
+    if info is None:
+        return None
+    ppid, command = info
+    fold = str.lower if sys.platform == "win32" else str
+    if fold(binary) not in fold(command) or " serve" not in command:
+        return None
+    self_pid = os.getpid() if self_pid is None else self_pid
+    orphaned = ppid != parent or not pid_alive(parent)
+    return pid if orphaned or ppid == self_pid else None
+
+
+def stop_leftover(state_dir, port):
+    """Stops our own instance left on the port by an earlier run; True when it did."""
+    pid = leftover_pid(state_dir, port)
+    if pid is None:
         return False
     kill_tree(pid)
     deadline = time.monotonic() + STOP_TIMEOUT_S
-    while time.monotonic() < deadline and server_version(f"http://127.0.0.1:{port}") is not None:
+    while time.monotonic() < deadline and not port_bindable(port):
         time.sleep(0.2)
-    if server_version(f"http://127.0.0.1:{port}") is not None:
+    if not port_bindable(port):
         kill_tree(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+        time.sleep(0.5)
+    (Path(state_dir) / PID_FILE).unlink(missing_ok=True)
     return True
 
 

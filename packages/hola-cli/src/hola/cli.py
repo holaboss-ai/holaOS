@@ -116,6 +116,9 @@ class EvalView(Out):
     def on_user_models_unloaded(self, d):
         self.good(f"Unloaded {', '.join(d['models'])} from your own Ollama")
 
+    def on_leftover_stopped(self, _d):
+        self.good("Stopped a benchmark Ollama left over from an earlier run")
+
     def on_ollama(self, d):
         if d["managed"]:
             self.good(f"Ollama {d['version']} {self.sep} private instance on {d['base_url'].split('//')[1]}")

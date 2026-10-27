@@ -117,7 +117,7 @@ export interface BenchInstance {
   readonly baseUrl: string;
   /** The server's pid, so holaeval can tell Ollama's processes from everything else. */
   readonly pid?: number | null;
-  start(): Promise<{ baseUrl: string; version: string }>;
+  start(): Promise<{ baseUrl: string; version: string; stoppedLeftover?: boolean }>;
   assertMinVersion(minVersion: string): void;
   pull(model: string, onProgress?: (progress: OllamaPullProgress) => void): Promise<void>;
   digest(model: string): Promise<string | null>;
@@ -422,7 +422,10 @@ export class BenchRunner {
       )(binary);
       entry.instance = instance;
       this.setPhase(entry, "starting");
-      const { version } = await instance.start();
+      const { version, stoppedLeftover } = await instance.start();
+      if (stoppedLeftover) {
+        this.emit(entry, "leftover_stopped", { message: "Stopped a benchmark Ollama left over from an earlier run." });
+      }
       this.emit(entry, "engine_ready", { engine: "ollama", version });
       const floor = minOllamaVersion(pack.min_ollama_version, subject, compareOllamaVersions);
       if (floor) {

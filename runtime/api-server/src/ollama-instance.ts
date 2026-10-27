@@ -291,15 +291,19 @@ export class OllamaInstance {
     return path.join(this.deps.stateDir, PID_FILE);
   }
 
-  async start(): Promise<{ baseUrl: string; version: string }> {
+  async start(): Promise<{ baseUrl: string; version: string; stoppedLeftover: boolean }> {
     const port = this.deps.port ?? (await freePort());
     this.port = port;
+    let stoppedLeftover = false;
     if (this.deps.port !== undefined && (await this.fetchVersion()) !== null) {
-      this.port = null;
-      throw new OllamaInstanceError(
-        "start_failed",
-        `Another Ollama is already running on port ${port}, probably a benchmark started elsewhere. Wait for it to finish, then try again.`,
-      );
+      stoppedLeftover = await stopLeftoverOllama(this.deps.stateDir, port, this.fetchImpl);
+      if (!stoppedLeftover) {
+        this.port = null;
+        throw new OllamaInstanceError(
+          "start_failed",
+          `Another Ollama is already running on port ${port}, probably a benchmark started elsewhere. Wait for it to finish; if nothing is running, find what holds the port with \`${portFinder(port)}\` and stop it.`,
+        );
+      }
     }
     const env = benchEnv(
       this.deps.env ?? process.env,
@@ -325,7 +329,10 @@ export class OllamaInstance {
     });
     if (child.pid) {
       fs.mkdirSync(this.deps.stateDir, { recursive: true });
-      fs.writeFileSync(this.pidFile, JSON.stringify({ pid: child.pid, port, started_at: new Date().toISOString() }));
+      fs.writeFileSync(
+        this.pidFile,
+        JSON.stringify({ pid: child.pid, port, started_at: new Date().toISOString(), binary: this.deps.binary, parent_pid: process.pid }),
+      );
     }
     const deadline = Date.now() + READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
@@ -335,7 +342,7 @@ export class OllamaInstance {
       const version = await this.fetchVersion();
       if (version) {
         this.version = version;
-        return { baseUrl: this.baseUrl, version };
+        return { baseUrl: this.baseUrl, version, stoppedLeftover };
       }
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
@@ -432,29 +439,98 @@ export class OllamaInstance {
   }
 }
 
-/** Kills a bench instance left behind by a crash, but only if it still answers as Ollama on its recorded port. */
-export async function cleanupOrphanOllama(stateDir: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  const file = path.join(stateDir, PID_FILE);
-  let record: { pid?: unknown; port?: unknown };
+export function portFinder(port: number): string {
+  return process.platform === "win32" ? `netstat -ano | findstr :${port}` : `lsof -i :${port}`;
+}
+
+/** Parent pid and command line of a running process, or null. */
+export function processInfo(pid: number): { ppid: number; command: string } | null {
   try {
-    record = JSON.parse(fs.readFileSync(file, "utf8")) as { pid?: unknown; port?: unknown };
+    if (process.platform === "linux" && fs.existsSync(`/proc/${pid}`)) {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+      const command = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" ").trim();
+      return { ppid: Number.parseInt(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1], 10), command };
+    }
+    const out =
+      process.platform === "win32"
+        ? (spawnSync(
+            "powershell",
+            ["-NoProfile", "-Command", `$p = Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}'; if ($p) { "$($p.ParentProcessId)|$($p.CommandLine)" }`],
+            { encoding: "utf8", timeout: 30_000 },
+          ).stdout ?? "")
+        : (spawnSync("ps", ["-o", "ppid=,args=", "-p", String(pid)], { encoding: "utf8", timeout: 5000 }).stdout ?? "").trim().replace(" ", "|");
+    const match = out.trim().match(/^(\d+)\|([\s\S]*)$/);
+    return match ? { ppid: Number(match[1]), command: match[2].trim() } : null;
   } catch {
-    return false;
+    return null;
   }
-  fs.rmSync(file, { force: true });
-  if (typeof record.pid !== "number" || typeof record.port !== "number" || !isAlive(record.pid)) {
-    return false;
-  }
+}
+
+/**
+ * Our bench instance left behind by a run that crashed or was killed, or null unless the state file proves it:
+ * the recorded process still runs the recorded binary's `serve` on this port, and whoever started it is gone or is us.
+ */
+export function leftoverBenchPid(stateDir: string, port: number, selfPid: number = process.pid): number | null {
+  let record: { pid?: unknown; port?: unknown; binary?: unknown; parent_pid?: unknown };
   try {
-    const response = await fetchImpl(`http://127.0.0.1:${record.port}/api/version`, { signal: AbortSignal.timeout(1000) });
-    if (!response.ok) {
+    record = JSON.parse(fs.readFileSync(path.join(stateDir, PID_FILE), "utf8")) as typeof record;
+  } catch {
+    return null;
+  }
+  const { pid, parent_pid: parent, binary } = record;
+  if (typeof pid !== "number" || typeof parent !== "number" || typeof binary !== "string" || !binary || record.port !== port) {
+    return null;
+  }
+  const info = processInfo(pid);
+  if (!info) {
+    return null;
+  }
+  const fold = (text: string) => (process.platform === "win32" ? text.toLowerCase() : text);
+  if (!fold(info.command).includes(fold(binary)) || !info.command.includes(" serve")) {
+    return null;
+  }
+  const orphaned = info.ppid !== parent || !isAlive(parent);
+  return orphaned || info.ppid === selfPid ? pid : null;
+}
+
+/** Stops our own instance left on the port by an earlier run; true when it did. */
+export async function stopLeftoverOllama(stateDir: string, port: number, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  const pid = leftoverBenchPid(stateDir, port);
+  if (pid === null) {
+    return false;
+  }
+  const answers = async () => {
+    try {
+      return (await fetchImpl(`http://127.0.0.1:${port}/api/version`, { signal: AbortSignal.timeout(1000) })).ok;
+    } catch {
       return false;
     }
+  };
+  killTree(pid);
+  const deadline = Date.now() + STOP_TIMEOUT_MS;
+  while (Date.now() < deadline && (await answers())) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  if (await answers()) {
+    killTree(pid, "SIGKILL");
+  }
+  fs.rmSync(path.join(stateDir, PID_FILE), { force: true });
+  return true;
+}
+
+/** At runtime start: stops a bench instance a crashed run left behind, but only one provably ours. */
+export async function cleanupOrphanOllama(stateDir: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  let record: { pid?: unknown; port?: unknown };
+  try {
+    record = JSON.parse(fs.readFileSync(path.join(stateDir, PID_FILE), "utf8")) as typeof record;
   } catch {
     return false;
   }
-  killTree(record.pid);
-  return true;
+  if (typeof record.pid === "number" && !isAlive(record.pid)) {
+    fs.rmSync(path.join(stateDir, PID_FILE), { force: true });
+    return false;
+  }
+  return typeof record.port === "number" ? await stopLeftoverOllama(stateDir, record.port, fetchImpl) : false;
 }
 
 /** Models the user's own Ollama has in memory; they compete with the bench for VRAM. */
