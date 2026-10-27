@@ -79,6 +79,12 @@ class EvalTest(unittest.TestCase):
         bench.run_eval(support.SUBJECT, env=box.env, cpu_busy=lambda: 1, hardware=lambda: dict(support.SMALL_MACHINE))
         self.assertNotIn("/api/delete", [r["path"] for r in box.requests()])
 
+    def test_a_model_the_user_has_under_other_casing_is_not_removed(self):
+        box = support.Sandbox(has="M:Q4")
+        self.addCleanup(box.close)
+        bench.run_eval(support.SUBJECT, env=box.env, cpu_busy=lambda: 1, hardware=lambda: dict(support.SMALL_MACHINE))
+        self.assertNotIn("/api/delete", [r["path"] for r in box.requests()])
+
     def test_an_unregistered_build_still_runs_but_cannot_be_published(self):
         subject = {**support.SUBJECT, "ollama": {"tag": "m:q4", "known_digests": ["another"]}}
         result = self.run_eval(subject)

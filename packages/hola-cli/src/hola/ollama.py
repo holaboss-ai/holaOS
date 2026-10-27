@@ -355,7 +355,9 @@ class OllamaInstance:
         return entry.get("digest") if entry else None
 
     def has_model(self, model):
-        return self.digest(model) is not None
+        """Case-insensitive, as Ollama resolves tags, so a model the user pulled under other casing is never removed."""
+        wanted = model.lower()
+        return any(wanted in (str(m.get("name", "")).lower(), str(m.get("model", "")).lower()) for m in self._tags())
 
     def delete(self, model):
         with local_request(f"{self.base_url}/api/delete", {"model": model}, timeout=30, method="DELETE"):

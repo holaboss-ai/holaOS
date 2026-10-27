@@ -93,7 +93,12 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
                                     f"Your own Ollama has models in memory ({names}). They would slow the benchmark down.",
                                     "Run again with --unload to unload them first.", {"models": loaded})
                 for model in loaded:
-                    ollama.unload_user_model(model["name"], user_url)
+                    try:
+                        ollama.unload_user_model(model["name"], user_url)
+                    except OSError as exc:
+                        raise HolaError("user_models_loaded", f"Couldn't unload {model['name']} from your own Ollama: {exc}.",
+                                        f"Unload it yourself with `ollama stop {model['name']}`, then run this again.",
+                                        {"models": loaded}) from None
                 run.emit("user_models_unloaded", {"models": [m["name"] for m in loaded]})
                 ui("user_models_unloaded", {"models": [m["name"] for m in loaded]})
 
