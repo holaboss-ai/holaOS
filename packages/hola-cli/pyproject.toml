@@ -25,6 +25,8 @@ Source = "https://github.com/holaboss-ai/holaOS/tree/main/packages/hola-cli"
 
 [project.scripts]
 hola = "hola.cli:main"
+# Same command under the distribution's name, so `uvx hola-cli eval …` works without --from.
+hola-cli = "hola.cli:main"
 
 [tool.hatch.version]
 path = "src/hola/__init__.py"

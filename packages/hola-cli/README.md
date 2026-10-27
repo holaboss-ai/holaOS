@@ -7,6 +7,14 @@ writes the same Run Record, so a run from either one means the same thing.
 Needs Python 3.10 or newer and [Ollama](https://ollama.com/download). No other dependencies.
 
 ```
+uvx hola-cli eval minicpm5-2b                 # run once without installing
+pipx install hola-cli && hola eval minicpm5-2b
+uvx --from "git+https://github.com/holaboss-ai/holaOS@main#subdirectory=packages/hola-cli" hola eval minicpm5-2b
+```
+
+The distribution is `hola-cli`; it installs the command as both `hola` and `hola-cli`.
+
+```
 $ hola eval minicpm5-2b
   ✓ Apple M5 Pro · 48 GB · background load 8%
   ✓ Ollama 0.40.10 · private instance on 127.0.0.1:11531
