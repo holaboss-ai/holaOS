@@ -58,7 +58,14 @@ def build_run_record(*, run_id, bench, subject, digest, evidence, client, artifa
             "digest_registered": digest is not None and digest in known,
             "capabilities": bench["capabilities"],
         },
-        "test_agent": {**bench["test_agent"], "settings": {**bench["request"], "warmup_load_ms": bench["warmup_load_ms"]}},
+        "test_agent": {
+            **bench["test_agent"],
+            "settings": {
+                **bench["request"],
+                "warmup_load_ms": bench["warmup_load_ms"],
+                **({"sandbox": bench["sandbox"]} if bench.get("sandbox") else {}),
+            },
+        },
         "runtime": {
             "kind": evidence["kind"],
             "hardware": bench["machine"],
