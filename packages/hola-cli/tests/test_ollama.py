@@ -86,7 +86,16 @@ class OllamaHelpersTest(unittest.TestCase):
                          "Pulling q:2b failed: pull model manifest: registry.ollama.ai: proxyconnect tcp: refused.")
 
 
-@unittest.skipIf(os.name == "nt", "the fake ollama is a shell script")
+    def test_a_recorded_pid_now_running_something_else_is_not_ours(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, ollama.PID_FILE).write_text(json.dumps(
+                {"pid": os.getpid(), "port": 11531, "binary": "/opt/ollama/bin/ollama", "parent_pid": 1}))
+            self.assertIsNone(ollama.leftover_pid(d, 11531))
+            Path(d, ollama.PID_FILE).write_text(json.dumps({"pid": os.getpid(), "port": 11531}))
+            self.assertIsNone(ollama.leftover_pid(d, 11531))
+
+
+@unittest.skipIf(os.name == "nt", "the fake ollama is a shebang script, which Windows cannot exec")
 class InstanceTest(unittest.TestCase):
     def test_a_binary_that_exits_at_once_reports_its_last_words(self):
         with tempfile.TemporaryDirectory() as d:
@@ -138,13 +147,6 @@ class InstanceTest(unittest.TestCase):
         self.assertIn(f"lsof -i :{box.port}", caught.exception.next_step)
         self.assertIsNotNone(ollama.server_version(f"http://127.0.0.1:{box.port}"))
 
-    def test_a_recorded_pid_now_running_something_else_is_not_ours(self):
-        with tempfile.TemporaryDirectory() as d:
-            Path(d, ollama.PID_FILE).write_text(json.dumps(
-                {"pid": os.getpid(), "port": 11531, "binary": "/opt/ollama/bin/ollama", "parent_pid": 1}))
-            self.assertIsNone(ollama.leftover_pid(d, 11531))
-            Path(d, ollama.PID_FILE).write_text(json.dumps({"pid": os.getpid(), "port": 11531}))
-            self.assertIsNone(ollama.leftover_pid(d, 11531))
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,7 +22,7 @@ def alive(pid):
     return True
 
 
-@unittest.skipIf(os.name == "nt", "the fake ollama is a shell script")
+@unittest.skipIf(os.name == "nt", "the fake ollama is a shebang script, which Windows cannot exec")
 class CliTest(unittest.TestCase):
     def setUp(self):
         self.box = support.Sandbox()

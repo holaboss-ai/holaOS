@@ -12,7 +12,7 @@ from hola.errors import HolaError
 from hola.record import RUN_RECORD_SCHEMA
 
 
-@unittest.skipIf(os.name == "nt", "the fake ollama is a shell script")
+@unittest.skipIf(os.name == "nt", "the fake ollama is a shebang script, which Windows cannot exec")
 class EvalTest(unittest.TestCase):
     def setUp(self):
         self.box = support.Sandbox()

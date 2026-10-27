@@ -1,0 +1,52 @@
+name: hola-cli
+
+on:
+  pull_request:
+    paths:
+      - packages/hola-cli/**
+      - runtime/api-server/src/embedded-capabilities/local-model-review/skills/run-model-eval/**
+      - runtime/api-server/src/bench-conditions.json
+      - runtime/api-server/src/__fixtures__/parity/**
+      - apps/desktop/shared/bench-subjects.ts
+      - .github/workflows/hola-cli.yml
+  push:
+    paths:
+      - packages/hola-cli/**
+      - runtime/api-server/src/embedded-capabilities/local-model-review/skills/run-model-eval/**
+      - runtime/api-server/src/bench-conditions.json
+      - runtime/api-server/src/__fixtures__/parity/**
+      - apps/desktop/shared/bench-subjects.ts
+      - .github/workflows/hola-cli.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hola-cli-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      # Packs are pinned by sha256, so Windows must check them out byte for byte.
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Engine copy matches the desktop's
+        working-directory: packages/hola-cli
+        run: python scripts/sync-engine.py --check
+      - name: Unit tests
+        working-directory: packages/hola-cli
+        run: python -m unittest discover -s tests -v
