@@ -28,6 +28,21 @@ export const BUNDLED_BENCH_SUBJECTS: ReadonlyArray<
   },
   {
     type: "model",
+    id: "openbmb-minicpm5-2b-q8_0",
+    name: "MiniCPM5-2B",
+    vendor: "OpenBMB",
+    quant: "Q8_0",
+    download_bytes: 2_679_711_865,
+    min_memory_gb: 8,
+    ollama: {
+      tag: "openbmb/minicpm5-2b:q8_0",
+      known_digests: ["5d5aafb9f22cc67d4d2b359dde9aa3659410be7eab884b28ab45d31a8e2f9567"],
+    },
+    sampling: { temperature: 1.0, top_p: 0.95, min_p: 0 },
+    suites: ["suite-standard@1.0"],
+  },
+  {
+    type: "model",
     id: "qwen-qwen3.5-2b",
     name: "Qwen3.5-2B",
     vendor: "Qwen",
