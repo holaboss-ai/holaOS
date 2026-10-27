@@ -272,7 +272,8 @@ class OllamaInstance:
         if server_version(self.base_url) is not None:
             raise HolaError("busy", f"Another Ollama is already running on port {self.port}, probably a benchmark "
                                     "started elsewhere (holaOS or another hola eval).",
-                            "Wait for it to finish, then run this again.")
+                            "Wait for it to finish, then run this again. If nothing is running, quit holaOS or stop "
+                            f"the `ollama serve` left on port {self.port}.")
         if not port_bindable(self.port):
             raise HolaError("start_failed", f"Port {self.port} is in use by another program.",
                             "Free the port, or choose another one with HOLA_OLLAMA_PORT.")
