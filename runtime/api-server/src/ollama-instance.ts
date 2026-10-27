@@ -4,19 +4,18 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
+import BENCH_CONDITIONS from "./bench-conditions.json";
+
 /** Ollama Runtime Adapter: this module starts, stops and gives evidence; holaeval `bench` invokes and meters. */
 
 export const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
 export const OLLAMA_USER_BASE_URL = "http://127.0.0.1:11434";
 
-/** Fixed for every bench run and copied into the Run Record. Flash attention is left on Ollama's auto. */
-export const OLLAMA_BENCH_ENV = {
-  OLLAMA_KV_CACHE_TYPE: "f16",
-  OLLAMA_NUM_PARALLEL: "1",
-  OLLAMA_MAX_LOADED_MODELS: "1",
-  // Starting a server prunes unreferenced blobs, which would break a pull running in the user's own server.
-  OLLAMA_NOPRUNE: "1",
-} as const;
+/** Fixed for every bench run and copied into the Run Record; the `hola` CLI reads the same file. Flash attention is left on Ollama's auto. */
+// OLLAMA_NOPRUNE: starting a server prunes unreferenced blobs, which would break a pull running in the user's own server.
+export const OLLAMA_BENCH_ENV: Readonly<Record<string, string>> = BENCH_CONDITIONS.ollama_env;
+/** One port for every bench instance, desktop or CLI, so a second run can't start beside the first. */
+export const OLLAMA_BENCH_PORT: number = BENCH_CONDITIONS.private_port;
 
 const READY_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 5000;
@@ -288,6 +287,14 @@ export class OllamaInstance {
 
   async start(): Promise<{ baseUrl: string; version: string }> {
     const port = this.deps.port ?? (await freePort());
+    this.port = port;
+    if (this.deps.port !== undefined && (await this.fetchVersion()) !== null) {
+      this.port = null;
+      throw new OllamaInstanceError(
+        "start_failed",
+        `Another Ollama is already running on port ${port}, probably a benchmark started elsewhere. Wait for it to finish, then try again.`,
+      );
+    }
     const env = benchEnv(
       this.deps.env ?? process.env,
       port,
@@ -298,7 +305,6 @@ export class OllamaInstance {
       this.deps.spawnImpl ?? ((command, args, options) => spawn(command, args, { ...options, stdio: ["ignore", "ignore", "pipe"] }));
     const child = spawnImpl(this.deps.binary, ["serve"], { env });
     this.child = child;
-    this.port = port;
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
       this.stderr = (this.stderr + chunk).slice(-STDERR_TAIL_BYTES);

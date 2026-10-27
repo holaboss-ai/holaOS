@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import BENCH_CONDITIONS from "./bench-conditions.json";
 import {
   type BenchHighlight,
   type BenchSubject,
@@ -15,6 +16,7 @@ import {
   parseBenchSubject,
 } from "./bench-run-record.js";
 import {
+  OLLAMA_BENCH_PORT,
   OLLAMA_DOWNLOAD_URL,
   type OllamaEvidence,
   OllamaInstance,
@@ -34,8 +36,8 @@ export const BENCH_SUITES: Readonly<Record<string, string>> = {
 
 const STDERR_TAIL_BYTES = 4000;
 const BENCH_LABEL = "main";
-const BUSY_SAMPLE_MS = 1000;
-export const BUSY_CPU_PCT = 25;
+const BUSY_SAMPLE_MS: number = BENCH_CONDITIONS.busy_sample_ms;
+export const BUSY_CPU_PCT: number = BENCH_CONDITIONS.busy_cpu_pct;
 
 export type BenchStatus = "running" | "done" | "failed" | "cancelled";
 export type BenchPhase = "preflight" | "starting" | "pulling" | "running" | "finishing";
@@ -389,7 +391,10 @@ export class BenchRunner {
 
       const packPath = path.join(this.deps.packsDir(), BENCH_SUITES[entry.state.suite]);
       const pack = JSON.parse(fs.readFileSync(packPath, "utf8")) as { min_ollama_version?: string };
-      instance = (this.deps.createInstance ?? ((bin: string) => new OllamaInstance({ binary: bin, stateDir: this.deps.stateDir() })))(binary);
+      instance = (
+        this.deps.createInstance ??
+        ((bin: string) => new OllamaInstance({ binary: bin, stateDir: this.deps.stateDir(), port: OLLAMA_BENCH_PORT }))
+      )(binary);
       entry.instance = instance;
       this.setPhase(entry, "starting");
       const { version } = await instance.start();

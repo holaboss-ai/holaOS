@@ -1,0 +1,12 @@
+{
+  "ollama_env": {
+    "OLLAMA_KV_CACHE_TYPE": "f16",
+    "OLLAMA_NUM_PARALLEL": "1",
+    "OLLAMA_MAX_LOADED_MODELS": "1",
+    "OLLAMA_NOPRUNE": "1"
+  },
+  "flash_attention": "auto",
+  "private_port": 11531,
+  "busy_cpu_pct": 25,
+  "busy_sample_ms": 1000
+}

@@ -183,6 +183,22 @@ test("a binary that exits immediately reports start_failed", { skip: process.pla
   });
 });
 
+test("a bench port another Ollama already answers on is not taken over", { skip: process.platform === "win32" }, async () => {
+  const dir = tempDir();
+  const first = new OllamaInstance({ binary: fakeOllamaBinary(dir), stateDir: path.join(dir, "a"), env: { PATH: process.env.PATH }, homedir: dir });
+  const { baseUrl } = await first.start();
+  try {
+    const port = Number(new URL(baseUrl).port);
+    const second = new OllamaInstance({ binary: fakeOllamaBinary(dir), stateDir: path.join(dir, "b"), env: { PATH: process.env.PATH }, homedir: dir, port });
+    await assert.rejects(second.start(), (error: unknown) => {
+      return error instanceof OllamaInstanceError && error.code === "start_failed" && /already running on port/.test(error.message);
+    });
+    assert.ok(!fs.existsSync(path.join(dir, "b", "ollama-bench.json")));
+  } finally {
+    await first.stop();
+  }
+});
+
 test("orphan cleanup kills a leftover instance that still answers", { skip: process.platform === "win32" }, async () => {
   const dir = tempDir();
   const stateDir = path.join(dir, "state");

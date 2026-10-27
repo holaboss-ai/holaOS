@@ -21,6 +21,7 @@ SUBJECTS_TS = REPO / "apps/desktop/shared/bench-subjects.ts"
 
 COPIES = {
     "holaeval.py": SKILL / "holaeval.py",
+    "bench-conditions.json": REPO / "runtime/api-server/src/bench-conditions.json",
 }
 PACKS = SKILL / "packs"
 MANIFEST = "MANIFEST.json"
