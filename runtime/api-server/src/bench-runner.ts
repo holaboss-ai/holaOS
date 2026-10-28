@@ -171,6 +171,7 @@ interface RunEntry {
   state: BenchRunState;
   events: BenchEvent[];
   unloadUserModels: boolean;
+  showcase: boolean;
   child: ChildProcess | null;
   instance: BenchInstance | null;
   cancelled: boolean;
@@ -202,7 +203,8 @@ export class BenchRunner {
     }
   }
 
-  start(input: { subject: unknown; suite: string; unload_user_models?: boolean }): BenchRunState {
+  /** `showcase` asks for one unscored generation after the scored ones, for the desktop to record (standard suite only). */
+  start(input: { subject: unknown; suite: string; unload_user_models?: boolean; showcase?: boolean }): BenchRunState {
     if (this.active || this.deps.isBusy?.()) {
       throw new BenchError("busy", "Another benchmark or evaluation is running. Wait for it to finish.");
     }
@@ -237,6 +239,7 @@ export class BenchRunner {
       },
       events: [],
       unloadUserModels: input.unload_user_models === true,
+      showcase: input.showcase === true,
       child: null,
       instance: null,
       cancelled: false,
@@ -343,8 +346,11 @@ export class BenchRunner {
       ...record.artifacts,
       recording: input.recording ? { file: inRunDir(input.recording.file), scored_run: input.recording.scored_run } : null,
       cards: input.cards.map(inRunDir),
+      // A moment from before the recording started isn't in it, so it has no place in the recording's timeline.
       highlights: entry
-        ? benchHighlights(entry.events).map((h) => ({ ...h, t: Math.max(0, Math.round((h.t - offset) * 10) / 10) }))
+        ? benchHighlights(entry.events)
+            .filter((h) => h.t >= offset)
+            .map((h) => ({ ...h, t: Math.round((h.t - offset) * 10) / 10 }))
         : record.artifacts.highlights,
     };
     fs.writeFileSync(recordPath, `${JSON.stringify(record, null, 2)}\n`);
@@ -513,6 +519,7 @@ export class BenchRunner {
       "--label",
       BENCH_LABEL,
       ...(ollamaPid && command === "bench" ? ["--ollama-pid", String(ollamaPid)] : []),
+      ...(entry.showcase && command === "bench" ? ["--showcase"] : []),
     ];
     const spawnImpl: SpawnImpl = this.deps.spawnImpl ?? ((command, spawnArgs, options) => spawn(command, spawnArgs, options));
     const python = this.deps.python ?? (process.platform === "win32" ? "python" : "python3");

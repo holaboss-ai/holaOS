@@ -88,7 +88,7 @@ async function settle(runner: BenchRunner, runId: string, timeoutMs = 60_000) {
 
 test("one click runs the standard suite end to end and writes a Run Record", { skip: process.platform === "win32" }, async () => {
   const { runner, stateDir, idleCount } = makeRunner();
-  const started = runner.start({ subject, suite: "suite-standard@1.0" });
+  const started = runner.start({ subject, suite: "suite-standard@1.0", showcase: true });
   assert.equal(started.status, "running");
   assert.equal(runner.current()?.run_id, started.run_id);
   assert.throws(() => runner.start({ subject, suite: "suite-standard@1.0" }), (error: unknown) => {
@@ -120,6 +120,10 @@ test("one click runs the standard suite end to end and writes a Run Record", { s
   const speedRuns = (record.results[0] as { metrics: { runs: Array<Record<string, unknown>> } }).metrics.runs;
   assert.ok(speedRuns.every((run) => "others_cpu_busy_pct" in run));
   assert.ok(events.some((event) => event.type === "machine_busy" && event.cpu_busy_pct === 45));
+  assert.ok(events.some((event) => event.type === "request_done" && event.task === "speed@0" && event.eval_count === 256));
+  const showcase = events.filter((event) => event.task === "showcase");
+  assert.deepEqual([showcase[0]?.type, showcase.at(-1)?.type], ["task_start", "task_done"], "the showcase runs after the scored tasks");
+  assert.ok(!record.results.some((result) => result.task === "showcase"), "the showcase is never scored");
 
   const types = events.map((event) => event.type);
   assert.equal(types[0], "run_started");
@@ -134,16 +138,21 @@ test("one click runs the standard suite end to end and writes a Run Record", { s
 
   fs.writeFileSync(path.join(run.run_dir, "recording.mp4"), "");
   fs.writeFileSync(path.join(run.run_dir, "benchmark-card.png"), "");
-  const firstToken = record.artifacts.highlights.find((h) => h.label === "first_token")?.t ?? 0;
+  // The desktop starts recording once the timed requests are done, so earlier moments aren't in the recording.
+  const showcaseStart = record.artifacts.highlights.find((h) => h.label === "first_token" && h.task === "showcase")?.t;
+  assert.ok(showcaseStart !== undefined, "the showcase has a first-token moment");
+  const offset = Math.max(0, showcaseStart - 0.1);
   const updated = runner.setArtifacts(started.run_id, {
-    recording: { file: path.join(run.run_dir, "recording.mp4"), scored_run: true },
+    recording: { file: path.join(run.run_dir, "recording.mp4"), scored_run: false },
     cards: ["benchmark-card.png"],
-    recording_offset_s: 0.3,
+    recording_offset_s: offset,
   }) as unknown as RunRecord;
-  assert.deepEqual(updated.artifacts.recording, { file: "recording.mp4", scored_run: true });
+  assert.deepEqual(updated.artifacts.recording, { file: "recording.mp4", scored_run: false });
   assert.deepEqual(updated.artifacts.cards, ["benchmark-card.png"]);
-  const shifted = updated.artifacts.highlights.find((h) => h.label === "first_token")?.t ?? 0;
-  assert.ok(Math.abs(firstToken - 0.3 - shifted) < 0.11 || shifted === 0);
+  assert.ok(updated.artifacts.highlights.every((h) => h.t >= 0));
+  assert.ok(!updated.artifacts.highlights.some((h) => h.task === "speed@0"), "speed@0 came before the recording");
+  const shifted = updated.artifacts.highlights.find((h) => h.task === "showcase" && h.label === "first_token")?.t;
+  assert.ok(shifted !== undefined && Math.abs(showcaseStart - offset - shifted) < 0.11);
   assert.deepEqual((runner.record(started.run_id) as unknown as RunRecord).artifacts.cards, ["benchmark-card.png"]);
   assert.throws(
     () => runner.setArtifacts(started.run_id, { recording: null, cards: ["../../etc/passwd"] }),

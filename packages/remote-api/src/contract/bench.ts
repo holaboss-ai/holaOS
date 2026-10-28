@@ -73,6 +73,7 @@ export const benchContract = {
         subject: benchSubjectSchema,
         suite: z.string().min(1),
         unload_user_models: z.boolean().optional(),
+        showcase: z.boolean().optional(),
       }),
     )
     .errors({

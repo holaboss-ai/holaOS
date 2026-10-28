@@ -29,7 +29,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-HOLAEVAL_VERSION = "1.2.0"
+HOLAEVAL_VERSION = "1.3.0"
 HERE = Path(__file__).resolve().parent
 DEFAULT_PACK = HERE / "packs" / "general-v1.json"
 OTHER_VENDORS = {
@@ -751,6 +751,8 @@ def cmd_speed(args):
 DEFAULT_SUITE = HERE / "packs" / "suite-standard-1.0.json"
 BENCH_KEEP_ALIVE = "30m"
 RELOAD_THRESHOLD_S = 0.5
+# The unscored generation the desktop records for the kit video: about 8 s of footage at 130 tok/s.
+SHOWCASE_TOKENS = 1024
 SAMPLING_OPTIONS = ("temperature", "top_p", "top_k", "min_p", "repeat_penalty", "presence_penalty")
 
 
@@ -773,6 +775,7 @@ def ollama_chat(root, payload, on_text=None, timeout=900):
     first = last = None
     content, thinking, tool_calls = [], [], []
     final = {}
+    chunks = 0
     with ollama_post(root, "/api/chat", dict(payload, stream=True), timeout) as r:
         for raw in r:
             line = raw.strip()
@@ -791,8 +794,10 @@ def ollama_chat(root, payload, on_text=None, timeout=900):
             content.append(piece)
             thinking.append(thought)
             tool_calls.extend(msg.get("tool_calls") or [])
-            if on_text and (piece or thought):
-                on_text(thought + piece)
+            if piece or thought:
+                chunks += 1
+                if on_text:
+                    on_text(thought + piece)
             if evt.get("done"):
                 final = evt
                 break
@@ -806,6 +811,7 @@ def ollama_chat(root, payload, on_text=None, timeout=900):
         "tool_calls": tool_calls or None,
         "done_reason": final.get("done_reason"),
         "eval_count": final.get("eval_count") or 0,
+        "chunks": chunks,
         "eval_s": ns("eval_duration"),
         "prompt_eval_count": final.get("prompt_eval_count") or 0,
         "prompt_eval_s": ns("prompt_eval_duration"),
@@ -1040,11 +1046,18 @@ class Emitter:
 
     def flush(self):
         if self.pending:
-            # Ollama streams one token per chunk, so n is the token count of this delta.
+            # n counts stream chunks, not tokens: Ollama can pack several tokens into one; request_done has the count.
             print(json.dumps({"event": "text", "task": self.task, "delta": "".join(self.pending), "n": len(self.pending)},
                              ensure_ascii=False), flush=True)
             self.pending = []
         self.flushed_at = time.perf_counter()
+
+
+def request_done(emit, task, r):
+    """Per-request engine token count, so a live view can scale its chunk count to tokens."""
+    n = r["eval_count"]
+    emit("request_done", task=task, eval_count=n, chunks=r["chunks"],
+         decode_tps=round((n - 1) / r["gen_s"], 1) if r["gen_s"] and n > 1 else None)
 
 
 def speed_task_id(depth):
@@ -1069,6 +1082,7 @@ def bench_speed(root, model, depth, cfg, base_options, extra, emit, load=None):
             sample = load.begin() if load else None
             r = ollama_chat(root, payload, on_text=emit.text)
             r["load"] = load.end(sample) if load else {}
+            request_done(emit, task, r)
             return r
         r = request()
         if rep < cfg.get("warmup_reps", 1):
@@ -1123,6 +1137,7 @@ def bench_task(root, model, task, samples, base_options, extra, capabilities, em
             payload["tools"] = task["tools"]
         try:
             r = ollama_chat(root, payload, on_text=emit.text)
+            request_done(emit, task["id"], r)
             raw = r["content"]
             resp = {"content": strip_think(raw), "tool_calls": r["tool_calls"],
                     "finish_reason": "length" if r["done_reason"] == "length" else "stop",
@@ -1174,6 +1189,7 @@ def cmd_bench(args):
     warm = ollama_chat(root, {"model": model, "messages": [{"role": "user", "content": "Reply with OK."}],
                               "options": dict(base_options, temperature=0, num_predict=16),
                               "keep_alive": BENCH_KEEP_ALIVE, **extra})
+    request_done(emit, "warmup", warm)
     emit("task_done", task="warmup", kind="warmup", load_ms=round(warm["load_s"] * 1000))
 
     results = []
@@ -1202,7 +1218,29 @@ def cmd_bench(args):
         "wall_seconds": round(time.time() - started, 1),
     }
     (out / f"bench-{args.label}.json").write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    if getattr(args, "showcase", False):
+        bench_showcase(root, model, base_options, extra, emit)
     emit("done", file=str(out / f"bench-{args.label}.json"))
+
+
+def bench_showcase(root, model, base_options, extra, emit):
+    """One unscored speed@0 generation after the record is written, for the desktop to record; never in results."""
+    emit.task = "showcase"
+    emit("task_start", task="showcase", kind="showcase", depth=0)
+    nonce = "%08x" % random.getrandbits(32)
+    payload = {"model": model, "messages": [{"role": "user", "content": f"[{nonce}] {COUNT_PROMPT}"}],
+               "options": dict(base_options, temperature=0, num_predict=SHOWCASE_TOKENS),
+               "keep_alive": BENCH_KEEP_ALIVE, **extra}
+    try:
+        r = ollama_chat(root, payload, on_text=emit.text)
+    except Exception as exc:
+        emit("task_done", task="showcase", kind="showcase", status="error", reason=str(exc))
+        return
+    request_done(emit, "showcase", r)
+    n = r["eval_count"]
+    emit("task_done", task="showcase", kind="showcase", status="ok",
+         decode_tps=round((n - 1) / r["gen_s"], 1) if r["gen_s"] and n > 1 else None,
+         ttft_ms=round(r["ttft_s"] * 1000) if r["ttft_s"] else None)
 
 
 # ---------- agent: virtual workspace ----------
@@ -3228,7 +3266,8 @@ def fake_ollama(capabilities, model="m:q4", port=0, version="0.12.6", script=Non
             if body.get("tools") and "tools" not in capabilities:
                 return self.reply({"error": f"{model} does not support tools"}, 400)
             prompt = body["messages"][-1]["content"]
-            chunks, calls = (script or default_script)(prompt, body)
+            # A script may return None (default reply) or a third item: the engine's count when chunks hold several tokens.
+            chunks, calls, *tokens = (script and script(prompt, body)) or default_script(prompt, body)
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson")
             self.end_headers()
@@ -3236,7 +3275,7 @@ def fake_ollama(capabilities, model="m:q4", port=0, version="0.12.6", script=Non
                 self.wfile.write(json.dumps({"message": {"role": "assistant", "content": chunk}, "done": False}).encode() + b"\n")
             if calls:
                 self.wfile.write(json.dumps({"message": {"role": "assistant", "content": "", "tool_calls": calls}, "done": False}).encode() + b"\n")
-            n = max(len(chunks), 1)
+            n = tokens[0] if tokens else max(len(chunks), 1)
             self.wfile.write(json.dumps({"message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "stop",
                                          "eval_count": n, "eval_duration": n * 10_000_000, "prompt_eval_count": len(prompt) // 4,
                                          "prompt_eval_duration": 20_000_000, "load_duration": 1_000_000}).encode() + b"\n")
@@ -3256,8 +3295,8 @@ def selftest_bench():
     general = {t["id"]: t for t in load_pack(DEFAULT_PACK)["tasks"]}
     assert all(t == general[t["id"]] for t in suite["tasks"]), "suite tasks must stay identical to general-v1"
 
-    def bench(capabilities, **overrides):
-        server, root, requests = fake_ollama(capabilities)
+    def bench(capabilities, script=None, **overrides):
+        server, root, requests = fake_ollama(capabilities, script=script)
         with tempfile.TemporaryDirectory() as d:
             ns = argparse.Namespace(base_url=root, model="m:q4", pack=str(DEFAULT_SUITE), subject=None, out=d,
                                     label="t", samples=None, only="")
@@ -3293,6 +3332,29 @@ def selftest_bench():
     kinds = [e["event"] for e in events]
     assert kinds[0] == "start" and kinds[-1] == "done" and "text" in kinds and kinds.count("sample_done") == 9
     assert sum(e["n"] for e in events if e["event"] == "text" and e["task"] == "speed@0") == 4 * 256
+    done = [e for e in events if e["event"] == "request_done"]
+    assert [e["task"] for e in done].count("warmup") == 1 and len(done) == 1 + 8 + 9, len(done)
+    assert all(e["eval_count"] == e["chunks"] for e in done if e["task"].startswith("speed@"))
+    assert not any(e.get("task") == "showcase" for e in events)
+
+    # Thinking models arrive with several tokens per chunk: n undercounts, request_done has the engine's count.
+    def packed(prompt, body):
+        if COUNT_PROMPT in prompt:
+            return ["one, two", ", three, four"] * (body["options"]["num_predict"] // 4), None, body["options"]["num_predict"]
+        return None
+
+    record, events, requests = bench(["completion", "tools"], script=packed, showcase=True)
+    assert [r["task"] for r in record["results"]] == ["speed@0", "speed@8k", "code-intervals", "tool-flight", "needle-8k"]
+    speed0 = [e for e in events if e["event"] == "request_done" and e["task"] == "speed@0"]
+    assert len(speed0) == 4 and all((e["eval_count"], e["chunks"]) == (256, 128) for e in speed0), speed0
+    scaled = sum(e["n"] for e in events if e["event"] == "text" and e["task"] == "speed@0") * 256 / 128
+    assert scaled == 4 * 256
+    show = [e for e in events if e.get("task") == "showcase"]
+    assert [e["event"] for e in show][0] == "task_start" and show[-1]["event"] == "task_done" and show[-1]["status"] == "ok"
+    assert [e for e in show if e["event"] == "request_done"][0]["eval_count"] == SHOWCASE_TOKENS
+    assert [e["event"] for e in events][-1] == "done" and events.index(show[-1]) < len(events) - 1
+    showcase_prompts = [b for path, b in requests if path == "/api/chat" and b["options"].get("num_predict") == SHOWCASE_TOKENS]
+    assert len(showcase_prompts) == 1 and showcase_prompts[0]["options"]["temperature"] == 0
 
     record, _, requests = bench(["completion"], only="tool-flight")
     assert record["results"][0]["status"] == "unsupported" and record["results"][0]["pass"] is None
@@ -3664,6 +3726,7 @@ def main():
     p.add_argument("--label", default="main")
     p.add_argument("--samples", type=int)
     p.add_argument("--only", default="")
+    p.add_argument("--showcase", action="store_true", help="after the record, one unscored generation to record on screen")
     p.set_defaults(fn=cmd_bench)
     p = sub.add_parser("code")
     p.add_argument("--base-url", required=True)
