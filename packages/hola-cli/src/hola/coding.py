@@ -30,7 +30,7 @@ REVIEW_NAMES = {
     "calc-power": "the parser change",
 }
 REASONS = {
-    "tests could not run": "the code didn't run (an import or syntax error)",
+    "tests could not run": "an import or syntax error stopped the code",
     "tests timed out": "the tests timed out",
     "tool call written as text": "wrote a tool call as text instead of calling the tool",
     "request failed": "the model server returned an error",
@@ -90,6 +90,10 @@ def _names(tasks):
     return "".join(names) if len(names) < 2 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
+def _or_list(items):
+    return "".join(items) if len(items) < 2 else f"{', '.join(items[:-1])} or {items[-1]}"
+
+
 def review(record):
     """Fixed sentences filled from the record (design D5), so the same record always reads the same."""
     tasks = task_results(record)
@@ -116,9 +120,9 @@ def review(record):
         if only_reason:
             lines.append(f"It did not solve {_names(never)}: {explain(only_reason)}.")
         else:
-            why = "; ".join(f"{REVIEW_NAMES.get(t['task'], t['task'])}: {explain(top_reason(t))}" if top_reason(t)
-                            else REVIEW_NAMES.get(t["task"], t["task"]) for t in never)
-            lines.append(f"It did not solve {_names(never)} ({why}).")
+            items = [f"{REVIEW_NAMES.get(t['task'], t['task'])} ({explain(top_reason(t))})" if top_reason(t)
+                     else REVIEW_NAMES.get(t["task"], t["task"]) for t in never]
+            lines.append(f"It did not solve {_or_list(items)}.")
     turns = median([a["turns"] for a in attempts])
     tokens = median([a["completion_tokens"] for a in attempts])
     seconds = median([a["seconds"] for a in attempts])

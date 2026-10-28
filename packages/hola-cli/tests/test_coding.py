@@ -44,8 +44,8 @@ class ReviewTest(unittest.TestCase):
         self.assertEqual(coding.review(record(tasks)), [
             "On Apple M5 Pro · 48 GB with Ollama 0.40.10, Qwen3.5-2B (Q4_K_M) solved the failing test and the reported "
             "bug every time, and the spec implementation some of the time.",
-            "It did not solve the CLI option and the parser change (the CLI option: 5 of 10 hidden tests failed; "
-            "the parser change: wrote a tool call as text instead of calling the tool).",
+            "It did not solve the CLI option (5 of 10 hidden tests failed) or the parser change (wrote a tool call as "
+            "text instead of calling the tool).",
             f"A typical try took 6 turns and 2.0K generated tokens, about 50{NBSP}s on this machine.",
             "It edited the visible tests in 1 try; they were restored before grading.",
             "This shows what Qwen3.5-2B can do as a coding agent on this hardware. It is not a ranking.",

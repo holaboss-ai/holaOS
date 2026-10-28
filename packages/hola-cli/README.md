@@ -47,7 +47,7 @@ $ hola eval minicpm5-2b
 - `--suite suite-standard@1.0` (the default): generation speed with an empty and an 8K context, plus three
   program-graded checks. `--suite suite-coding@1.0`: five small Python coding jobs the model works on as an agent,
   three tries each, graded by hidden tests in a sandbox. The coding scenario runs on macOS only for now; it takes
-  15–25 minutes and prints one line per try, then the task matrix and the generated review.
+  about 10–25 minutes and prints one line per try, then the task matrix and the generated review.
 - `--ollama-url URL` runs on your own Ollama server. Its conditions are unknown, so the run stays local.
 - `--keep-model` keeps a model this run downloaded. By default a model that wasn't on the machine before the run is removed afterwards; models you already had are never touched.
 - `--unload` unloads models your own Ollama holds in memory, which would slow the run down. Without it, `hola` asks in a terminal and stops otherwise.

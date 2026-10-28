@@ -808,7 +808,7 @@ export function BenchApp() {
                   </Button>
                   <span className="max-w-[300px] text-center text-muted-foreground text-xs leading-5">
                     {isCoding
-                      ? "About 15–25 minutes, depending on the model. The model's code runs in a sandbox with no network. This window is recorded while it runs."
+                      ? "About 10–25 minutes, depending on the model. The model's code runs in a sandbox with no network. This window is recorded while it runs."
                       : "About 3 minutes once the model is downloaded. This window is recorded while it runs."}
                   </span>
                   {sizeHint(context) ? (
