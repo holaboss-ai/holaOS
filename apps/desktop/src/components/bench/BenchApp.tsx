@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import type { BenchPublishResult, BenchWindowContext } from "../../../shared/bench-protocol";
 import { cardAssets } from "./cardAssets";
 import { benchmarkCardHtml, capabilityCardHtml } from "./cards";
-import { kitFileName, narrationScript, resultsCsv, shareText } from "./kit";
+import { type CodingScene, kitFileName, kitReadme, narrationScript, readAloudScript, resultsCsv, shareText } from "./kit";
 import {
   type RunRecordView,
   TASK_INFO,
@@ -374,6 +374,21 @@ function RunError({ run, onRetry, onUnloadAndRun }: { run: BenchRun; onRetry: ()
   );
 }
 
+/** The subject's newest local coding run, for the one sentence a speed kit's script adds about it. */
+async function latestCodingScene(subjectId: string): Promise<CodingScene | null> {
+  try {
+    const { runs } = await remoteApi.bench.list({ subject_id: subjectId });
+    const coding = runs.find((entry) => entry.suite === CODING_SUITE);
+    if (!coding) {
+      return null;
+    }
+    const { record } = await remoteApi.bench.record({ run_id: coding.run_id });
+    return { tasks: taskResults(record as unknown as RunRecordView) };
+  } catch {
+    return null;
+  }
+}
+
 const PUBLISH_REFUSED: Record<Extract<BenchPublishResult, { ok: false }>["reason"], string> = {
   signed_out: "Sign in to holaOS in the main window to publish.",
   not_configured: "Publishing isn't set up in this build.",
@@ -416,7 +431,8 @@ function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun
     setNote(null);
     try {
       const { record } = finished;
-      const files = [
+      const coding = await latestCodingScene(record.subject.id);
+      const files: Array<{ name: string; path?: string; text?: string }> = [
         ...finished.cards.map((card) => ({ name: `${card.name}.png`, path: card.file })),
         ...(finished.recordingFile
           ? [{ name: finished.recordingFile.split(/[\\/]/).pop() ?? "recording.mp4", path: finished.recordingFile }]
@@ -424,8 +440,11 @@ function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun
         { name: "run-record.json", text: `${JSON.stringify(record, null, 2)}\n` },
         { name: "results.csv", text: resultsCsv(record) },
         { name: "highlights.json", text: `${JSON.stringify(record.artifacts.highlights, null, 2)}\n` },
-        { name: "script.md", text: narrationScript(record, finished.url) },
+        { name: "script.en.md", text: readAloudScript(record, "en", publishedUrl, coding) },
+        { name: "script.zh.md", text: readAloudScript(record, "zh", publishedUrl, coding) },
+        { name: "post.md", text: narrationScript(record, finished.url) },
       ];
+      files.push({ name: "README.txt", text: kitReadme(record, files.map((file) => file.name), publishedUrl) });
       const { path } = await window.electronAPI.bench.exportKit(runDir, kitFileName(record), files);
       setNote(path ? `Saved ${path.split(/[\\/]/).pop()}` : null);
     } catch (error) {
@@ -698,7 +717,10 @@ export function BenchApp() {
             {isRunning && progress.cpuBusyPct !== null ? (
               <p className="flex items-start gap-2 rounded-lg bg-warning/10 p-2.5 text-foreground text-xs ring-1 ring-warning/30">
                 <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
-                Other apps are using {progress.cpuBusyPct}% of the CPU. Numbers will likely be low.
+                Other apps are using {progress.cpuBusyPct}% of the CPU.{" "}
+                {run?.suite === CODING_SUITE
+                  ? "Tries will take longer; pass rates don't depend on speed."
+                  : "Numbers will likely be low."}
               </p>
             ) : null}
             {machine ? (

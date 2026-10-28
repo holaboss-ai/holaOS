@@ -213,6 +213,15 @@ export function useBenchRun(suite: string) {
   const [startError, setStartError] = useState<string | null>(null);
   const cursor = useRef(0);
   const recent = useRef<Array<{ at: number; n: number }>>([]);
+  const runActive = useRef(false);
+  runActive.current = run?.status === "running";
+
+  // The window's suite arrives after the first render (deep link, picker); show its steps until a run takes over.
+  useEffect(() => {
+    if (!runActive.current) {
+      setProgress(initialProgress(suite));
+    }
+  }, [suite]);
 
   const follow = useCallback(
     (next: BenchRun) => {

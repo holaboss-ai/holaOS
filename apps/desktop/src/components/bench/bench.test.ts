@@ -3,7 +3,7 @@ import test from "node:test";
 
 import type { BenchEvent } from "@holaboss/remote-api/contract";
 import { benchmarkCardHtml, capabilityCardHtml, modelFontSize } from "./cards";
-import { kitFileName, narrationScript, resultsCsv, shareText } from "./kit";
+import { kitFileName, kitReadme, narrationScript, readAloudScript, resultsCsv, shareText } from "./kit";
 import { type RunRecordView, explainReason, hardwareLabel, readingComparison } from "./record";
 import { preferredRecordingMime } from "./recording";
 import { applyBenchEvents, initialProgress } from "./useBenchRun";
@@ -192,4 +192,48 @@ test("a coding run shows the try, the agent's tool calls and test results, and t
   const midTry = applyBenchEvents(initialProgress("suite-coding@1.0"), events.slice(0, 6), []);
   assert.deepEqual(midTry.activity, ["read pager.py", "run_tests", "  → FAILED: 2 failed"]);
   assert.deepEqual(midTry.attempt, { sample: 0, turn: 2 });
+});
+
+test("the read-aloud scripts carry the measured numbers, state what didn't run, and read in about 50 seconds", () => {
+  const coding = {
+    tasks: [
+      { task: "fix-pagination", status: "ok", passed: 3, samples: 3 },
+      { task: "parse-duration", status: "ok", passed: 1, samples: 3 },
+      { task: "csv-export", status: "ok", passed: 0, samples: 3 },
+      { task: "checkout-bug", status: "ok", passed: 3, samples: 3 },
+      { task: "calc-power", status: "ok", passed: 0, samples: 3 },
+    ],
+  };
+  const en = readAloudScript(record, "en", url, coding);
+  assert.match(en, /With an empty context: 102 tokens per second, first token in 62 milliseconds/);
+  assert.match(en, /With 8,000 tokens in the context: 85\.4 tokens per second/);
+  assert.match(en, /run on my Apple M4 Max with 64 GB\?/);
+  assert.match(en, /served by Ollama 0\.40\.10\./);
+  assert.match(en, /One miss, on long-context recall: answer did not contain the fact\./);
+  assert.match(en, /code 3\/3 and long-context recall 2\/3/);
+  assert.match(en, /Tool calling isn't supported by its Ollama build, so it didn't run\. That isn't a fail\./);
+  assert.match(en, /it solved the failing test and the reported bug every time/);
+  assert.match(en, /One run on one machine/);
+  assert.ok(en.includes(url) && en.includes("linked below") && en.includes("hub.holaos.ai/methodology"));
+  assert.doesNotMatch(en, /blazing|fastest|best|incredible|amazing/i);
+  const spoken = en
+    .split("\n")
+    .filter((line) => line.startsWith("**"))
+    .map((line) => line.replace(/^\*\*[^*]+\*\*\s*/, ""))
+    .join(" ")
+    .split(/\s+/).length;
+  assert.ok(spoken >= 90 && spoken <= 155, `45-60 seconds aloud, got ${spoken} words`);
+
+  const zh = readAloudScript({ ...record, runtime: { ...record.runtime, conditions: { cpu_busy_pct: 40 } } }, "zh", null, coding);
+  assert.match(zh, /每秒生成 102 个 token，首个 token 用时 62 毫秒/);
+  assert.match(zh, /工具调用这一项，这个模型的 Ollama 版本不支持，所以没有跑，这不算失败。/);
+  assert.match(zh, /它每次都做对了：修复失败的测试、修复用户报告的 bug。/);
+  assert.match(zh, /其他程序占用了 40% 的 CPU，速度可能偏低/);
+  assert.match(zh, /尚未发布/);
+  assert.match(zh, /在我的 Apple M4 Max（64 GB）上能跑多快/);
+
+  const readme = kitReadme(record, ["benchmark-card.png", "recording.mp4", "script.en.md", "README.txt"], null);
+  assert.match(readme, /Suite: suite-standard@1\.0/);
+  assert.match(readme, /Run: not published/);
+  assert.match(readme, /- recording\.mp4: The full, uncut recording/);
 });
