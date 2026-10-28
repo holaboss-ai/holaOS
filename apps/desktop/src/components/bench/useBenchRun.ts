@@ -166,6 +166,8 @@ export function applyBenchEvents(
           ...next,
           attempt: { sample: Number(event.sample ?? 0), turn: Number(event.turn ?? 0) },
           activity: pushActivity(next.activity, `${String(event.name ?? "")} ${String(event.arg ?? "")}`.trim()),
+          // Each turn's thinking starts on its own line instead of running into the last.
+          stream: next.stream && !next.stream.endsWith("\n") ? `${next.stream}\n` : next.stream,
         };
         break;
       case "tool_result":
