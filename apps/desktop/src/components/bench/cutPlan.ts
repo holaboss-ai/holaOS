@@ -44,6 +44,8 @@ export function recordingStartAt(events: BenchEvent[], record: RunRecordView): n
   return null;
 }
 
+const centis = (seconds: number) => Math.round(seconds * 100) / 100;
+
 function highlightTime(record: RunRecordView, task: string, label: string): number | null {
   return record.artifacts.highlights.find((h) => h.task === task && h.label === label)?.t ?? null;
 }
@@ -54,26 +56,31 @@ export function planSegments(record: RunRecordView, durationS: number): Segment[
   const first = highlightTime(record, SHOWCASE, "first_token");
   const done = highlightTime(record, SHOWCASE, "task_done");
   if (first !== null && done !== null && done > first) {
-    segments.push({ start: Math.max(0, first - LEAD_S), end: Math.min(durationS, done + TAIL_S), task: SHOWCASE });
+    segments.push({ start: centis(Math.max(0, first - LEAD_S)), end: centis(Math.min(durationS, done + TAIL_S)), task: SHOWCASE });
   }
   for (const task of taskResults(record)) {
     const finished = highlightTime(record, task.task, "task_done");
     if (finished !== null) {
-      segments.push({ start: Math.max(0, finished - TASK_LEAD_S), end: Math.min(durationS, finished + TASK_TAIL_S), task: task.task });
+      segments.push({
+        start: centis(Math.max(0, finished - TASK_LEAD_S)),
+        end: centis(Math.min(durationS, finished + TASK_TAIL_S)),
+        task: task.task,
+      });
     }
   }
   const length = (list: Segment[]) => list.reduce((sum, s) => sum + (s.end - s.start), 0);
   // Over budget: shorten the showcase from its start, keeping the end where its result shows.
   const showcase = segments.find((s) => s.task === SHOWCASE);
   if (showcase && length(segments) > MAX_CUT_S) {
-    showcase.start = Math.min(showcase.end - MIN_SHOWCASE_SEGMENT_S, showcase.start + (length(segments) - MAX_CUT_S));
+    showcase.start = centis(Math.min(showcase.end - MIN_SHOWCASE_SEGMENT_S, showcase.start + (length(segments) - MAX_CUT_S)));
   }
-  // Tasks close together would otherwise repeat footage; the showcase leads the cut, so it stays whole.
-  const tasks = segments.filter((s) => s.task !== SHOWCASE).sort((a, b) => a.start - b.start);
-  for (let i = 1; i < tasks.length; i += 1) {
-    tasks[i].start = Math.max(tasks[i].start, tasks[i - 1].end);
+  const ordered = segments.sort((a, b) => a.start - b.start);
+  // Moments close together would otherwise show the same footage twice.
+  for (let i = 1; i < ordered.length; i += 1) {
+    ordered[i].start = Math.max(ordered[i].start, ordered[i - 1].end);
   }
-  return [...segments.filter((s) => s.task === SHOWCASE), ...tasks.filter((s) => s.end > s.start)];
+  const kept = ordered.filter((s) => s.end > s.start);
+  return [...kept.filter((s) => s.task === SHOWCASE), ...kept.filter((s) => s.task !== SHOWCASE)];
 }
 
 /** Tokens per stream chunk for a task's latest request, from the engine's own count; 1 before it is known. */

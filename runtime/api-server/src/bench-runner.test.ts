@@ -122,7 +122,7 @@ test("one click runs the standard suite end to end and writes a Run Record", { s
   assert.ok(events.some((event) => event.type === "machine_busy" && event.cpu_busy_pct === 45));
   assert.ok(events.some((event) => event.type === "request_done" && event.task === "speed@0" && event.eval_count === 256));
   const showcase = events.filter((event) => event.task === "showcase");
-  assert.deepEqual([showcase[0]?.type, showcase.at(-1)?.type], ["task_start", "task_done"], "the showcase runs after the scored tasks");
+  assert.deepEqual([showcase[0]?.type, showcase.at(-1)?.type], ["task_start", "task_done"], "the showcase runs once, start to finish");
   assert.ok(!record.results.some((result) => result.task === "showcase"), "the showcase is never scored");
 
   const types = events.map((event) => event.type);

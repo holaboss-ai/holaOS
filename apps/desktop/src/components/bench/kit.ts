@@ -219,7 +219,7 @@ export function readAloudScript(
   const measured = formatTps(shallow?.decode_tps);
   if (lang === "en") {
     const clipped =
-      clip === null ? null : `The clip runs at ${formatTps(clip)} because the screen was recording; ${measured} was measured with recording off.`;
+      clip === null ? null : `The clip, a separate run with the screen recording, shows ${formatTps(clip)}; ${measured} was measured without recording.`;
     const caveat = [busy !== null ? `${busyText(busy)}, so these speeds are likely low.` : null, clipped].filter(Boolean).join(" ");
     return [
       `# ${model} on ${hardware}: script`,
@@ -240,7 +240,7 @@ export function readAloudScript(
       "",
     ].join("\n");
   }
-  const clipped = clip === null ? null : `视频里这段是录屏时另跑的一次，不计分，所以只有每秒 ${formatTps(clip)} 个 token；${measured} 是关掉录屏时测的。`;
+  const clipped = clip === null ? null : `视频里这段是录屏时另跑的一次，不计分，片中每秒 ${formatTps(clip)} 个 token；${measured} 是关掉录屏时测的。`;
   const busyZh = busy === null ? null : `${busy.whileGenerating ? "生成期间" : "开始运行时"}，其他程序占用了 ${busy.pct}% 的 CPU，速度可能偏低。`;
   const caveatZh = [busyZh, clipped].filter(Boolean).join("");
   return [

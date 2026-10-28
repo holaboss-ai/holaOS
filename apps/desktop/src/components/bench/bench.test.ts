@@ -244,9 +244,9 @@ test("the read-aloud scripts carry the measured numbers, state what didn't run, 
   assert.match(zh, /生成期间，其他程序占用了 45% 的 CPU，速度可能偏低/);
   assert.match(zh, /尚未发布/);
   assert.doesNotMatch(zh, /录屏/);
-  assert.match(readAloudScript(record, "zh", null, null, 95.2), /视频里这段是录屏时另跑的一次，不计分，所以只有每秒 95\.2 个 token；102 是关掉录屏时测的。/);
+  assert.match(readAloudScript(record, "zh", null, null, 95.2), /视频里这段是录屏时另跑的一次，不计分，片中每秒 95\.2 个 token；102 是关掉录屏时测的。/);
   const clipped = readAloudScript(record, "en", url, coding, 95.2);
-  assert.match(clipped, /\*\*Caveat\.\*\* The clip runs at 95\.2 because the screen was recording; 102 was measured with recording off\./);
+  assert.match(clipped, /\*\*Caveat\.\*\* The clip, a separate run with the screen recording, shows 95\.2; 102 was measured without recording\./);
   const clippedWords = clipped.split("\n").filter((line) => line.startsWith("**")).map((line) => line.replace(/^\*\*[^*]+\*\*\s*/, "")).join(" ").split(/\s+/).length;
   assert.ok(clippedWords <= 155, `still under a minute aloud, got ${clippedWords} words`);
   assert.match(zh, /在我的 Apple M4 Max（64 GB）上能跑多快/);
@@ -265,46 +265,46 @@ test("the kit videos lead with the recorded showcase, stay within 60 seconds and
   // Two tokens per stream chunk, as a thinking model streams; request_done carries the engine's count.
   const showcaseText: BenchEvent[] = [];
   for (let i = 0; i < 300; i += 1) {
-    showcaseText.push({ seq: seq++, at: runStart + 72_000 + i * 20, type: "text", task: "showcase", delta: "x", n: 1 });
+    showcaseText.push({ seq: seq++, at: runStart + 30_200 + i * 20, type: "text", task: "showcase", delta: "x", n: 1 });
   }
   const events: BenchEvent[] = [
     { seq: seq++, at: runStart, type: "run_started" },
-    { seq: seq++, at: runStart + 69_000, type: "request_done", task: "needle-8k", eval_count: 500, chunks: 250, decode_tps: 101 },
-    { seq: seq++, at: runStart + 71_900, type: "task_start", task: "showcase", kind: "showcase", depth: 0 },
+    { seq: seq++, at: runStart + 27_400, type: "request_done", task: "speed@8k", eval_count: 512, chunks: 256, decode_tps: 101 },
+    { seq: seq++, at: runStart + 30_000, type: "task_start", task: "showcase", kind: "showcase", depth: 0 },
     ...showcaseText,
-    { seq: seq++, at: runStart + 78_000, type: "request_done", task: "showcase", eval_count: 600, chunks: 300, decode_tps: 99.8 },
-    { seq: seq++, at: runStart + 78_100, type: "task_done", task: "showcase", kind: "showcase", status: "ok", decode_tps: 99.8 },
+    { seq: seq++, at: runStart + 36_200, type: "request_done", task: "showcase", eval_count: 600, chunks: 300, decode_tps: 99.8 },
+    { seq: seq++, at: runStart + 36_300, type: "task_done", task: "showcase", kind: "showcase", status: "ok", decode_tps: 99.8 },
   ];
-  // Recording began 40 s into the run, once the timed requests were done; highlights are recording time.
+  // Recording began 28 s into the run, once the timed requests were done; highlights are recording time.
   const cutRecord: RunRecordView = {
     ...record,
     artifacts: {
       recording: { file: "recording.mp4", scored_run: false },
       highlights: [
-        { t: 20, label: "task_done", task: "code-intervals" },
-        { t: 23, label: "task_done", task: "tool-flight" },
-        { t: 30, label: "task_done", task: "needle-8k" },
-        { t: 32, label: "first_token", task: "showcase" },
-        { t: 38.1, label: "task_done", task: "showcase" },
+        { t: 2.2, label: "first_token", task: "showcase" },
+        { t: 8.3, label: "task_done", task: "showcase" },
+        { t: 40, label: "task_done", task: "code-intervals" },
+        { t: 43, label: "task_done", task: "tool-flight" },
+        { t: 50, label: "task_done", task: "needle-8k" },
       ],
     },
   };
   const startAt = recordingStartAt(events, cutRecord);
-  assert.equal(startAt, runStart + 40_000);
+  assert.equal(startAt, runStart + 28_000);
 
-  const segments = planSegments(cutRecord, 45);
+  const segments = planSegments(cutRecord, 60);
   const cut = segments.reduce((sum, s) => sum + (s.end - s.start), 0);
-  assert.ok(cut + END_CARD_S <= 60, `cut is ${cut + END_CARD_S} s`);
+  assert.ok(cut + END_CARD_S >= 30 && cut + END_CARD_S <= 60, `cut is ${cut + END_CARD_S} s`);
   assert.deepEqual(segments.map((s) => s.task), ["showcase", "code-intervals", "tool-flight", "needle-8k"]);
-  assert.equal(segments[0].end, 40.1, "the showcase ends just after its result shows");
-  assert.ok(segments.every((s, i) => i === 0 || s.start >= segments[i - 1].end || s.task !== "showcase"));
+  assert.deepEqual([segments[0].start, segments[0].end], [0.7, 10.3], "the showcase from just before its first token to just after its result");
+  assert.equal(segments[2].start, 42, "close moments don't repeat footage");
   const long = planSegments({ ...cutRecord, artifacts: { highlights: [{ t: 2, label: "first_token", task: "showcase" }, { t: 120, label: "task_done", task: "showcase" }] } }, 200);
   assert.deepEqual([long[0].start, long[0].end], [66, 122], "an over-long showcase is shortened from its start");
 
   assert.equal(tokensPerChunk(events, "showcase"), 2);
   const progress = applyBenchEvents(initialProgress("suite-standard@1.0"), events.slice(0, 3 + 200), []);
   const shownAt = showcaseText[199].at;
-  assert.equal(progress.steps[progress.steps.length - 1]?.label, "Video clip · not scored");
+  assert.deepEqual(progress.steps.map((step) => step.id).slice(1, 4), ["speed@0", "speed@8k", "showcase"]);
   assert.ok(progress.liveTps !== null && Math.abs(progress.liveTps - 100) < 1, `live view counts tokens, not chunks: ${progress.liveTps}`);
   assert.equal(liveRate(events, "showcase", shownAt), progress.liveTps, "the overlay's live number is the run view's");
 
@@ -312,7 +312,7 @@ test("the kit videos lead with the recorded showcase, stay within 60 seconds and
   assert.equal(during.title, "Live in this clip · screen recording on");
   assert.equal(during.result, null);
   assert.ok(during.live !== null && Math.abs(during.live - 100) < 1);
-  const after = overlayAt(cutRecord, events, startAt ?? 0, segments[0], 39);
+  const after = overlayAt(cutRecord, events, startAt ?? 0, segments[0], 9);
   assert.equal(after.live, null);
   assert.equal(after.result, "In this clip: 99.8 tok/s with screen recording");
   assert.deepEqual(endCardLines(cutRecord, events), [

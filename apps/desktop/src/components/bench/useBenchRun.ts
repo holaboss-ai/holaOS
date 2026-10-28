@@ -136,10 +136,12 @@ export function applyBenchEvents(
       case "task_start":
         if (task) {
           recent.length = 0;
-          const steps =
-            event.kind === "showcase" && !next.steps.some((step) => step.id === task)
-              ? [...next.steps, { id: task, kind: "speed" as const, label: SHOWCASE_LABEL, state: "pending" as const }]
-              : next.steps;
+          let steps = next.steps;
+          if (event.kind === "showcase" && !steps.some((step) => step.id === task)) {
+            // It runs right after the timed speed requests, so it's listed there.
+            const at = steps.reduce((last, step, index) => (step.kind === "speed" ? index + 1 : last), 0);
+            steps = [...steps.slice(0, at), { id: task, kind: "speed" as const, label: SHOWCASE_LABEL, state: "pending" as const }, ...steps.slice(at)];
+          }
           next = {
             ...next,
             currentStep: task,

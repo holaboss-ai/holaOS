@@ -753,6 +753,8 @@ BENCH_KEEP_ALIVE = "30m"
 RELOAD_THRESHOLD_S = 0.5
 # The unscored generation the desktop records for the kit video: about 8 s of footage at 130 tok/s.
 SHOWCASE_TOKENS = 1024
+# Time for the desktop's recorder to start after the last timed request.
+SHOWCASE_LEAD_S = 2
 SAMPLING_OPTIONS = ("temperature", "top_p", "top_k", "min_p", "repeat_penalty", "presence_penalty")
 
 
@@ -1197,6 +1199,10 @@ def cmd_bench(args):
     for depth in pack["speed"]["depths"]:
         if not only or speed_task_id(depth) in only:
             results.append(bench_speed(root, model, depth, pack["speed"], base_options, extra, emit, load))
+    # Right after the timed requests, so the clip runs in the same state of the machine they were measured in.
+    if getattr(args, "showcase", False):
+        time.sleep(SHOWCASE_LEAD_S)
+        bench_showcase(root, model, base_options, extra, emit)
     for task in pack["tasks"]:
         if not only or task["id"] in only:
             results.append(bench_task(root, model, task, samples, dict(base_options, **sampling), extra, capabilities, emit))
@@ -1218,13 +1224,11 @@ def cmd_bench(args):
         "wall_seconds": round(time.time() - started, 1),
     }
     (out / f"bench-{args.label}.json").write_text(json.dumps(record, indent=2, ensure_ascii=False))
-    if getattr(args, "showcase", False):
-        bench_showcase(root, model, base_options, extra, emit)
     emit("done", file=str(out / f"bench-{args.label}.json"))
 
 
 def bench_showcase(root, model, base_options, extra, emit):
-    """One unscored speed@0 generation after the record is written, for the desktop to record; never in results."""
+    """One unscored speed@0 generation for the desktop to record; never in results or conditions."""
     emit.task = "showcase"
     emit("task_start", task="showcase", kind="showcase", depth=0)
     nonce = "%08x" % random.getrandbits(32)
@@ -3352,7 +3356,8 @@ def selftest_bench():
     show = [e for e in events if e.get("task") == "showcase"]
     assert [e["event"] for e in show][0] == "task_start" and show[-1]["event"] == "task_done" and show[-1]["status"] == "ok"
     assert [e for e in show if e["event"] == "request_done"][0]["eval_count"] == SHOWCASE_TOKENS
-    assert [e["event"] for e in events][-1] == "done" and events.index(show[-1]) < len(events) - 1
+    starts = [e.get("task") for e in events if e["event"] == "task_start"]
+    assert starts.index("showcase") == starts.index("speed@8k") + 1, starts
     showcase_prompts = [b for path, b in requests if path == "/api/chat" and b["options"].get("num_predict") == SHOWCASE_TOKENS]
     assert len(showcase_prompts) == 1 and showcase_prompts[0]["options"]["temperature"] == 0
 
@@ -3726,7 +3731,7 @@ def main():
     p.add_argument("--label", default="main")
     p.add_argument("--samples", type=int)
     p.add_argument("--only", default="")
-    p.add_argument("--showcase", action="store_true", help="after the record, one unscored generation to record on screen")
+    p.add_argument("--showcase", action="store_true", help="after the speed tasks, one unscored generation to record on screen")
     p.set_defaults(fn=cmd_bench)
     p = sub.add_parser("code")
     p.add_argument("--base-url", required=True)
