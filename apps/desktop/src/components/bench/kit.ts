@@ -10,6 +10,7 @@ import {
   speedResult,
   taskResults,
   topReason,
+  busyText,
   wasBusy,
 } from "./record";
 
@@ -68,7 +69,7 @@ export function narrationScript(record: RunRecordView, url: string): string {
     "",
   ];
   if (busy !== null) {
-    lines.push(`> Other apps used ${busy}% of the CPU during this run, so speed is likely low. Run again on an idle machine before posting.`, "");
+    lines.push(`> ${busyText(busy)}, so speed is likely low. Run again on an idle machine before posting.`, "");
   }
   lines.push(
     "## Post",
@@ -222,7 +223,7 @@ export function readAloudScript(record: RunRecordView, lang: "en" | "zh", url: s
       "",
       `**Capability.** ${capabilityLine(record, "en").join(" ")}${coded ? ` ${coded}` : ""}`,
       "",
-      `**Caveat.** ${busy !== null ? `Other apps were using ${busy}% of the CPU during this run, so these speeds are likely low.` : "One run on one machine: yours will vary with your hardware and what else is running."}`,
+      `**Caveat.** ${busy !== null ? `${busyText(busy)}, so these speeds are likely low.` : "One run on one machine: yours will vary with your hardware and what else is running."}`,
       "",
       `**More.** ${url ? "The full run and its raw record are linked below." : "The full run is on HolaHub."} How the test works: hub.holaos.ai/methodology.`,
       "",
@@ -241,7 +242,7 @@ export function readAloudScript(record: RunRecordView, lang: "en" | "zh", url: s
     "",
     `**能力。** ${capabilityLine(record, "zh").join("")}${coded ?? ""}`,
     "",
-    `**说明。** ${busy !== null ? `这次运行时，其他程序占用了 ${busy}% 的 CPU，速度可能偏低。` : "这是一台机器上的一次运行，你的结果会因硬件和后台程序而不同。"}`,
+    `**说明。** ${busy !== null ? `${busy.whileGenerating ? "生成期间" : "开始运行时"}，其他程序占用了 ${busy.pct}% 的 CPU，速度可能偏低。` : "这是一台机器上的一次运行，你的结果会因硬件和后台程序而不同。"}`,
     "",
     `**更多。** ${url ? "完整的运行记录见下方链接，" : "完整的运行记录在 HolaHub 上，"}测试方法见 hub.holaos.ai/methodology。`,
     "",

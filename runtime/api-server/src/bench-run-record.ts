@@ -90,7 +90,7 @@ export interface BenchClient {
 
 /** What else the machine was doing; a busy machine measures slower. */
 export interface BenchConditions {
-  /** Whole-machine CPU busy in the second before the run; charts use this. */
+  /** Whole-machine CPU busy in the second before the run; the busy rule falls back to it when others_cpu_busy_pct is missing. */
   cpu_busy_pct: number | null;
   /** Median CPU (and NVIDIA GPU) share used by everything except Ollama across the timed speed requests. */
   others_cpu_busy_pct?: number | null;

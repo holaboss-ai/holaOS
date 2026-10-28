@@ -1,6 +1,6 @@
 import type { BenchRunSummary } from "@holaboss/remote-api/contract";
 import { toast } from "sonner";
-import { formatTps, machineSummary, BUSY_CPU_PCT } from "@/components/bench/record";
+import { busyReading, formatTps, machineSummary } from "@/components/bench/record";
 import { errorMessage, relativeTime } from "./format";
 import { StatusPill } from "./parts";
 
@@ -14,7 +14,7 @@ export function BenchmarkRunList({ runs }: { runs: BenchRunSummary[] }) {
   return (
     <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
       {runs.map((run) => {
-        const busy = run.cpu_busy_pct !== null && run.cpu_busy_pct >= BUSY_CPU_PCT;
+        const busy = busyReading(run) !== null;
         return (
           <li className="group relative transition-colors hover:bg-fg-2" key={run.run_id}>
             <button

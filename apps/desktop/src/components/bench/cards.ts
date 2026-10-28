@@ -12,6 +12,7 @@ import {
   speedResult,
   taskResults,
   topReason,
+  busyText,
   wasBusy,
 } from "./record";
 
@@ -141,7 +142,7 @@ function taskScore(task: TaskResult): string {
 
 function busyNote(record: RunRecordView): string {
   const busy = wasBusy(record);
-  return busy === null ? "" : `<span class="busy">Measured while other apps used ${busy}% of the CPU</span>`;
+  return busy === null ? "" : `<span class="busy">${busyText(busy)}</span>`;
 }
 
 export function benchmarkCardHtml(record: RunRecordView, assets: CardAssets): string {

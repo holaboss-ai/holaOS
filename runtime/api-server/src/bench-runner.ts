@@ -97,6 +97,7 @@ export interface BenchRunSummary {
   decode_tps: number | null;
   hardware: { cpu?: string; memory_gb?: number; gpus?: string[] };
   cpu_busy_pct: number | null;
+  others_cpu_busy_pct: number | null;
 }
 
 const RUN_ID_PATTERN = /^[0-9a-f-]{36}$/;
@@ -312,6 +313,7 @@ export class BenchRunner {
           decode_tps: speed?.metrics?.decode_tps ?? null,
           hardware: record.runtime.hardware as BenchRunSummary["hardware"],
           cpu_busy_pct: record.runtime.conditions?.cpu_busy_pct ?? null,
+          others_cpu_busy_pct: record.runtime.conditions?.others_cpu_busy_pct ?? null,
         });
       } catch {
         // an unfinished or unreadable run is not listed

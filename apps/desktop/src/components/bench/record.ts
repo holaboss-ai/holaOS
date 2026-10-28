@@ -1,5 +1,7 @@
 /** Typed reads over a Run Record (hola.run-record/0.1); the runtime owns the schema. */
 
+import BENCH_CONDITIONS from "../../../../../runtime/api-server/src/bench-conditions.json";
+
 export interface SpeedMetrics {
   depth: number;
   decode_tps?: number;
@@ -36,7 +38,7 @@ export interface RunRecordView {
   runtime: {
     hardware: { cpu?: string; memory_gb?: number; gpus?: string[]; model?: string };
     provider: { engine: string; version: string | null };
-    conditions?: { cpu_busy_pct: number | null };
+    conditions?: { cpu_busy_pct: number | null; others_cpu_busy_pct?: number | null };
   };
   results: Array<SpeedResult | TaskResult>;
   artifacts: {
@@ -53,11 +55,30 @@ export const TASK_INFO: Record<string, { title: string; short: string; what: str
   "needle-8k": { title: "Long context", short: "8K recall", what: "Finds a single fact buried in 8,000 tokens of text" },
 };
 
-export const BUSY_CPU_PCT = 25;
+export const BUSY_OTHERS_CPU_PCT: number = BENCH_CONDITIONS.busy_others_cpu_pct;
 
-export function wasBusy(record: RunRecordView): number | null {
-  const busy = record.runtime.conditions?.cpu_busy_pct ?? null;
-  return busy !== null && busy >= BUSY_CPU_PCT ? busy : null;
+export interface BusyReading {
+  pct: number;
+  /** False when only the sample from the second before the run exists. */
+  whileGenerating: boolean;
+}
+
+/** Busy when other programs used over the shared limit while it generated; older records fall back to the pre-run sample. */
+export function busyReading(conditions: { cpu_busy_pct?: number | null; others_cpu_busy_pct?: number | null } | undefined): BusyReading | null {
+  const during = conditions?.others_cpu_busy_pct ?? null;
+  if (during !== null) {
+    return during > BUSY_OTHERS_CPU_PCT ? { pct: during, whileGenerating: true } : null;
+  }
+  const before = conditions?.cpu_busy_pct ?? null;
+  return before !== null && before > BUSY_OTHERS_CPU_PCT ? { pct: before, whileGenerating: false } : null;
+}
+
+export function wasBusy(record: RunRecordView): BusyReading | null {
+  return busyReading(record.runtime.conditions);
+}
+
+export function busyText(busy: BusyReading): string {
+  return `Other programs used ${busy.pct}% of the CPU ${busy.whileGenerating ? "while it generated" : "when the run started"}`;
 }
 
 /** Grader reasons are written for engineers; this phrases the common ones for a card. */

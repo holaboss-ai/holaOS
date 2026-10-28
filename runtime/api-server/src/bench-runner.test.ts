@@ -155,6 +155,8 @@ test("one click runs the standard suite end to end and writes a Run Record", { s
   assert.equal(listed[0].run_id, started.run_id);
   assert.equal(listed[0].subject_name, "MiniCPM5-2B");
   assert.ok((listed[0].decode_tps ?? 0) > 0);
+  assert.equal(listed[0].cpu_busy_pct, 45);
+  assert.equal(listed[0].others_cpu_busy_pct, record.runtime.conditions.others_cpu_busy_pct ?? null);
   assert.deepEqual(runner.list("someone-else"), []);
 });
 

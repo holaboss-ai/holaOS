@@ -4,7 +4,7 @@ import test from "node:test";
 import type { BenchEvent } from "@holaboss/remote-api/contract";
 import { benchmarkCardHtml, capabilityCardHtml, modelFontSize } from "./cards";
 import { kitFileName, kitReadme, narrationScript, readAloudScript, resultsCsv, shareText } from "./kit";
-import { type RunRecordView, explainReason, hardwareLabel, readingComparison } from "./record";
+import { type RunRecordView, busyReading, busyText, explainReason, hardwareLabel, readingComparison } from "./record";
 import { preferredRecordingMime } from "./recording";
 import { applyBenchEvents, initialProgress } from "./useBenchRun";
 
@@ -59,14 +59,23 @@ test("a model that spills to the CPU is labelled on the card", () => {
 
 test("a run on a busy machine says so on both cards instead of the reading comparison", () => {
   const busy = structuredClone(record);
-  busy.runtime.conditions = { cpu_busy_pct: 40 };
+  busy.runtime.conditions = { cpu_busy_pct: 12, others_cpu_busy_pct: 41 };
   const html = benchmarkCardHtml(busy, assets);
-  assert.match(html, /Measured while other apps used 40% of the CPU/);
+  assert.match(html, /Other programs used 41% of the CPU while it generated/);
   assert.doesNotMatch(html, /words a second/);
-  assert.match(capabilityCardHtml(busy, assets), /Measured while other apps used 40% of the CPU/);
+  assert.match(capabilityCardHtml(busy, assets), /Other programs used 41% of the CPU while it generated/);
   const calm = structuredClone(record);
-  calm.runtime.conditions = { cpu_busy_pct: 12 };
-  assert.doesNotMatch(benchmarkCardHtml(calm, assets), /Measured while/);
+  calm.runtime.conditions = { cpu_busy_pct: 70, others_cpu_busy_pct: 40 };
+  assert.doesNotMatch(benchmarkCardHtml(calm, assets), /Other programs used/);
+});
+
+test("busy is over 40% of the CPU while it generated, falling back to the pre-run sample", () => {
+  assert.deepEqual(busyReading({ cpu_busy_pct: 90, others_cpu_busy_pct: 41 }), { pct: 41, whileGenerating: true });
+  assert.equal(busyReading({ cpu_busy_pct: 90, others_cpu_busy_pct: 40 }), null);
+  assert.deepEqual(busyReading({ cpu_busy_pct: 41, others_cpu_busy_pct: null }), { pct: 41, whileGenerating: false });
+  assert.equal(busyReading({ cpu_busy_pct: 40 }), null);
+  assert.equal(busyReading(undefined), null);
+  assert.equal(busyText({ pct: 55, whileGenerating: false }), "Other programs used 55% of the CPU when the run started");
 });
 
 test("the capability card shows x/3, explains a miss and keeps unsupported apart from failed", () => {
@@ -127,7 +136,7 @@ test("the kit carries a CSV, a data-only script and a dated name", () => {
   );
   const busy = structuredClone(record);
   busy.runtime.conditions = { cpu_busy_pct: 70 };
-  assert.match(narrationScript(busy, url), /Other apps used 70% of the CPU during this run/);
+  assert.match(narrationScript(busy, url), /Other programs used 70% of the CPU when the run started, so speed is likely low/);
 });
 
 test("a discrete GPU names the card, not the CPU", () => {
@@ -224,11 +233,11 @@ test("the read-aloud scripts carry the measured numbers, state what didn't run, 
     .split(/\s+/).length;
   assert.ok(spoken >= 90 && spoken <= 155, `45-60 seconds aloud, got ${spoken} words`);
 
-  const zh = readAloudScript({ ...record, runtime: { ...record.runtime, conditions: { cpu_busy_pct: 40 } } }, "zh", null, coding);
+  const zh = readAloudScript({ ...record, runtime: { ...record.runtime, conditions: { cpu_busy_pct: 12, others_cpu_busy_pct: 45 } } }, "zh", null, coding);
   assert.match(zh, /每秒生成 102 个 token，首个 token 用时 62 毫秒/);
   assert.match(zh, /工具调用这一项，这个模型的 Ollama 版本不支持，所以没有跑，这不算失败。/);
   assert.match(zh, /它每次都做对了：修复失败的测试、修复用户报告的 bug。/);
-  assert.match(zh, /其他程序占用了 40% 的 CPU，速度可能偏低/);
+  assert.match(zh, /生成期间，其他程序占用了 45% 的 CPU，速度可能偏低/);
   assert.match(zh, /尚未发布/);
   assert.match(zh, /在我的 Apple M4 Max（64 GB）上能跑多快/);
 

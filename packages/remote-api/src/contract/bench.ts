@@ -63,6 +63,7 @@ export const benchRunSummarySchema = z.object({
     gpus: z.array(z.string()).optional(),
   }),
   cpu_busy_pct: z.number().nullable(),
+  others_cpu_busy_pct: z.number().nullable().optional(),
 });
 
 export const benchContract = {

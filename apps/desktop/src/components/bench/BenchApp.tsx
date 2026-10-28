@@ -33,6 +33,7 @@ import {
   resultUrl,
   speedResult,
   taskResults,
+  busyText,
   wasBusy,
 } from "./record";
 import { type BenchRecording, startBenchRecording } from "./recording";
@@ -480,7 +481,7 @@ function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
           <div className="flex flex-col gap-2">
             <span className="text-foreground">
-              Other apps used {machineBusy}% of the CPU, so these numbers are likely low. Close them and run again before you share.
+              {busyText(machineBusy)}, so these numbers are likely low. Close them and run again before you share.
             </span>
             <Button className="self-start" onClick={onRunAgain} size="xs" type="button" variant="outline">
               <RotateCw className="size-3" />
@@ -682,6 +683,7 @@ export function BenchApp() {
   const engineVersion = showingFinished && finished ? finished.record.runtime.provider.version : progress.engineVersion;
   const finalSpeed = record ? speedResult(record, "speed@0")?.decode_tps : undefined;
   const reading = readingComparison(finalSpeed);
+  const busy = record ? wasBusy(record) : null;
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
@@ -717,7 +719,7 @@ export function BenchApp() {
             {isRunning && progress.cpuBusyPct !== null ? (
               <p className="flex items-start gap-2 rounded-lg bg-warning/10 p-2.5 text-foreground text-xs ring-1 ring-warning/30">
                 <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" />
-                Other apps are using {progress.cpuBusyPct}% of the CPU.{" "}
+                Other programs are using {progress.cpuBusyPct}% of the CPU.{" "}
                 {run?.suite === CODING_SUITE
                   ? "Tries will take longer; pass rates don't depend on speed."
                   : "Numbers will likely be low."}
@@ -784,8 +786,8 @@ export function BenchApp() {
                     <HeroNumber
                       label="Decode speed"
                       sub={
-                        wasBusy(record) !== null
-                          ? `Measured while other apps used ${wasBusy(record)}% of the CPU`
+                        busy !== null
+                          ? busyText(busy)
                           : reading
                             ? `≈ ${Math.round(reading.wordsPerSecond)} words a second, ${Math.round(reading.timesReading)}× faster than you read`
                             : undefined
