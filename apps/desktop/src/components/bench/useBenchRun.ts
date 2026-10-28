@@ -2,6 +2,7 @@ import type { BenchEvent, BenchRun, BenchSubject } from "@holaboss/remote-api/co
 import { useCallback, useEffect, useRef, useState } from "react";
 import { remoteApi } from "@/lib/remoteApiClient";
 import type { RunRecordView } from "./record";
+import { preferredRecordingMime } from "./recording";
 
 const POLL_MS = 200;
 const STREAM_CHARS = 1600;
@@ -10,6 +11,7 @@ const RATE_HISTORY = 120;
 const ACTIVITY_LINES = 8;
 
 export const CODING_SUITE = "suite-coding@1.0";
+const SHOWCASE_LABEL = "Video clip · not scored";
 
 export type BenchStepKind = "warmup" | "speed" | "task";
 
@@ -64,6 +66,8 @@ export interface BenchProgress {
   engineVersion: string | null;
   /** Live decode rate samples for the current speed step, oldest first. */
   rateHistory: number[];
+  /** Tokens per stream chunk from the latest request_done; a chunk can carry several tokens. */
+  tokensPerChunk: number;
   /** The coding try in progress and the agent's recent tool calls, newest last. */
   attempt: { sample: number; turn: number } | null;
   activity: string[];
@@ -81,6 +85,7 @@ export function initialProgress(suite: string): BenchProgress {
     machine: null,
     engineVersion: null,
     rateHistory: [],
+    tokensPerChunk: 1,
     attempt: null,
     activity: [],
   };
@@ -131,19 +136,31 @@ export function applyBenchEvents(
       case "task_start":
         if (task) {
           recent.length = 0;
+          const steps =
+            event.kind === "showcase" && !next.steps.some((step) => step.id === task)
+              ? [...next.steps, { id: task, kind: "speed" as const, label: SHOWCASE_LABEL, state: "pending" as const }]
+              : next.steps;
           next = {
             ...next,
             currentStep: task,
             stream: "",
             liveTps: null,
             rateHistory: [],
-            steps: updateStep(next.steps, task, { state: "running" }),
+            steps: updateStep(steps, task, { state: "running" }),
           };
         }
         break;
+      case "request_done": {
+        const tokens = Number(event.eval_count);
+        const chunks = Number(event.chunks);
+        if (tokens > 0 && chunks > 0) {
+          next = { ...next, tokensPerChunk: tokens / chunks };
+        }
+        break;
+      }
       case "text":
         if (task && task === next.currentStep) {
-          recent.push({ at: event.at, n: typeof event.n === "number" ? event.n : 1 });
+          recent.push({ at: event.at, n: (typeof event.n === "number" ? event.n : 1) * next.tokensPerChunk });
           while (recent.length > 0 && event.at - recent[0].at > TPS_WINDOW_MS) {
             recent.shift();
           }
@@ -288,7 +305,9 @@ export function useBenchRun(suite: string) {
     async (subject: BenchSubject, unloadUserModels = false) => {
       setStartError(null);
       try {
-        follow(await remoteApi.bench.start({ subject, suite, unload_user_models: unloadUserModels }));
+        // The showcase is the generation the window records, so ask for it only when this machine can record.
+        const showcase = suite !== CODING_SUITE && preferredRecordingMime() !== null;
+        follow(await remoteApi.bench.start({ subject, suite, unload_user_models: unloadUserModels, showcase }));
       } catch (error) {
         setStartError(error instanceof Error ? error.message : "Could not start the benchmark.");
       }

@@ -2465,6 +2465,13 @@ declare global {
 				bytes: Uint8Array,
 				extension: string,
 			) => Promise<{ file: string }>;
+			/** The run's events.jsonl or recording, for cutting the kit's videos. */
+			readRunFile: (runDir: string, name: string) => Promise<Uint8Array<ArrayBuffer>>;
+			saveCut: (
+				runDir: string,
+				name: string,
+				bytes: Uint8Array,
+			) => Promise<{ file: string }>;
 			exportKit: (
 				runDir: string,
 				suggestedName: string,

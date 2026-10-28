@@ -1777,6 +1777,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
 				bytes,
 				extension,
 			) as Promise<{ file: string }>,
+		readRunFile: (runDir: string, name: string) =>
+			ipcRenderer.invoke("bench:readRunFile", runDir, name) as Promise<Uint8Array>,
+		saveCut: (runDir: string, name: string, bytes: Uint8Array) =>
+			ipcRenderer.invoke("bench:saveCut", runDir, name, bytes) as Promise<{
+				file: string;
+			}>,
 		exportKit: (runDir: string, suggestedName: string, files: BenchKitFile[]) =>
 			ipcRenderer.invoke(
 				"bench:exportKit",

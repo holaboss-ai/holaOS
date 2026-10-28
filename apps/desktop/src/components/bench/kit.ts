@@ -197,7 +197,14 @@ function codingLine(coding: CodingScene | null, lang: "en" | "zh"): string | nul
 }
 
 /** A script to read aloud in about 50 seconds, from fixed sentences over the Run Record, so the numbers are the measured ones. */
-export function readAloudScript(record: RunRecordView, lang: "en" | "zh", url: string | null, coding: CodingScene | null = null): string {
+/** `clip` is the recorded showcase's own rate: the video's clip runs slower than the measured number, and the script says why. */
+export function readAloudScript(
+  record: RunRecordView,
+  lang: "en" | "zh",
+  url: string | null,
+  coding: CodingScene | null = null,
+  clip: number | null = null,
+): string {
   const shallow = speedResult(record, "speed@0");
   const deep = speedResult(record, "speed@8k");
   const hardware = hardwareLabel(record);
@@ -209,7 +216,11 @@ export function readAloudScript(record: RunRecordView, lang: "en" | "zh", url: s
   const busy = wasBusy(record);
   const offload = Boolean(shallow?.cpu_offload || deep?.cpu_offload);
   const coded = codingLine(coding, lang);
+  const measured = formatTps(shallow?.decode_tps);
   if (lang === "en") {
+    const clipped =
+      clip === null ? null : `The clip runs at ${formatTps(clip)} because the screen was recording; ${measured} was measured with recording off.`;
+    const caveat = [busy !== null ? `${busyText(busy)}, so these speeds are likely low.` : null, clipped].filter(Boolean).join(" ");
     return [
       `# ${model} on ${hardware}: script`,
       "",
@@ -223,12 +234,15 @@ export function readAloudScript(record: RunRecordView, lang: "en" | "zh", url: s
       "",
       `**Capability.** ${capabilityLine(record, "en").join(" ")}${coded ? ` ${coded}` : ""}`,
       "",
-      `**Caveat.** ${busy !== null ? `${busyText(busy)}, so these speeds are likely low.` : "One run on one machine: yours will vary with your hardware and what else is running."}`,
+      `**Caveat.** ${caveat || "One run on one machine: yours will vary with your hardware and what else is running."}`,
       "",
       `**More.** ${url ? "The full run and its raw record are linked below." : "The full run is on HolaHub."} How the test works: hub.holaos.ai/methodology.`,
       "",
     ].join("\n");
   }
+  const clipped = clip === null ? null : `视频里这段是录屏时另跑的一次，不计分，所以只有每秒 ${formatTps(clip)} 个 token；${measured} 是关掉录屏时测的。`;
+  const busyZh = busy === null ? null : `${busy.whileGenerating ? "生成期间" : "开始运行时"}，其他程序占用了 ${busy.pct}% 的 CPU，速度可能偏低。`;
+  const caveatZh = [busyZh, clipped].filter(Boolean).join("");
   return [
     `# ${model} 在 ${hardware} 上的实测：口播稿`,
     "",
@@ -242,11 +256,17 @@ export function readAloudScript(record: RunRecordView, lang: "en" | "zh", url: s
     "",
     `**能力。** ${capabilityLine(record, "zh").join("")}${coded ?? ""}`,
     "",
-    `**说明。** ${busy !== null ? `${busy.whileGenerating ? "生成期间" : "开始运行时"}，其他程序占用了 ${busy.pct}% 的 CPU，速度可能偏低。` : "这是一台机器上的一次运行，你的结果会因硬件和后台程序而不同。"}`,
+    `**说明。** ${caveatZh || "这是一台机器上的一次运行，你的结果会因硬件和后台程序而不同。"}`,
     "",
     `**更多。** ${url ? "完整的运行记录见下方链接，" : "完整的运行记录在 HolaHub 上，"}测试方法见 hub.holaos.ai/methodology。`,
     "",
   ].join("\n");
+}
+
+function fullRecording(record: RunRecordView): string {
+  return record.artifacts.recording?.scored_run === false
+    ? "The full, uncut recording of the run window. It starts after the timed speed tests: recording slows generation, so they run without it."
+    : "The full, uncut recording of the run window.";
 }
 
 /** What each file in the kit is. */
@@ -254,7 +274,8 @@ export function kitReadme(record: RunRecordView, files: string[], url: string | 
   const describe: Record<string, string> = {
     "benchmark-card.png": "Share card: decode speed, first token, memory. 2400x1350.",
     "capability-card.png": "Share card: the three tasks, x/3 each. 2400x1350.",
-    "recording-16x9.mp4": "The run, cut to the speed moments, with the measured numbers on screen. 1920x1080 for YouTube and X.",
+    "recording-16x9.mp4":
+      "A clip recorded for the video, then each task's result, with the measured numbers on screen. 1920x1080 for YouTube and X.",
     "recording-9x16.mp4": "The same cut laid out for a phone. 1080x1920 for Shorts, Reels and TikTok.",
     "run-record.json": "The full Run Record: every number, the machine and the settings.",
     "results.csv": "One row per task, for a spreadsheet.",
@@ -272,7 +293,7 @@ export function kitReadme(record: RunRecordView, files: string[], url: string | 
     "Files:",
   ];
   for (const name of files) {
-    const known = describe[name] ?? (name.startsWith("recording.") ? "The full, uncut recording of the run window." : "");
+    const known = describe[name] ?? (name.startsWith("recording.") ? fullRecording(record) : "");
     lines.push(`- ${name}${known ? `: ${known}` : ""}`);
   }
   lines.push("", "Every number in this kit is the measured one. How the test works: https://hub.holaos.ai/methodology", "");

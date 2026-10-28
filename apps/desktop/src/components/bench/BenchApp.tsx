@@ -22,6 +22,9 @@ import { cn } from "@/lib/utils";
 import type { BenchPublishResult, BenchWindowContext } from "../../../shared/bench-protocol";
 import { cardAssets } from "./cardAssets";
 import { benchmarkCardHtml, capabilityCardHtml } from "./cards";
+import type { BenchEvent } from "@holaboss/remote-api/contract";
+import { clipRate, parseEvents } from "./cutPlan";
+import { cutVideos } from "./cutVideo";
 import { type CodingScene, kitFileName, kitReadme, narrationScript, readAloudScript, resultsCsv, shareText } from "./kit";
 import {
   type RunRecordView,
@@ -214,9 +217,18 @@ function CenterLive({ run, progress }: { run: BenchRun; progress: BenchProgress 
     return <CodingLive progress={progress} step={step} />;
   }
   const isTask = step.kind === "task";
+  // The kit video shows the clip's exact rate itself; a live estimate here would put a second number on screen.
+  const isShowcase = step.id === "showcase";
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-4">
-      {isTask ? (
+      {isShowcase ? (
+        <div className="flex flex-col items-center gap-2">
+          <Label>{step.label}</Label>
+          <span className="max-w-[300px] text-center text-muted-foreground text-sm">
+            Recording a clip for the video. Its speed isn't scored.
+          </span>
+        </div>
+      ) : isTask ? (
         <div className="flex flex-col items-center gap-2">
           <Label>{TASK_INFO[step.id]?.title ?? step.label}</Label>
           <span className="max-w-[300px] text-center text-muted-foreground text-sm">{TASK_INFO[step.id]?.what}</span>
@@ -375,6 +387,49 @@ function RunError({ run, onRetry, onUnloadAndRun }: { run: BenchRun; onRetry: ()
   );
 }
 
+/** The 16:9 and 9:16 cuts of a speed run's recording, saved into the run directory; none when this machine can't encode H.264. */
+/** The cut files, or why the kit has none: a reader should know whether to try again. */
+async function runEvents(runDir: string): Promise<BenchEvent[]> {
+  try {
+    return parseEvents(new TextDecoder().decode(await window.electronAPI.bench.readRunFile(runDir, "events.jsonl")));
+  } catch {
+    return [];
+  }
+}
+
+async function cutKitVideos(
+  finished: FinishedRun,
+  runDir: string,
+  events: BenchEvent[],
+  onProgress: (fraction: number) => void,
+): Promise<{ files: string[]; skipped: string | null }> {
+  const recordingName = finished.recordingFile?.split(/[\\/]/).pop();
+  if (!recordingName || finished.record.suite.id !== "suite-standard") {
+    return { files: [], skipped: null };
+  }
+  try {
+    const recording = await window.electronAPI.bench.readRunFile(runDir, recordingName);
+    const cut = await cutVideos({
+      recording,
+      mime: recordingName.endsWith(".webm") ? "video/webm" : "video/mp4",
+      events,
+      record: finished.record,
+      onProgress,
+    });
+    if (!cut) {
+      return { files: [], skipped: "this machine can't encode H.264, so the kit has the full recording." };
+    }
+    const [landscape, portrait] = await Promise.all([
+      window.electronAPI.bench.saveCut(runDir, "recording-16x9.mp4", cut.landscape),
+      window.electronAPI.bench.saveCut(runDir, "recording-9x16.mp4", cut.portrait),
+    ]);
+    return { files: [landscape.file, portrait.file], skipped: null };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { files: [], skipped: `cutting failed (${reason}), so the kit has the full recording.` };
+  }
+}
+
 /** The subject's newest local coding run, for the one sentence a speed kit's script adds about it. */
 async function latestCodingScene(subjectId: string): Promise<CodingScene | null> {
   try {
@@ -433,6 +488,9 @@ function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun
     try {
       const { record } = finished;
       const coding = await latestCodingScene(record.subject.id);
+      const events = await runEvents(runDir);
+      const cuts = await cutKitVideos(finished, runDir, events, (fraction) => setNote(`Cutting the videos · ${Math.round(fraction * 100)}%`));
+      const clip = cuts.files.length > 0 ? clipRate(events) : null;
       const files: Array<{ name: string; path?: string; text?: string }> = [
         ...finished.cards.map((card) => ({ name: `${card.name}.png`, path: card.file })),
         ...(finished.recordingFile
@@ -441,13 +499,15 @@ function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun
         { name: "run-record.json", text: `${JSON.stringify(record, null, 2)}\n` },
         { name: "results.csv", text: resultsCsv(record) },
         { name: "highlights.json", text: `${JSON.stringify(record.artifacts.highlights, null, 2)}\n` },
-        { name: "script.en.md", text: readAloudScript(record, "en", publishedUrl, coding) },
-        { name: "script.zh.md", text: readAloudScript(record, "zh", publishedUrl, coding) },
+        { name: "script.en.md", text: readAloudScript(record, "en", publishedUrl, coding, clip) },
+        { name: "script.zh.md", text: readAloudScript(record, "zh", publishedUrl, coding, clip) },
         { name: "post.md", text: narrationScript(record, finished.url) },
+        ...cuts.files.map((cut) => ({ name: cut.split(/[\\/]/).pop() ?? cut, path: cut })),
       ];
       files.push({ name: "README.txt", text: kitReadme(record, files.map((file) => file.name), publishedUrl) });
       const { path } = await window.electronAPI.bench.exportKit(runDir, kitFileName(record), files);
-      setNote(path ? `Saved ${path.split(/[\\/]/).pop()}` : null);
+      const noVideos = cuts.skipped ? ` No short videos: ${cuts.skipped}` : "";
+      setNote(path ? `Saved ${path.split(/[\\/]/).pop()}.${noVideos}` : null);
     } catch (error) {
       setNote(error instanceof Error ? error.message : "Could not export the kit.");
     } finally {
@@ -553,12 +613,22 @@ export function BenchApp() {
     return window.electronAPI.bench.onContext(setContext);
   }, []);
 
+  // Screen capture slows generation by about 7.5%, so a speed run records only once its timed requests are done.
+  const captureReady =
+    run?.suite === CODING_SUITE ||
+    progress.steps.every((step) => step.kind !== "speed" || step.id === "showcase" || step.state === "done");
+
   useEffect(() => {
-    if (run?.status !== "running" || recording.current) {
+    if (run?.status === "running") {
+      setFinished(null);
+      setRecordingError(null);
+    }
+  }, [run?.status]);
+
+  useEffect(() => {
+    if (run?.status !== "running" || recording.current || !captureReady) {
       return;
     }
-    setFinished(null);
-    setRecordingError(null);
     void startBenchRecording()
       .then((started) => {
         if (runStatus.current !== "running") {
@@ -571,7 +641,7 @@ export function BenchApp() {
       .catch((error: unknown) => {
         setRecordingError(error instanceof Error ? error.message : "Recording is not available.");
       });
-  }, [run?.status]);
+  }, [run?.status, captureReady]);
 
   const finalize = useCallback(
     async (done: BenchRun) => {
@@ -601,7 +671,8 @@ export function BenchApp() {
         const offset = active && progress.runStartedAt ? Math.max(0, (active.startedAt - progress.runStartedAt) / 1000) : 0;
         const { record: final } = await remoteApi.bench.setArtifacts({
           run_id: done.run_id,
-          recording: recordingFile ? { file: recordingFile, scored_run: true } : null,
+          // A coding run is recorded throughout; a speed run's timed requests never are.
+          recording: recordingFile ? { file: recordingFile, scored_run: coding } : null,
           cards: cards.map((card) => card.file),
           recording_offset_s: offset,
         });
@@ -809,7 +880,7 @@ export function BenchApp() {
                   <span className="max-w-[300px] text-center text-muted-foreground text-xs leading-5">
                     {isCoding
                       ? "About 10–25 minutes, depending on the model. The model's code runs in a sandbox with no network. This window is recorded while it runs."
-                      : "About 3 minutes once the model is downloaded. This window is recorded while it runs."}
+                      : "About 3 minutes once the model is downloaded. Recording starts after the timed speed tests, so it can't slow them."}
                   </span>
                   {sizeHint(context) ? (
                     <span className="max-w-[300px] text-center font-medium text-muted-foreground text-xs leading-5">{sizeHint(context)}</span>

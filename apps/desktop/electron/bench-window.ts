@@ -26,6 +26,10 @@ import {
 } from "./bench-links";
 import type { BenchKitFile, BenchPublishResult, BenchWindowContext } from "../shared/bench-protocol";
 
+/** What the renderer may read back from a run directory to cut the kit's videos. */
+const READABLE_RUN_FILES = new Set(["events.jsonl", "recording.mp4", "recording.webm"]);
+const CUT_FILES = new Set(["recording-16x9.mp4", "recording-9x16.mp4"]);
+
 export interface BenchWindowDeps {
   preloadPath: string;
   loadRenderer: (win: BrowserWindow, query: Record<string, string>) => Promise<void>;
@@ -147,6 +151,24 @@ export function createBenchWindowController(deps: BenchWindowDeps) {
     return { file };
   }
 
+  async function readRunFile(runDir: string, name: string): Promise<Uint8Array> {
+    const dir = assertRunDir(runDir);
+    if (!READABLE_RUN_FILES.has(name)) {
+      throw new Error("That file can't be read from the run directory.");
+    }
+    return new Uint8Array(await fs.readFile(path.join(dir, name)));
+  }
+
+  async function saveCut(runDir: string, name: string, bytes: Uint8Array): Promise<{ file: string }> {
+    const dir = assertRunDir(runDir);
+    if (!CUT_FILES.has(name)) {
+      throw new Error("Invalid video name.");
+    }
+    const file = path.join(dir, name);
+    await fs.writeFile(file, bytes);
+    return { file };
+  }
+
   async function exportKit(runDir: string, suggestedName: string, files: BenchKitFile[]): Promise<{ path: string | null }> {
     const dir = assertRunDir(runDir);
     const zip = new JSZip();
@@ -221,6 +243,8 @@ export function createBenchWindowController(deps: BenchWindowDeps) {
     fromBenchWindow("bench:saveRecording", (runDir: string, bytes: Uint8Array, extension: string) =>
       saveRecording(runDir, bytes, extension),
     );
+    fromBenchWindow("bench:readRunFile", (runDir: string, name: string) => readRunFile(runDir, name));
+    fromBenchWindow("bench:saveCut", (runDir: string, name: string, bytes: Uint8Array) => saveCut(runDir, name, bytes));
     fromBenchWindow("bench:exportKit", (runDir: string, suggestedName: string, files: BenchKitFile[]) =>
       exportKit(runDir, suggestedName, files),
     );
