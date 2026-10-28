@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hola import paths
+from hola import paths, pinned
 from hola.errors import HolaError
 from hola.record import dumps, publish_blockers
 
@@ -31,6 +31,24 @@ def published(run_dir):
 def mark_published(run_dir, url):
     (Path(run_dir) / PUBLISHED_FILE).write_text(dumps({
         "url": url, "published_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}), encoding="utf-8")
+
+
+def busy_reading(conditions):
+    """(percent, "during" | "before") that decides whether a run was busy, or None.
+
+    Others' CPU while it generated decides; a record without that reading falls back to the pre-run sample.
+    """
+    during, before = conditions.get("others_cpu_busy_pct"), conditions.get("cpu_busy_pct")
+    if isinstance(during, (int, float)):
+        return during, "during"
+    if isinstance(before, (int, float)):
+        return before, "before"
+    return None
+
+
+def was_busy(conditions):
+    reading = busy_reading(conditions)
+    return reading is not None and reading[0] > pinned.conditions()["busy_others_cpu_pct"]
 
 
 def speed(record, task):

@@ -110,8 +110,9 @@ class EvalView(Out):
         load = f"background load {d['cpu_busy_pct']}%" if d["cpu_busy_pct"] is not None else "background load unknown"
         self.good(f"{d['summary']} {self.sep} {load}")
         if d["busy"]:
-            self.warn(f"Other apps are using {d['cpu_busy_pct']}% of the CPU, so these numbers may read low.",
-                      "The run records this. Close other apps for a clean run.")
+            limit = pinned.conditions()["busy_others_cpu_pct"]
+            self.warn(f"Other apps are using {d['cpu_busy_pct']}% of the CPU. If they use over {limit}% while it "
+                      "generates, this card won't count in charts.", "Close other apps for a clean run.")
 
     def on_user_models_unloaded(self, d):
         self.good(f"Unloaded {', '.join(d['models'])} from your own Ollama")
@@ -192,6 +193,10 @@ def print_eval_result(result, versions, out):
     out.line()
     for line in summary_lines(result, out):
         out.line(line, indent=4)
+    note = busy_note(result["conditions"])
+    if note:
+        out.line()
+        out.warn(note, "Close other apps and run it again for a card that counts.")
     out.line()
     out.line(f"Saved {paths.display(result['record_path'])}")
     if result["publishable"]:
@@ -289,6 +294,27 @@ def cmd_runs(args, out):
     return 0
 
 
+def load_check(busy, threshold=None):
+    """doctor's background-load line: a warning only above the threshold that keeps a card out of charts."""
+    if busy is None:
+        return None
+    threshold = pinned.conditions()["busy_others_cpu_pct"] if threshold is None else threshold
+    if busy <= threshold:
+        return {"id": "load", "status": "ok", "message": f"Background load {busy}%", "next_step": None}
+    return {"id": "load", "status": "warn", "message": f"Background load {busy}%",
+            "next_step": f"Over {threshold}%, a run's card won't count in charts. Close other apps before you run."}
+
+
+def busy_note(conditions):
+    """The after-run sentence for a run whose card won't count in charts, or None."""
+    if not runs.was_busy(conditions):
+        return None
+    pct, when = runs.busy_reading(conditions)
+    if when == "during":
+        return f"Other programs used {pct:g}% of the CPU while it generated, so this card won't count in charts."
+    return f"Other programs used {pct:g}% of the CPU when the run started, so this card won't count in charts."
+
+
 def check(checks, id, status, message, next_step=None):
     checks.append({"id": id, "status": status, "message": message, "next_step": next_step})
 
@@ -356,11 +382,9 @@ def doctor_checks(env=None):
     else:
         check(checks, "port", "ok", f"Port {port} is free for the private instance")
 
-    busy = machine.measure_cpu_busy()
-    if busy is not None:
-        threshold = pinned.conditions()["busy_cpu_pct"]
-        check(checks, "load", "ok" if busy < threshold else "warn", f"Background load {busy}%",
-              None if busy < threshold else "A run started now records this and its numbers may read low. Close other apps first.")
+    load = load_check(machine.measure_cpu_busy())
+    if load:
+        checks.append(load)
 
     proxy = next((env[k] for k in ("HTTPS_PROXY", "https_proxy") if env.get(k)), None) or ollama.system_https_proxy()
     fake = fake_ip_addresses()

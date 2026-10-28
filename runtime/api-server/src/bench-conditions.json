@@ -7,6 +7,6 @@
   },
   "flash_attention": "auto",
   "private_port": 11531,
-  "busy_cpu_pct": 25,
+  "busy_others_cpu_pct": 40,
   "busy_sample_ms": 1000
 }

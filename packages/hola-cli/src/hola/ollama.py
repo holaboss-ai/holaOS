@@ -296,9 +296,13 @@ class OllamaInstance:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         kwargs = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32"
                   else {"start_new_session": True})
-        with open(self.log_path, "wb") as log:
-            self.proc = subprocess.Popen([self.binary, "serve"], env=env, stdin=subprocess.DEVNULL,
-                                         stdout=log, stderr=log, **kwargs)
+        try:
+            with open(self.log_path, "wb") as log:
+                self.proc = subprocess.Popen([self.binary, "serve"], env=env, stdin=subprocess.DEVNULL,
+                                             stdout=log, stderr=log, **kwargs)
+        except OSError as exc:
+            raise HolaError("start_failed", f"Couldn't run {self.binary}: {exc.strerror or exc}.",
+                            "Run `hola doctor` to check your Ollama install.") from None
         self.pid_file.write_text(json.dumps({
             "pid": self.proc.pid, "port": self.port,
             "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",

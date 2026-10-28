@@ -63,7 +63,7 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
     (run.run_dir / "subject.json").write_text(dumps(subject), encoding="utf-8")
     run.emit("run_started", {"suite": suite, "subject_id": subject["id"]})
     tag = subject["ollama"]["tag"]
-    threshold = pinned.conditions()["busy_cpu_pct"]
+    threshold = pinned.conditions()["busy_others_cpu_pct"]
     instance = None
     status = "running"
     try:
@@ -103,10 +103,10 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
                 ui("user_models_unloaded", {"models": [m["name"] for m in loaded]})
 
         cpu = cpu_busy()
-        if cpu is not None and cpu >= threshold:
+        if cpu is not None and cpu > threshold:
             run.emit("machine_busy", {"cpu_busy_pct": cpu})
         ui("machine", {"summary": machine.summary(hw), "cpu_busy_pct": cpu,
-                       "busy": cpu is not None and cpu >= threshold})
+                       "busy": cpu is not None and cpu > threshold})
 
         if ollama_url:
             instance = ollama.ExternalOllama(ollama_url)

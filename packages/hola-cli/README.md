@@ -60,6 +60,9 @@ $ hola eval minicpm5-2b
 - `conditions.cpu_busy_pct` is the whole machine's CPU load in the second before the run, as on the desktop.
   `conditions.others_cpu_busy_pct` is the median CPU share used by everything except Ollama and the engine
   during the timed speed requests (plus `others_gpu_busy_pct` on NVIDIA).
+- A run is busy when `others_cpu_busy_pct` is over 40 (`busy_others_cpu_pct` in `bench-conditions.json`); a record
+  without that reading uses `cpu_busy_pct` instead. A busy run's card doesn't count in HolaHub's charts, and
+  `hola eval` says so after the run.
 - Ctrl-C stops the run and the private instance; no run is saved.
 
 Nothing leaves the machine except reads of HolaHub's public model list and version policy.

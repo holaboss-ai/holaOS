@@ -103,6 +103,14 @@ class EvalTest(unittest.TestCase):
         self.assertFalse(result["publishable"])
         self.assertIn("not one HolaHub has registered", result["publish_blockers"][0])
 
+    def test_a_pre_run_reading_is_busy_only_above_the_shared_threshold(self):
+        for reading, busy in ((40, False), (41, True)):
+            with self.assertRaises(HolaError):
+                self.run_eval(cpu_busy=lambda reading=reading: reading, find_binary=lambda env: "/nonexistent/ollama")
+            run_dir = max(Path(self.box.env["HOLA_HOME"], "runs").iterdir(), key=lambda p: p.stat().st_mtime)
+            events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
+            self.assertEqual(any(e["type"] == "machine_busy" for e in events), busy, reading)
+
     def test_no_ollama(self):
         err = self.fails("ollama_missing", find_binary=lambda env: None)
         self.assertEqual(err.details["download_url"], "https://ollama.com/download")

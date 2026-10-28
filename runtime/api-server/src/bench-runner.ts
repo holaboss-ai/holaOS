@@ -46,7 +46,8 @@ export const BENCH_SUITES: Readonly<Record<string, BenchSuite>> = {
 const STDERR_TAIL_BYTES = 4000;
 const BENCH_LABEL = "main";
 const BUSY_SAMPLE_MS: number = BENCH_CONDITIONS.busy_sample_ms;
-export const BUSY_CPU_PCT: number = BENCH_CONDITIONS.busy_cpu_pct;
+/** A run is busy when others used more than this much of the CPU while it generated; records without that reading use the pre-run sample. */
+export const BUSY_OTHERS_CPU_PCT: number = BENCH_CONDITIONS.busy_others_cpu_pct;
 
 export type BenchStatus = "running" | "done" | "failed" | "cancelled";
 export type BenchPhase = "preflight" | "starting" | "pulling" | "running" | "finishing";
@@ -410,7 +411,7 @@ export class BenchRunner {
       }
 
       const cpuBusy = await (this.deps.cpuBusy ?? measureCpuBusy)();
-      if (cpuBusy !== null && cpuBusy >= BUSY_CPU_PCT) {
+      if (cpuBusy !== null && cpuBusy > BUSY_OTHERS_CPU_PCT) {
         this.emit(entry, "machine_busy", { cpu_busy_pct: cpuBusy });
       }
 

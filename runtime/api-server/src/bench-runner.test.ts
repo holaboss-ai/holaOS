@@ -65,7 +65,7 @@ function makeRunner(overrides: Partial<BenchRunnerDeps> = {}) {
     findBinary: () => binary,
     createInstance: (bin) => new OllamaInstance({ binary: bin, stateDir, env: { PATH: process.env.PATH }, homedir: dir }),
     userModels: async () => [],
-    cpuBusy: async () => 40,
+    cpuBusy: async () => 45,
     onIdle: () => {
       idle += 1;
     },
@@ -115,11 +115,11 @@ test("one click runs the standard suite end to end and writes a Run Record", { s
   );
   assert.ok(record.artifacts.highlights.some((h) => h.label === "first_token" && h.task === "speed@0"));
   assert.equal(record.verification, null);
-  assert.equal(record.runtime.conditions.cpu_busy_pct, 40);
+  assert.equal(record.runtime.conditions.cpu_busy_pct, 45);
   assert.ok("others_cpu_busy_pct" in record.runtime.conditions, "holaeval's during-run sample reaches the record");
   const speedRuns = (record.results[0] as { metrics: { runs: Array<Record<string, unknown>> } }).metrics.runs;
   assert.ok(speedRuns.every((run) => "others_cpu_busy_pct" in run));
-  assert.ok(events.some((event) => event.type === "machine_busy" && event.cpu_busy_pct === 40));
+  assert.ok(events.some((event) => event.type === "machine_busy" && event.cpu_busy_pct === 45));
 
   const types = events.map((event) => event.type);
   assert.equal(types[0], "run_started");
@@ -261,6 +261,15 @@ test("an Ollama older than the model's floor stops before pulling", { skip: proc
   const { run, events } = await settle(runner, run_id);
   assert.equal(run.error?.code, "ollama_too_old");
   assert.ok(!events.some((event) => event.type === "phase" && event.phase === "pulling"));
+});
+
+test("a pre-run reading counts as busy only above the shared threshold", async () => {
+  for (const [reading, busy] of [[40, false], [41, true]] as const) {
+    const { runner } = makeRunner({ cpuBusy: async () => reading, findBinary: () => "/nonexistent/ollama" });
+    const { run_id } = runner.start({ subject, suite: "suite-standard@1.0" });
+    const { events } = await settle(runner, run_id);
+    assert.equal(events.some((event) => event.type === "machine_busy"), busy, String(reading));
+  }
 });
 
 test("bad input is rejected before anything starts", () => {
