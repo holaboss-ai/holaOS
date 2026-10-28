@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 
 ENGINE = Path(__file__).resolve().parent / "engine"
-SUPPORTED_SUITES = ("suite-standard@1.0",)
+# Mirrors BENCH_SUITES in runtime/api-server/src/bench-runner.ts: the holaeval subcommand and where it may run.
+SUITES = {
+    "suite-standard@1.0": {"command": "bench", "platforms": None},
+    "suite-coding@1.0": {"command": "code", "platforms": ("darwin",)},
+}
+SUPPORTED_SUITES = tuple(SUITES)
 DEFAULT_SUITE = "suite-standard@1.0"
 
 

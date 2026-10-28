@@ -37,8 +37,23 @@ def record(path, body):
         f.write(json.dumps({"path": path, "body": body}) + "\n")
 
 
+PAGINATION_FIX = {"path": "pager.py", "edits": [{"oldText": "start = page * per_page", "newText": "start = (page - 1) * per_page"}]}
+
+
+def coding_turn(body):
+    """A three-turn agent, as in holaeval's selftest: read pager.py, fix it, say so. Right for fix-pagination only."""
+    turns = sum(m["role"] == "assistant" for m in body["messages"])
+    if turns == 0:
+        return [], [{"function": {"name": "read", "arguments": {"path": "pager.py"}}}]
+    if turns == 1:
+        return ["<think>pages are 1-indexed</think>"], [{"function": {"name": "edit", "arguments": PAGINATION_FIX}}]
+    return ["Fixed it."], None
+
+
 def chat_chunks(body):
     prompt = body["messages"][-1]["content"]
+    if any(t.get("function", {}).get("name") == "run_tests" for t in body.get("tools") or []):
+        return coding_turn(body)
     if body.get("tools"):
         return [], [{"function": {"name": "search_flights",
                                   "arguments": {"origin": "SFO", "destination": "NRT", "date": "2026-11-03"}}}]

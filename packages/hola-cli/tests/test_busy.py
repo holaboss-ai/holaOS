@@ -30,7 +30,8 @@ class BusyRuleTest(unittest.TestCase):
     def test_the_summary_carries_the_note_only_for_a_busy_run(self):
         result = {"summary": {"decode_tps": 128.3, "decode_tps_8k": 119.6, "ttft_ms": 45.3, "cpu_offload": False,
                               "vram_bytes": None, "tasks": {}},
-                  "record_path": "/r/run-record.json", "run_id": "90f9d8b5-0000", "publishable": True, "publish_blockers": []}
+                  "record_path": "/r/run-record.json", "run_id": "90f9d8b5-0000", "publishable": True, "publish_blockers": [],
+                  "suite": "suite-standard@1.0"}
         for others, shown in ((41.0, True), (40.0, False)):
             stream = io.StringIO()
             cli.print_eval_result({**result, "conditions": {"cpu_busy_pct": 27, "others_cpu_busy_pct": others}}, None,

@@ -9,12 +9,15 @@ import shutil
 import signal
 import socket
 import sys
+import textwrap
 import threading
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hola import __version__, bench, hub, machine, ollama, paths, pinned, runs
+from hola import __version__, bench, coding, hub, machine, ollama, paths, pinned, runs
+from hola.record import js_round
 from hola.errors import HolaError
 
 try:
@@ -22,6 +25,7 @@ try:
 except ImportError:
     account = None
 
+CODING_SUITES = {suite for suite, spec in pinned.SUITES.items() if spec["command"] == "code"}
 TASK_LABELS = {"code-intervals": "code", "tool-flight": "tool call", "needle-8k": "8K recall"}
 SPEED_LABELS = {"speed@0": "generation", "speed@8k": "generation with 8K context"}
 LOW_DISK_GB = 10
@@ -68,12 +72,17 @@ def gb(n):
 class EvalView(Out):
     """Renders a run's progress as it happens: one line per step, completed in place on a terminal."""
 
-    def __init__(self, subject, stream=None):
+    def __init__(self, subject, stream=None, suite=pinned.DEFAULT_SUITE):
         super().__init__(stream)
         self.subject = subject
+        self.speed_suite = suite not in CODING_SUITES
         self.pending = None
         self.downloading = False
         self.last_pull = 0.0
+        self.coding_samples = {}
+        self.attempt = None
+        self.live_at = 0.0
+        self.live_width = 0
 
     def begin(self, text):
         self.end_pending()
@@ -109,7 +118,7 @@ class EvalView(Out):
     def on_machine(self, d):
         load = f"background load {d['cpu_busy_pct']}%" if d["cpu_busy_pct"] is not None else "background load unknown"
         self.good(f"{d['summary']} {self.sep} {load}")
-        if d["busy"]:
+        if d["busy"] and self.speed_suite:
             limit = pinned.conditions()["busy_others_cpu_pct"]
             self.warn(f"Other apps are using {d['cpu_busy_pct']}% of the CPU. If they use over {limit}% while it "
                       "generates, this card won't count in charts.", "Close other apps for a clean run.")
@@ -154,9 +163,62 @@ class EvalView(Out):
     def on_model_removed(self, d):
         self.good(f"Removed {d['tag']}, downloaded for this run (keep it next time with --keep-model)")
 
+    def try_text(self, outcome=None):
+        a = self.attempt
+        head = f"{self.step} {a['task']} try {a['sample'] + 1}/{a['samples']}"
+        if outcome is None:
+            return f"{head} {self.sep} turn {a['turn']} {self.sep} {coding.thousands(a['tokens'])} tokens"
+        return f"{head} {self.sep} {outcome}"
+
+    def show_try(self, text, final=False):
+        """One line per try: redrawn in place on a terminal at most twice a second, printed once when it ends."""
+        if not self.tty and not final:
+            return
+        now = time.monotonic()
+        if not final and now - self.live_at < 0.5:
+            return
+        self.live_at = now
+        line = "  " + text
+        if self.tty:
+            self.stream.write("\r" + line.ljust(self.live_width) + ("\n" if final else ""))
+            self.live_width = 0 if final else len(line)
+        else:
+            self.stream.write(line + "\n")
+        self.stream.flush()
+
+    def on_coding_event(self, e):
+        kind, task = e.get("type"), e.get("task")
+        if kind == "task_start":
+            self.coding_samples[task] = e.get("samples") or 3
+        elif kind == "attempt_start":
+            self.end_pending()
+            self.attempt = {"task": task, "sample": e.get("sample", 0), "samples": self.coding_samples.get(task, 3),
+                            "turn": 1, "tokens": 0}
+            self.show_try(self.try_text())
+        elif self.attempt and kind == "text":
+            self.attempt["tokens"] += e.get("n") or 0
+            self.show_try(self.try_text())
+        elif self.attempt and kind == "tool_call":
+            self.attempt["turn"] = e.get("turn") or self.attempt["turn"]
+            self.show_try(self.try_text())
+        elif self.attempt and kind == "tool_result":
+            self.attempt["turn"] = (e.get("turn") or self.attempt["turn"]) + 1
+        elif kind == "sample_done" and self.attempt:
+            outcome = "passed" if e.get("passed") else f"failed: {coding.explain(e.get('reason') or 'failed')}"
+            self.show_try(self.try_text(f"{outcome} {self.sep} {e.get('turns')} turns {self.sep} "
+                                        f"{coding.thousands(e.get('tokens'))} tokens {self.sep} "
+                                        f"{js_round(e.get('seconds') or 0)} s"), final=True)
+            self.attempt = None
+        elif kind == "task_done" and e.get("status") == "unsupported":
+            self.line(f"{self.step} {task}: not supported by this model (no tool calling)")
+
     def on_event(self, e):
         kind, task = e.get("type"), e.get("task")
-        if kind == "task_start" and task == "warmup":
+        if e.get("category") == "coding" or (task in self.coding_samples):
+            self.on_coding_event(e)
+        elif kind in ("attempt_start", "tool_call", "tool_result") or (self.attempt and kind == "text"):
+            self.on_coding_event(e)
+        elif kind == "task_start" and task == "warmup":
             self.begin(f"{self.step} warming up {self.ell}")
         elif kind == "task_done" and task == "warmup":
             self.finish(" done")
@@ -189,14 +251,32 @@ def summary_lines(result, out):
     return lines
 
 
-def print_eval_result(result, versions, out):
+def coding_lines(record, out):
+    rows = [("Task", "Score", "Finished", "Main reason"), *coding.matrix(record)]
+    widths = [max(len(row[i]) for row in rows) for i in range(4)]
+    lines = ["  ".join(cell.ljust(w) for cell, w in zip(row, widths)).rstrip() for row in rows]
+    width = max(40, min(shutil.get_terminal_size((100, 24)).columns, 104) - 4)
+    return lines, [textwrap.fill(sentence, width) for sentence in coding.review(record)]
+
+
+def print_eval_result(result, versions, out, record=None):
     out.line()
-    for line in summary_lines(result, out):
-        out.line(line, indent=4)
-    note = busy_note(result["conditions"])
-    if note:
+    if result["suite"] in CODING_SUITES:
+        record = record or json.loads(Path(result["record_path"]).read_text(encoding="utf-8"))
+        matrix, review = coding_lines(record, out)
+        for line in matrix:
+            out.line(line, indent=4)
         out.line()
-        out.warn(note, "Close other apps and run it again for a card that counts.")
+        for paragraph in review:
+            for line in paragraph.splitlines():
+                out.line(line, indent=4)
+    else:
+        for line in summary_lines(result, out):
+            out.line(line, indent=4)
+        note = busy_note(result["conditions"])
+        if note:
+            out.line()
+            out.warn(note, "Close other apps and run it again for a card that counts.")
     out.line()
     out.line(f"Saved {paths.display(result['record_path'])}")
     if result["publishable"]:
@@ -221,7 +301,7 @@ def cmd_eval(args, out):
     entries, _source = hub.fetch_subjects_index()
     entry = hub.resolve(args.subject, entries)
     config, config_source = hub.fetch_subject(entry["id"])
-    view = EvalView(config, out.stream)
+    view = EvalView(config, out.stream, args.suite)
     if not args.json and config_source == "bundled":
         view.warn("HolaHub's config for this model couldn't be loaded, so this uses the one bundled with hola.")
 
@@ -287,7 +367,11 @@ def cmd_runs(args, out):
             when = datetime.fromisoformat(when.replace("Z", "+00:00")).astimezone().strftime("%b %d %H:%M")
         except ValueError:
             pass
-        speed = f"{r['decode_tps']} tok/s" if r["decode_tps"] is not None else "–"
+        if r["suite"] in CODING_SUITES:
+            tasks = r["tasks"].values()
+            speed = f"coding {sum(t['passed'] or 0 for t in tasks)}/{sum(t['samples'] or 0 for t in tasks)}"
+        else:
+            speed = f"{r['decode_tps']} tok/s" if r["decode_tps"] is not None else "–"
         published = (r["published"] or {}).get("url") or ("no" if not r["publish_blockers"] else "local only")
         rows.append((r["run_id"][:8], r["subject_name"] or r["subject_id"], r["quant"] or "", when, speed, published))
     table(rows, out)
@@ -448,7 +532,8 @@ def parser():
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="command")
     p = sub.add_parser("eval", help="benchmark a model and save the run")
     p.add_argument("subject", help="a model id or alias from `hola list`, e.g. minicpm5-2b")
-    p.add_argument("--suite", default=pinned.DEFAULT_SUITE)
+    p.add_argument("--suite", default=pinned.DEFAULT_SUITE,
+                   help="suite-standard@1.0 (speed and three checks, the default) or suite-coding@1.0 (macOS only)")
     p.add_argument("--json", action="store_true", help="print one JSON result instead of progress")
     p.add_argument("--ollama-url", help="run on your own Ollama server (the run stays local)")
     p.add_argument("--keep-model", action="store_true", help="keep a model this run downloaded")

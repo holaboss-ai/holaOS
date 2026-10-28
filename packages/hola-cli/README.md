@@ -38,12 +38,16 @@ $ hola eval minicpm5-2b
 
 | Command | Does |
 |---|---|
-| `hola eval <model> [--json] [--ollama-url URL] [--keep-model] [--unload] [--ignore-memory]` | Runs `suite-standard@1.0` on one model and saves the run. `<model>` is an id, an alias or an Ollama tag from `hola list`. |
+| `hola eval <model> [--suite S] [--json] [--ollama-url URL] [--keep-model] [--unload] [--ignore-memory]` | Runs a suite on one model and saves the run. `<model>` is an id, an alias or an Ollama tag from `hola list`. |
 | `hola list [--json]` | Models you can test, from HolaHub (or the list bundled with hola when HolaHub can't be reached). |
 | `hola runs [--json]` | Runs saved on this machine, newest first. |
 | `hola doctor [--json]` | Checks Python, Ollama, disk, memory, GPUs, your own Ollama, the private port, background load, the network and proxy, and HolaHub, and says what to fix. |
 
 `hola eval` options:
+- `--suite suite-standard@1.0` (the default): generation speed with an empty and an 8K context, plus three
+  program-graded checks. `--suite suite-coding@1.0`: five small Python coding jobs the model works on as an agent,
+  three tries each, graded by hidden tests in a sandbox. The coding scenario runs on macOS only for now; it takes
+  15–25 minutes and prints one line per try, then the task matrix and the generated review.
 - `--ollama-url URL` runs on your own Ollama server. Its conditions are unknown, so the run stays local.
 - `--keep-model` keeps a model this run downloaded. By default a model that wasn't on the machine before the run is removed afterwards; models you already had are never touched.
 - `--unload` unloads models your own Ollama holds in memory, which would slow the run down. Without it, `hola` asks in a terminal and stops otherwise.
@@ -90,7 +94,7 @@ A failure, from any command:
                         "details": {"download_url": "https://ollama.com/download"}}}
 ```
 
-Error codes: `ollama_missing`, `ollama_too_old`, `not_enough_memory`, `user_models_loaded`, `busy` (another
+Error codes: `unsupported_platform` (the coding scenario off macOS), `ollama_missing`, `ollama_too_old`, `not_enough_memory`, `user_models_loaded`, `busy` (another
 benchmark holds the private port), `start_failed`, `pull_failed` (its `next_step` names offline, fake-ip proxy
 or proxy problems), `bench_failed`, `unknown_subject`, `invalid_subject`, `unknown_suite`, `not_found`,
 `cancelled`, `unexpected`.
@@ -118,6 +122,8 @@ or proxy problems), `bench_failed`, `unknown_subject`, `invalid_subject`, `unkno
   "hola": {"current": "0.1.0", "latest": "0.1.0", "behind": false, "can_publish": true}
 }
 ```
+
+For `suite-coding@1.0` the document also has `results`: every task's tries, as in the Run Record.
 
 `hola list --json`: `{"ok": true, "source": "hub" | "bundled", "subjects": [{"id", "aliases", "name", "vendor",
 "quant", "download_bytes", "min_memory_gb", "suites"}]}`.

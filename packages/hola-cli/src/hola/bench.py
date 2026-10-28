@@ -53,9 +53,19 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
     except SubjectError as exc:
         raise HolaError("invalid_subject", f"This model's config is incomplete: {exc}.",
                         "Run `hola list` and pick a model from there.") from None
-    if suite not in pinned.SUPPORTED_SUITES:
-        raise HolaError("unknown_suite", f"hola {__version__} runs {', '.join(pinned.SUPPORTED_SUITES)} only, not {suite}.",
+    if suite not in pinned.SUITES:
+        raise HolaError("unknown_suite", f"hola {__version__} runs {' and '.join(pinned.SUITES)}, not {suite}.",
                         "Leave out --suite to run the standard suite.")
+    platforms = pinned.SUITES[suite]["platforms"]
+    if platforms and sys.platform not in platforms:
+        name = {"linux": "Linux", "win32": "Windows"}.get(sys.platform, sys.platform)
+        raise HolaError("unsupported_platform",
+                        f"The coding scenario runs on macOS only for now; it needs a sandbox we haven't shipped for {name} yet.",
+                        f"Run the standard suite instead: hola eval {subject['id']}", {"platforms": list(platforms)})
+    if subject.get("suites") and suite not in subject["suites"]:
+        raise HolaError("unknown_suite", f"{subject['name']} {subject['quant']} isn't set up for {suite}.",
+                        "`hola list` shows the suites each model has.")
+    command = pinned.SUITES[suite]["command"]
     pack_path = pinned.pack_path(suite)
     pack = json.loads(pack_path.read_text(encoding="utf-8"))
     run = Run(subject, suite, runs_root or paths.runs_dir(env))
@@ -142,12 +152,14 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
                      "registered": registered, "download_bytes": subject.get("download_bytes")})
 
         run.emit("phase", {"phase": "running"})
-        bench = run_holaeval(run, instance, pack_path, env, ui)
+        bench = run_holaeval(run, instance, pack_path, env, ui, command)
 
         run.emit("phase", {"phase": "finishing"})
         record = build_run_record(
             run_id=run.run_id, bench=bench, subject=subject, digest=digest, evidence=instance.evidence(),
-            client=dict(CLIENT), artifacts={"recording": None, "cards": [], "highlights": bench_highlights(run.events)},
+            client=dict(CLIENT), artifacts={
+                "recording": None, "cards": [], "highlights": bench_highlights(run.events),
+                **({"transcripts": "transcripts"} if (run.run_dir / "transcripts").is_dir() else {})},
             conditions={"cpu_busy_pct": cpu})
         record_path = run.run_dir / "run-record.json"
         record_path.write_text(dumps(record), encoding="utf-8")
@@ -166,7 +178,8 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
                 "summary": {k: summary[k] for k in ("decode_tps", "decode_tps_8k", "ttft_ms", "cpu_offload",
                                                      "vram_bytes", "tasks")},
                 "conditions": record["runtime"]["conditions"], "publishable": not summary["publish_blockers"],
-                "publish_blockers": summary["publish_blockers"]}
+                "publish_blockers": summary["publish_blockers"],
+                **({"results": record["results"]} if command == "code" else {})}
     except KeyboardInterrupt:
         status = "cancelled"
         raise HolaError("cancelled", "Stopped. The private Ollama instance is shut down and the run was not saved.",
@@ -188,12 +201,12 @@ def _loopback_no_proxy(env):
     return {"NO_PROXY": value, "no_proxy": value}
 
 
-def run_holaeval(run, instance, pack_path, env, ui):
-    """`holaeval.py bench` with the desktop's arguments; its event lines become this run's events."""
-    args = [sys.executable, "-I", str(pinned.holaeval_path()), "bench", "--base-url", instance.base_url,
+def run_holaeval(run, instance, pack_path, env, ui, command="bench"):
+    """`holaeval.py bench` or `code` with the desktop's arguments; its event lines become this run's events."""
+    args = [sys.executable, "-I", str(pinned.holaeval_path()), command, "--base-url", instance.base_url,
             "--model", run.subject["ollama"]["tag"], "--pack", str(pack_path), "--subject",
             str(run.run_dir / "subject.json"), "--out", str(run.run_dir), "--label", BENCH_LABEL]
-    if instance.pid:
+    if instance.pid and command == "bench":
         args += ["--ollama-pid", str(instance.pid)]
     child_env = {**env, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", **_loopback_no_proxy(env)}
     proc = subprocess.Popen(args, cwd=run.run_dir, env=child_env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -238,4 +251,4 @@ def run_holaeval(run, instance, pack_path, env, ui):
         raise HolaError("bench_failed", f"The benchmark stopped: {lines[-1] if lines else f'exited with code {code}'}",
                         f"The run's files are in {paths.display(run.run_dir)}. Run it again; if it keeps failing, "
                         "`hola doctor` checks your setup.")
-    return json.loads((run.run_dir / f"bench-{BENCH_LABEL}.json").read_text(encoding="utf-8"))
+    return json.loads((run.run_dir / f"{command}-{BENCH_LABEL}.json").read_text(encoding="utf-8"))
