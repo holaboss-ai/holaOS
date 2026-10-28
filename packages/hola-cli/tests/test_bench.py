@@ -175,8 +175,8 @@ class EvalTest(unittest.TestCase):
         self.assertFalse(result["publishable"])
         self.assertIn("did not start", result["publish_blockers"][0])
 
-    def test_only_the_standard_suite_runs_in_this_version(self):
-        self.fails("unknown_suite", suite="suite-coding@1.0")
+    def test_an_unknown_suite_or_an_incomplete_config_is_refused_before_anything_starts(self):
+        self.fails("unknown_suite", suite="suite-nope@9")
         self.fails("invalid_subject", {**support.SUBJECT, "quant": ""})
 
 
