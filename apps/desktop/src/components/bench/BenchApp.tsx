@@ -501,7 +501,7 @@ function FinishedPanel({ finished, runDir, onRunAgain }: { finished: FinishedRun
         { name: "highlights.json", text: `${JSON.stringify(record.artifacts.highlights, null, 2)}\n` },
         { name: "script.en.md", text: readAloudScript(record, "en", publishedUrl, coding, clip) },
         { name: "script.zh.md", text: readAloudScript(record, "zh", publishedUrl, coding, clip) },
-        { name: "post.md", text: narrationScript(record, finished.url) },
+        { name: "post.md", text: narrationScript(record, publishedUrl) },
         ...cuts.files.map((cut) => ({ name: cut.split(/[\\/]/).pop() ?? cut, path: cut })),
       ];
       files.push({ name: "README.txt", text: kitReadme(record, files.map((file) => file.name), publishedUrl) });

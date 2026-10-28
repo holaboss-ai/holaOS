@@ -67,10 +67,10 @@ export interface BusyReading {
 export function busyReading(conditions: { cpu_busy_pct?: number | null; others_cpu_busy_pct?: number | null } | undefined): BusyReading | null {
   const during = conditions?.others_cpu_busy_pct ?? null;
   if (during !== null) {
-    return during > BUSY_OTHERS_CPU_PCT ? { pct: during, whileGenerating: true } : null;
+    return during > BUSY_OTHERS_CPU_PCT ? { pct: Math.round(during), whileGenerating: true } : null;
   }
   const before = conditions?.cpu_busy_pct ?? null;
-  return before !== null && before > BUSY_OTHERS_CPU_PCT ? { pct: before, whileGenerating: false } : null;
+  return before !== null && before > BUSY_OTHERS_CPU_PCT ? { pct: Math.round(before), whileGenerating: false } : null;
 }
 
 export function wasBusy(record: RunRecordView): BusyReading | null {
@@ -99,6 +99,32 @@ export function explainReason(reason: string): string {
     [/^ran out of tokens/, "ran out of tokens before answering"],
     [/^answer missing/, "answer did not contain the fact"],
     [/^prompt was truncated/, "the prompt did not fit the context window"],
+  ];
+  for (const [pattern, phrase] of plain) {
+    if (pattern.test(reason)) {
+      return phrase;
+    }
+  }
+  return reason.length > 80 ? `${reason.slice(0, 79)}…` : reason;
+}
+
+/** The same reasons as explainReason, for the Chinese script. */
+export function explainReasonZh(reason: string): string {
+  const notIn = reason.match(/^(\w+)=(['"])(.*)\2 not in \[(.+)\]$/);
+  if (notIn) {
+    return `${notIn[1]} 写成了 "${notIn[3]}"，应为 ${notIn[4].replace(/'/g, "").split(/,\s*/).join(" / ")}`;
+  }
+  const called = reason.match(/^called (\w+) instead of (\w+)$/);
+  if (called) {
+    return `调用了 ${called[1]}()，应为 ${called[2]}()`;
+  }
+  const plain: Array<[RegExp, string]> = [
+    [/^tests failed/, "没通过隐藏的单元测试"],
+    [/^tests timed out/, "代码超时"],
+    [/^no tool call/, "用文字回答，没有调用工具"],
+    [/^ran out of tokens/, "token 用完了还没答完"],
+    [/^answer missing/, "回答里没有那条信息"],
+    [/^prompt was truncated/, "提示超出了上下文窗口"],
   ];
   for (const [pattern, phrase] of plain) {
     if (pattern.test(reason)) {

@@ -25,6 +25,7 @@ const INK_MUTED = "rgba(255,255,255,0.7)";
 const PANEL = "rgba(16,14,12,0.78)";
 const BACKDROP = "#151311";
 const ACCENT = "#ff6421";
+const WARN = "#f5b14c";
 
 type Layout = "landscape" | "portrait";
 const SIZE: Record<Layout, { width: number; height: number }> = {
@@ -130,6 +131,13 @@ function endCardRows(lines: string[]): string[] {
   return lines.flatMap((line) => line.split(" · Measured: ").map((part, index) => (index === 0 ? part : `Measured: ${part}`)));
 }
 
+function rowColor(line: string, index: number): string {
+  if (line.startsWith("Other programs used")) {
+    return WARN;
+  }
+  return index < 2 ? INK : INK_MUTED;
+}
+
 function drawEndLandscape(track: Track, labels: Labels, end: string[]): void {
   const { ctx } = track;
   const { width, height } = SIZE.landscape;
@@ -140,7 +148,7 @@ function drawEndLandscape(track: Track, labels: Labels, end: string[]): void {
   const rows = endCardRows(end);
   const top = (height - rows.length * 62) / 2 + 60;
   rows.forEach((line, index) => {
-    text(ctx, line, width / 2, top + index * 62, { size: 38, weight: 600, align: "center", maxWidth: width - 200, color: index < 2 ? INK : INK_MUTED });
+    text(ctx, line, width / 2, top + index * 62, { size: 38, weight: 600, align: "center", maxWidth: width - 200, color: rowColor(line, index) });
   });
   text(ctx, labels.machine, width / 2, height - 110, { size: 32, weight: 600, align: "center", maxWidth: width - 160 });
   text(ctx, MARK, width / 2, height - 60, { size: 26, color: INK_MUTED, align: "center" });
@@ -192,7 +200,7 @@ function drawPortrait(track: Track, source: CanvasImageSource | null, state: Ove
   const below = videoTop + videoHeight;
   if (end) {
     endCardRows(end).forEach((line, index) => {
-      text(ctx, line, width / 2, videoTop + 120 + index * 84, { size: 44, weight: 600, align: "center", maxWidth: width - 100, color: index < 2 ? INK : INK_MUTED });
+      text(ctx, line, width / 2, videoTop + 120 + index * 84, { size: 44, weight: 600, align: "center", maxWidth: width - 100, color: rowColor(line, index) });
     });
   } else if (state) {
     if (state.task === SHOWCASE && !state.result) {

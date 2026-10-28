@@ -1,7 +1,7 @@
 /** What the kit's short videos show, decided from the Run Record and the run's events. No drawing here. */
 
 import type { BenchEvent } from "@holaboss/remote-api/contract";
-import { type RunRecordView, TASK_INFO, formatMs, formatTps, speedResult, taskResults } from "./record";
+import { type RunRecordView, TASK_INFO, busyText, formatMs, formatTps, speedResult, taskResults, wasBusy } from "./record";
 
 export interface Segment {
   /** Seconds into the full recording. */
@@ -168,7 +168,9 @@ export function endCardLines(record: RunRecordView, events: BenchEvent[]): strin
     clip !== null && measured !== undefined
       ? `In this clip: ${formatTps(clip)} tok/s with screen recording · Measured: ${formatTps(measured)} tok/s with recording off, average of 3`
       : resultLine(record, "speed@0");
-  return [lead, ...["speed@8k", ...taskResults(record).map((task) => task.task)].map((task) => resultLine(record, task))].filter(
+  const busy = wasBusy(record);
+  const caveat = busy === null ? null : `${busyText(busy)} · this card won't count in charts`;
+  return [lead, caveat, ...["speed@8k", ...taskResults(record).map((task) => task.task)].map((task) => resultLine(record, task))].filter(
     (line): line is string => line !== null,
   );
 }

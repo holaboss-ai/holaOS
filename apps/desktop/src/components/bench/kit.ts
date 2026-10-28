@@ -3,10 +3,10 @@ import {
   TASK_INFO,
   engineLabel,
   explainReason,
+  explainReasonZh,
   formatMs,
   formatTps,
   hardwareLabel,
-  readingComparison,
   speedResult,
   taskResults,
   topReason,
@@ -57,12 +57,14 @@ function capabilityPost(record: RunRecordView): string {
   return `Capability, 3 tries each, graded by code:\n${lines.join("\n")}`;
 }
 
-/** Ready-to-post copy for a creator; every number comes from the Run Record. */
-export function narrationScript(record: RunRecordView, url: string): string {
+const VOICE_OVER_NAMES: Record<string, string> = { showcase: "Video clip", "speed@0": "Speed", "speed@8k": "Speed at 8K" };
+
+/** Ready-to-post copy for a creator; every number comes from the Run Record. `url` is the published run, if any. */
+export function narrationScript(record: RunRecordView, url: string | null): string {
   const shallow = speedResult(record, "speed@0");
   const deep = speedResult(record, "speed@8k");
-  const reading = readingComparison(shallow?.decode_tps);
   const hardware = hardwareLabel(record);
+  const link = url ?? "(publish the run to get its link)";
   const busy = wasBusy(record);
   const lines = [
     `# ${record.subject.name} on ${hardware}`,
@@ -75,23 +77,24 @@ export function narrationScript(record: RunRecordView, url: string): string {
     "## Post",
     "",
     shareText(record),
-    url,
+    link,
     "",
     "## Thread",
     "",
-    `1/ ${record.subject.name} (${record.subject.quant}) running locally on ${hardware} with ${engineLabel(record)}: ${formatTps(shallow?.decode_tps)} tokens a second, first token in ${formatMs(shallow?.ttft_ms)}.${reading ? ` That is about ${Math.round(reading.wordsPerSecond)} words a second.` : ""}`,
+    `1/ ${record.subject.name} (${record.subject.quant}) running locally on ${hardware} with ${engineLabel(record)}: ${formatTps(shallow?.decode_tps)} tokens a second, first token in ${formatMs(shallow?.ttft_ms)}.`,
     "",
     `2/ With 8K tokens already in the context it still does ${formatTps(deep?.decode_tps)} tok/s, and the first token arrives in ${formatMs(deep?.ttft_ms)}.${shallow?.cpu_offload ? " Part of the model ran on the CPU because it did not fit in GPU memory." : ""}`,
     "",
     `3/ ${capabilityPost(record)}`,
     "",
-    `4/ Same suite (${record.suite.id}@${record.suite.version}) on any machine, so results compare like for like. Full run record: ${url}`,
+    `4/ Same suite (${record.suite.id}@${record.suite.version}) on any machine, so results compare like for like. Full run record: ${link}`,
   );
   const highlights = record.artifacts.highlights;
-  if (highlights.length > 0) {
-    lines.push("", "## Voice-over", "");
+  const recordingFile = record.artifacts.recording?.file;
+  if (highlights.length > 0 && recordingFile) {
+    lines.push("", "## Voice-over", "", `Times in ${recordingFile}, the full recording:`, "");
     for (const h of highlights) {
-      const name = TASK_INFO[h.task ?? ""]?.title ?? (h.task === "speed@0" ? "Speed" : h.task === "speed@8k" ? "Speed at 8K" : h.task ?? "");
+      const name = TASK_INFO[h.task ?? ""]?.title ?? VOICE_OVER_NAMES[h.task ?? ""] ?? h.task ?? "";
       const what = h.label === "first_token" ? "starts" : h.label === "error" ? "hits an error" : "done";
       lines.push(`- ${timestamp(h.t)} ${name} ${what}`);
     }
@@ -171,10 +174,18 @@ function capabilityLine(record: RunRecordView, lang: "en" | "zh"): string[] {
         : `${name}这一项，这个模型的 Ollama 版本不支持，所以没有跑，这不算失败。`,
     );
   }
-  const missed = scored.find((task) => task.passed < task.samples && topReason(task));
-  const reason = missed ? topReason(missed) : null;
-  if (missed && reason && lang === "en") {
-    lines.push(`One miss, on ${names[missed.task]?.en ?? missed.task}: ${explainReason(reason)}.`);
+  const misses = scored
+    .filter((task) => task.passed < task.samples)
+    .map((task) => {
+      const name = names[task.task]?.[lang] ?? task.task;
+      const missed = task.samples - task.passed;
+      const reason = topReason(task);
+      return lang === "en"
+        ? `${name}, ${missed} of ${task.samples}${reason ? ` (${explainReason(reason)})` : ""}`
+        : `${name}，${task.samples} 次里错了 ${missed} 次${reason ? `（${explainReasonZh(reason)}）` : ""}`;
+    });
+  if (misses.length > 0) {
+    lines.push(lang === "en" ? `Misses: ${misses.join("; ")}.` : `没做对的：${misses.join("；")}。`);
   }
   return lines;
 }
@@ -188,16 +199,18 @@ function codingLine(coding: CodingScene | null, lang: "en" | "zh"): string | nul
     .map((task) => CODING_TASK_NAMES[task.task]?.[lang] ?? task.task);
   if (lang === "en") {
     return always.length > 0
-      ? `In the coding scenario, five small Python jobs as an agent, it solved ${joinList(always, "en")} every time.`
-      : "In the coding scenario, five small Python jobs as an agent, it solved none of the five every time.";
+      ? `In the coding scenario, five small Python agent jobs, it solved ${joinList(always, "en")} every time.`
+      : "In the coding scenario, five small Python agent jobs, it solved none of the five every time.";
   }
   return always.length > 0
     ? `在 holaOS 的编程场景测试里（五个小型 Python 任务，以 agent 方式完成），它每次都做对了：${joinList(always, "zh")}。`
     : "在 holaOS 的编程场景测试里（五个小型 Python 任务，以 agent 方式完成），五个任务都没能每次做对。";
 }
 
-/** A script to read aloud in about 50 seconds, from fixed sentences over the Run Record, so the numbers are the measured ones. */
-/** `clip` is the recorded showcase's own rate: the video's clip runs slower than the measured number, and the script says why. */
+/**
+ * A script to read aloud in about 50 seconds, from fixed sentences over the Run Record, so the numbers are the measured ones.
+ * `clip` is the recorded video clip's own rate, which the script sets beside the measured one.
+ */
 export function readAloudScript(
   record: RunRecordView,
   lang: "en" | "zh",

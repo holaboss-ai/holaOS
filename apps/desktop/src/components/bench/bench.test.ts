@@ -122,14 +122,26 @@ test("the kit carries a CSV, a data-only script and a dated name", () => {
   assert.equal(csv[0], "task,kind,status,passed,samples,decode_tps,ttft_ms,engine_decode_tps,vram_bytes,cpu_offload");
   assert.equal(csv[1], "speed@0,speed,ok,,,102.1,62,,2033702665,false");
   assert.equal(csv[4], "tool-flight,task,unsupported,0,0,,,,,");
-  const script = narrationScript(record, url);
-  assert.match(script, /## Post\n\nMiniCPM5-2B on my Apple M4 Max · 64 GB: 102 tok\/s/);
-  assert.match(script, /1\/ MiniCPM5-2B \(Q4_K_M\) running locally on Apple M4 Max · 64 GB with Ollama 0\.40\.10: 102 tokens a second, first token in 62 ms\. That is about 77 words a second\./);
+  const recorded: RunRecordView = {
+    ...record,
+    artifacts: {
+      recording: { file: "recording.mp4", scored_run: false },
+      highlights: [{ t: 2.1, label: "first_token", task: "showcase" }, { t: 72.2, label: "task_done", task: "needle-8k" }],
+    },
+  };
+  const script = narrationScript(recorded, url);
+  assert.match(script, /## Post\n\nMiniCPM5-2B on my Apple M4 Max · 64 GB: 102 tok\/s[^\n]*\nhttps:\/\/hub\.holaos\.ai\/bench\/runs\/6f1c2a9e/);
+  assert.match(script, /1\/ MiniCPM5-2B \(Q4_K_M\) running locally on Apple M4 Max · 64 GB with Ollama 0\.40\.10: 102 tokens a second, first token in 62 ms\.\n/);
+  assert.doesNotMatch(script, /words a second/, "a derived number has no place in a kit of measured ones");
   assert.match(script, /Tool calling: not supported by this Ollama build/);
   assert.match(script, /Long context: 2\/3 \(answer did not contain the fact\)/);
-  assert.match(script, /- 0:03 Speed starts/);
+  assert.match(script, /Times in recording\.mp4, the full recording:\n\n- 0:02 Video clip starts/);
+  assert.doesNotMatch(script, /showcase/);
   assert.match(script, /- 1:12 Long context done/);
   assert.doesNotMatch(script, /likely low/);
+  const unpublished = narrationScript(recorded, null);
+  assert.equal(unpublished.match(/\(publish the run to get its link\)/g)?.length, 2);
+  assert.doesNotMatch(unpublished, /\n\/[0-9a-f-]{36}/);
   assert.equal(kitFileName(record), "openbmb-minicpm5-2b-2026-10-24-holaos-kit.zip");
   assert.equal(
     shareText(record),
@@ -222,7 +234,7 @@ test("the read-aloud scripts carry the measured numbers, state what didn't run, 
   assert.match(en, /With 8,000 tokens in the context: 85\.4 tokens per second/);
   assert.match(en, /run on my Apple M4 Max with 64 GB\?/);
   assert.match(en, /served by Ollama 0\.40\.10\./);
-  assert.match(en, /One miss, on long-context recall: answer did not contain the fact\./);
+  assert.match(en, /Misses: long-context recall, 1 of 3 \(answer did not contain the fact\)\./);
   assert.match(en, /code 3\/3 and long-context recall 2\/3/);
   assert.match(en, /Tool calling isn't supported by its Ollama build, so it didn't run\. That isn't a fail\./);
   assert.match(en, /it solved the failing test and the reported bug every time/);
@@ -243,6 +255,27 @@ test("the read-aloud scripts carry the measured numbers, state what didn't run, 
   assert.match(zh, /它每次都做对了：修复失败的测试、修复用户报告的 bug。/);
   assert.match(zh, /生成期间，其他程序占用了 45% 的 CPU，速度可能偏低/);
   assert.match(zh, /尚未发布/);
+  assert.match(zh, /没做对的：长文找针，3 次里错了 1 次（回答里没有那条信息）。/);
+  const missy: RunRecordView = {
+    ...record,
+    results: record.results.map((result) => {
+      if (result.task === "code-intervals") {
+        return { ...result, status: "ok", passed: 1, samples: 3, reasons: { "ran out of tokens before answering": 1, "tests failed: AssertionError": 1 } };
+      }
+      if (result.task === "tool-flight") {
+        return { ...result, status: "ok", passed: 2, samples: 3, reasons: { "destination='Tokyo' not in ['TYO', 'NRT', 'HND']": 1 } };
+      }
+      return result.task === "needle-8k" ? { ...result, passed: 3, reasons: {} } : result;
+    }),
+  };
+  assert.match(
+    readAloudScript(missy, "en", null),
+    /Misses: code, 2 of 3 \(ran out of tokens before answering\); tool calling, 1 of 3 \(destination = "Tokyo" · expected TYO \/ NRT \/ HND\)\./,
+  );
+  assert.match(
+    readAloudScript(missy, "zh", null),
+    /没做对的：代码，3 次里错了 2 次（token 用完了还没答完）；工具调用，3 次里错了 1 次（destination 写成了 "Tokyo"，应为 TYO \/ NRT \/ HND）。/,
+  );
   assert.doesNotMatch(zh, /录屏/);
   assert.match(readAloudScript(record, "zh", null, null, 95.2), /视频里这段是录屏时另跑的一次，不计分，片中每秒 95\.2 个 token；102 是关掉录屏时测的。/);
   const clipped = readAloudScript(record, "en", url, coding, 95.2);
@@ -315,6 +348,8 @@ test("the kit videos lead with the recorded showcase, stay within 60 seconds and
   const after = overlayAt(cutRecord, events, startAt ?? 0, segments[0], 9);
   assert.equal(after.live, null);
   assert.equal(after.result, "In this clip: 99.8 tok/s with screen recording");
+  const busyCut: RunRecordView = { ...cutRecord, runtime: { ...cutRecord.runtime, conditions: { cpu_busy_pct: 30, others_cpu_busy_pct: 54.6 } } };
+  assert.equal(endCardLines(busyCut, events)[1], "Other programs used 55% of the CPU while it generated · this card won't count in charts");
   assert.deepEqual(endCardLines(cutRecord, events), [
     "In this clip: 99.8 tok/s with screen recording · Measured: 102 tok/s with recording off, average of 3",
     "With 8K of context 85.4 tok/s · average of 3 runs · first token 3.3 s",
