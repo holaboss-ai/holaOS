@@ -15,6 +15,10 @@ type ChannelsInputs = RemoteApiInputs["channels"];
 type ChannelsOutputs = RemoteApiOutputs["channels"];
 type SkillsInputs = RemoteApiInputs["skills"];
 type SkillsOutputs = RemoteApiOutputs["skills"];
+type EvalsInputs = RemoteApiInputs["evals"];
+type EvalsOutputs = RemoteApiOutputs["evals"];
+type BenchInputs = RemoteApiInputs["bench"];
+type BenchOutputs = RemoteApiOutputs["bench"];
 
 type MaybePromise<T> = T | Promise<T>;
 
@@ -155,6 +159,52 @@ export interface ChannelsService {
 }
 
 /**
+ * The runtime-supplied implementation of the evaluations domain. Methods throw
+ * {@link EvalsServiceError} for unknown ids and invalid transitions.
+ */
+export interface EvalsService {
+  list(input: EvalsInputs["list"]): MaybePromise<EvalsOutputs["list"]>;
+  get(input: EvalsInputs["get"]): MaybePromise<EvalsOutputs["get"]>;
+  targets(input: EvalsInputs["targets"]): MaybePromise<EvalsOutputs["targets"]>;
+  create(input: EvalsInputs["create"]): MaybePromise<EvalsOutputs["create"]>;
+  update(input: EvalsInputs["update"]): MaybePromise<EvalsOutputs["update"]>;
+  setPlan(input: EvalsInputs["setPlan"]): MaybePromise<EvalsOutputs["setPlan"]>;
+  start(input: EvalsInputs["start"]): MaybePromise<EvalsOutputs["start"]>;
+  cancel(input: EvalsInputs["cancel"]): MaybePromise<EvalsOutputs["cancel"]>;
+  retryRun(input: EvalsInputs["retryRun"]): MaybePromise<EvalsOutputs["retryRun"]>;
+  decideProposal(
+    input: EvalsInputs["decideProposal"],
+  ): MaybePromise<EvalsOutputs["decideProposal"]>;
+  saveOpinion(input: EvalsInputs["saveOpinion"]): MaybePromise<EvalsOutputs["saveOpinion"]>;
+  report(input: EvalsInputs["report"]): MaybePromise<EvalsOutputs["report"]>;
+  exportReport(input: EvalsInputs["exportReport"]): MaybePromise<EvalsOutputs["exportReport"]>;
+  publish(input: EvalsInputs["publish"]): MaybePromise<EvalsOutputs["publish"]>;
+  setReportUrl(input: EvalsInputs["setReportUrl"]): MaybePromise<EvalsOutputs["setReportUrl"]>;
+  saveDistribution(
+    input: EvalsInputs["saveDistribution"],
+  ): MaybePromise<EvalsOutputs["saveDistribution"]>;
+  createVersion(input: EvalsInputs["createVersion"]): MaybePromise<EvalsOutputs["createVersion"]>;
+  importReproduction(
+    input: EvalsInputs["importReproduction"],
+  ): MaybePromise<EvalsOutputs["importReproduction"]>;
+  delete(input: EvalsInputs["delete"]): MaybePromise<EvalsOutputs["delete"]>;
+}
+
+/**
+ * The runtime-supplied one-click benchmark. `start` throws {@link BenchServiceError} for input it
+ * refuses; failures during a run are reported on the run itself.
+ */
+export interface BenchService {
+  start(input: BenchInputs["start"]): MaybePromise<BenchOutputs["start"]>;
+  get(input: BenchInputs["get"]): MaybePromise<BenchOutputs["get"]>;
+  current(input: BenchInputs["current"]): MaybePromise<BenchOutputs["current"]>;
+  cancel(input: BenchInputs["cancel"]): MaybePromise<BenchOutputs["cancel"]>;
+  record(input: BenchInputs["record"]): MaybePromise<BenchOutputs["record"]>;
+  list(input: BenchInputs["list"]): MaybePromise<BenchOutputs["list"]>;
+  setArtifacts(input: BenchInputs["setArtifacts"]): MaybePromise<BenchOutputs["setArtifacts"]>;
+}
+
+/**
  * Authenticated caller identity for a request. Present once the Remote boundary
  * verifies an OAuth-scoped workspace token (roadmap B1); absent on the
  * in-process path (the runtime supplies no token). The authz middleware no-ops
@@ -178,6 +228,8 @@ export interface RemoteApiContext {
   capabilities: CapabilitiesService;
   skills: SkillsCatalogService;
   channels: ChannelsService;
+  evals: EvalsService;
+  bench: BenchService;
   /** Authenticated caller identity; absent on the in-process path (no-op authz). */
   identity?: RemoteApiIdentity;
   /** Correlation id for this request; echoed in every log line on both sides. */
@@ -212,6 +264,36 @@ export class CapabilitiesServiceError extends Error {
   constructor(code: "NOT_FOUND", options?: { message?: string }) {
     super(options?.message ?? code);
     this.name = "CapabilitiesServiceError";
+    this.code = code;
+  }
+}
+
+export type EvalsServiceErrorCode = "NOT_FOUND" | "INVALID_STATE" | "INVALID_PLAN" | "INVALID_REPORT";
+
+export class EvalsServiceError extends Error {
+  readonly code: EvalsServiceErrorCode;
+
+  constructor(code: EvalsServiceErrorCode, options?: { message?: string }) {
+    super(options?.message ?? code);
+    this.name = "EvalsServiceError";
+    this.code = code;
+  }
+}
+
+export type BenchServiceErrorCode =
+  | "BUSY"
+  | "INVALID_SUBJECT"
+  | "UNKNOWN_SUITE"
+  | "NOT_FOUND"
+  | "NOT_READY"
+  | "INVALID_ARTIFACTS";
+
+export class BenchServiceError extends Error {
+  readonly code: BenchServiceErrorCode;
+
+  constructor(code: BenchServiceErrorCode, options?: { message?: string }) {
+    super(options?.message ?? code);
+    this.name = "BenchServiceError";
     this.code = code;
   }
 }

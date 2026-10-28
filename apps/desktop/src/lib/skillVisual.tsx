@@ -46,6 +46,7 @@ const SKILL_ICON: Record<string, string> = {
   "site-audit-to-social-distribution": "ph:magnifying-glass-plus-fill",
   xlsx: "ph:table-fill",
   "data-analyst": "ph:chart-pie-slice-fill",
+  "run-model-eval": "ph:gauge-fill",
   // productivity
   "image-generator": "ph:image-fill",
   "video-generator": "ph:video-camera-fill",

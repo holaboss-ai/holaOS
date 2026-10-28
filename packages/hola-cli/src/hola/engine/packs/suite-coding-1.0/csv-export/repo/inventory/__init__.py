@@ -1,0 +1,1 @@
+"""A tiny inventory report."""

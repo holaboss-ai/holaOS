@@ -15,8 +15,23 @@ test("prunePackagedTree preserves skill markdown while pruning other markdown fi
   const skillPath = path.join(skillDir, "SKILL.md");
   const referencePath = path.join(referenceDir, "integration-backed-apps.md");
   const docsPath = path.join(docsDir, "guide.md");
+  const capabilityAssetPath = path.join(
+    root,
+    "runtime",
+    "api-server",
+    "dist",
+    "embedded-capabilities",
+    "local-model-review",
+    "skills",
+    "run-model-eval",
+    "packs",
+    "agent-v1",
+    "system-full.md",
+  );
 
   try {
+    fs.mkdirSync(path.dirname(capabilityAssetPath), { recursive: true });
+    fs.writeFileSync(capabilityAssetPath, "You are the agent.\n", "utf8");
     fs.mkdirSync(skillDir, { recursive: true });
     fs.mkdirSync(referenceDir, { recursive: true });
     fs.mkdirSync(docsDir, { recursive: true });
@@ -29,8 +44,45 @@ test("prunePackagedTree preserves skill markdown while pruning other markdown fi
 
     assert.equal(fs.existsSync(skillPath), true);
     assert.equal(fs.existsSync(referencePath), true);
+    assert.equal(fs.existsSync(capabilityAssetPath), true);
     assert.equal(fs.existsSync(readmePath), false);
     assert.equal(fs.existsSync(docsPath), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("prunePackagedTree keeps tests and docs directories inside embedded capability assets", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hb-prune-embedded-dirs-"));
+  const repoDir = path.join(
+    root,
+    "runtime",
+    "api-server",
+    "dist",
+    "embedded-capabilities",
+    "local-model-review",
+    "skills",
+    "run-model-eval",
+    "packs",
+    "suite-coding-1.0",
+    "checkout-bug",
+    "repo",
+  );
+  const visibleTestPath = path.join(repoDir, "tests", "test_cart.py");
+  const policyPath = path.join(repoDir, "docs", "pricing.md");
+  const packageTestPath = path.join(root, "node_modules", "left-pad", "test", "index.js");
+
+  try {
+    for (const file of [visibleTestPath, policyPath, packageTestPath]) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, "x\n", "utf8");
+    }
+
+    prunePackagedTree(root, "macos");
+
+    assert.equal(fs.existsSync(visibleTestPath), true);
+    assert.equal(fs.existsSync(policyPath), true);
+    assert.equal(fs.existsSync(packageTestPath), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

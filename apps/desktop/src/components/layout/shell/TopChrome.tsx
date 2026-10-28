@@ -1,5 +1,6 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
+  BarChart3,
   CircleDot,
   Feather,
   Image as ImageIcon,
@@ -425,6 +426,8 @@ function InternalTab({
     <CircleDot className="size-3.5" />
   ) : kind === "skills" ? (
     <Feather className="size-3.5" />
+  ) : kind === "evaluation" ? (
+    <BarChart3 className="size-3.5" />
   ) : kind === "blank" ? (
     <Plus className="size-3.5" />
   ) : (

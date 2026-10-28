@@ -75,6 +75,8 @@ const CURATED_RUNTIME_TOOL_IDS = [
   "mcp_refresh",
   // macOS host permission remediation (no-op off macOS).
   "open_macos_settings",
+  "local_models_discover",
+  "local_models_register",
 ] as const satisfies readonly RuntimeAgentToolId[];
 
 const CURATED_RUNTIME_TOOL_ID_SET: ReadonlySet<string> = new Set(

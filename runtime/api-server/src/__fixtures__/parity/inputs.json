@@ -1,0 +1,185 @@
+{
+  "run_id": "6f1c2a9e-3b7d-4e1a-9c55-0d2f8e7a4b11",
+  "digest": "71a44e98400fbd490d66332a0ebba31143479a714987c13f45c82e94025cbfa7",
+  "client": {
+    "app": "holaOS",
+    "version": "0.9.0"
+  },
+  "conditions": {
+    "cpu_busy_pct": 8
+  },
+  "events": [
+    {
+      "suite": "suite-standard@1.0",
+      "subject_id": "openbmb-minicpm5-2b",
+      "at": 1793079125000,
+      "type": "run_started",
+      "seq": 1
+    },
+    {
+      "phase": "starting",
+      "at": 1793079125012,
+      "type": "phase",
+      "seq": 2
+    },
+    {
+      "engine": "ollama",
+      "version": "0.40.10",
+      "at": 1793079125640,
+      "type": "engine_ready",
+      "seq": 3
+    },
+    {
+      "phase": "pulling",
+      "at": 1793079125650,
+      "type": "phase",
+      "seq": 4
+    },
+    {
+      "status": "success",
+      "at": 1793079126210,
+      "type": "pull_progress",
+      "seq": 5
+    },
+    {
+      "phase": "running",
+      "at": 1793079126300,
+      "type": "phase",
+      "seq": 6
+    },
+    {
+      "task": "warmup",
+      "kind": "warmup",
+      "at": 1793079127100,
+      "type": "task_start",
+      "seq": 7
+    },
+    {
+      "task": "warmup",
+      "delta": "OK",
+      "n": 1,
+      "at": 1793079127600,
+      "type": "text",
+      "seq": 8
+    },
+    {
+      "task": "warmup",
+      "kind": "warmup",
+      "load_ms": 820,
+      "at": 1793079127950,
+      "type": "task_done",
+      "seq": 9
+    },
+    {
+      "task": "speed@0",
+      "kind": "speed",
+      "depth": 0,
+      "at": 1793079128100,
+      "type": "task_start",
+      "seq": 10
+    },
+    {
+      "task": "speed@0",
+      "delta": "one",
+      "n": 1,
+      "at": 1793079129250,
+      "type": "text",
+      "seq": 11
+    },
+    {
+      "task": "speed@0",
+      "delta": ", two",
+      "n": 6,
+      "at": 1793079129300,
+      "type": "text",
+      "seq": 12
+    },
+    {
+      "task": "speed@0",
+      "kind": "speed",
+      "decode_tps": 129381.2,
+      "ttft_ms": 1,
+      "at": 1793079134050,
+      "type": "task_done",
+      "seq": 13
+    },
+    {
+      "task": "speed@8k",
+      "delta": "one",
+      "n": 1,
+      "at": 1793079136000,
+      "type": "text",
+      "seq": 14
+    },
+    {
+      "task": "speed@8k",
+      "kind": "speed",
+      "decode_tps": 138545.0,
+      "ttft_ms": 1,
+      "at": 1793079145049,
+      "type": "task_done",
+      "seq": 15
+    },
+    {
+      "task": "code-intervals",
+      "delta": "<think>",
+      "n": 1,
+      "at": 1793079146000,
+      "type": "text",
+      "seq": 16
+    },
+    {
+      "task": "code-intervals",
+      "kind": "task",
+      "status": "ok",
+      "passed": 3,
+      "samples": 3,
+      "at": 1793079155250,
+      "type": "task_done",
+      "seq": 17
+    },
+    {
+      "task": "tool-flight",
+      "sample": 0,
+      "passed": false,
+      "reason": "request failed: HTTP 500",
+      "at": 1793079156000,
+      "type": "sample_done",
+      "seq": 18
+    },
+    {
+      "task": "tool-flight",
+      "kind": "task",
+      "status": "error",
+      "passed": 0,
+      "samples": 3,
+      "at": 1793079158000,
+      "type": "task_done",
+      "seq": 19
+    },
+    {
+      "task": "needle-8k",
+      "delta": "7391",
+      "n": 1,
+      "at": 1793079159150,
+      "type": "text",
+      "seq": 20
+    },
+    {
+      "task": "needle-8k",
+      "kind": "task",
+      "status": "ok",
+      "passed": 3,
+      "samples": 3,
+      "at": 1793079196950,
+      "type": "task_done",
+      "seq": 21
+    },
+    {
+      "phase": "finishing",
+      "at": 1793079197000,
+      "type": "phase",
+      "seq": 22
+    }
+  ]
+}

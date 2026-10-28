@@ -5,6 +5,7 @@ import {
   requireRuntimeHarnessPlugin,
 } from "./harness-registry.js";
 import { resolveHarnessAvailabilityWithModels } from "./harness-availability.js";
+import { normalizeLocalModelBaseUrl } from "./local-model-discovery.js";
 
 const HOLABOSS_MODEL_PROXY_BASE_URL_ENV = "HOLABOSS_MODEL_PROXY_BASE_URL";
 const HOLABOSS_MODEL_PROXY_BASE_URL_DEFAULT_ENV = "HOLABOSS_MODEL_PROXY_BASE_URL_DEFAULT";
@@ -189,7 +190,18 @@ function loadRuntimeConfigDocument(): { document: StringMap; configPath: string;
 
 function writeRuntimeConfigDocument(document: StringMap, configPath: string): void {
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  try {
+    try {
+      fs.renameSync(tempPath, configPath);
+    } catch {
+      fs.rmSync(configPath, { force: true });
+      fs.renameSync(tempPath, configPath);
+    }
+  } finally {
+    fs.rmSync(tempPath, { force: true });
+  }
 }
 
 function loadRuntimeConfigPayload(): {
@@ -675,6 +687,273 @@ export function updateRuntimeConfigDocument(payload: Record<string, unknown>): P
     requireUser: false,
     requireBaseUrl: false
   });
+}
+
+const LOCAL_MODEL_PROVIDER_PREFIX = "local_";
+const LOCAL_MODEL_PROVIDER_API_KEY = "local";
+const LOCAL_ENGINE_DEFAULT_PORTS: Record<string, string> = {
+  ollama: "11434",
+  lmstudio: "1234",
+  llamacpp: "8080",
+  mlx: "8080",
+  vllm: "8000",
+  sglang: "30000",
+};
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]", "::1", "0.0.0.0"]);
+
+export interface LocalModelProviderModelInput {
+  id: string;
+  context_window?: number;
+  supports_vision?: boolean;
+}
+
+export interface RegisteredLocalModel {
+  token: string;
+  model: string;
+  context_window?: number;
+  input_modalities: string[];
+}
+
+export interface RegisteredLocalModelProvider {
+  provider_id: string;
+  base_url: string;
+  engine: string;
+  models: RegisteredLocalModel[];
+  removed_model_tokens: string[];
+  config_path: string;
+}
+
+export interface UnregisteredLocalModelProvider {
+  provider_id: string;
+  removed: boolean;
+  removed_model_tokens: string[];
+  config_path: string;
+}
+
+export interface ConfiguredLocalModelProvider {
+  provider_id: string;
+  base_url: string;
+  engine: string;
+  model_ids: string[];
+  context_windows: Record<string, number | undefined>;
+}
+
+function idSegment(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+export function localModelAutoDetectEnabled(): boolean {
+  const envValue = (process.env.HOLABOSS_LOCAL_MODEL_AUTODETECT ?? "").trim().toLowerCase();
+  if (envValue === "0" || envValue === "false" || envValue === "off") {
+    return false;
+  }
+  const { document } = loadRuntimeConfigDocument();
+  return asObject(document.local_models).auto_detect !== false;
+}
+
+export function isLocalModelProviderId(providerId: string): boolean {
+  return providerId.trim().startsWith(LOCAL_MODEL_PROVIDER_PREFIX);
+}
+
+export function localModelProviderId(baseUrl: string, engine: string): string {
+  const parsed = new URL(normalizeLocalModelBaseUrl(baseUrl));
+  const engineSegment = idSegment(engine) || "openai_compatible";
+  const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+  if (!LOOPBACK_HOSTNAMES.has(parsed.hostname)) {
+    return `${LOCAL_MODEL_PROVIDER_PREFIX}${engineSegment}_${idSegment(parsed.hostname)}_${port}`;
+  }
+  return LOCAL_ENGINE_DEFAULT_PORTS[engineSegment] === port
+    ? `${LOCAL_MODEL_PROVIDER_PREFIX}${engineSegment}`
+    : `${LOCAL_MODEL_PROVIDER_PREFIX}${engineSegment}_${port}`;
+}
+
+function modelEntryProviderId(token: string, entry: unknown): string {
+  const record = asObject(entry);
+  return (
+    normalizeString(record.provider) ||
+    normalizeString(record.provider_id) ||
+    (token.includes("/") ? token.slice(0, token.indexOf("/")) : "")
+  );
+}
+
+function removeProviderModelEntries(models: StringMap, providerId: string): string[] {
+  const removed: string[] = [];
+  for (const [token, entry] of Object.entries(models)) {
+    if (modelEntryProviderId(token, entry) === providerId) {
+      delete models[token];
+      removed.push(token);
+    }
+  }
+  return removed;
+}
+
+export function readLocalModelProviderConfig(
+  providerId: string,
+): { provider_id: string; base_url: string; engine: string } | null {
+  const { document } = loadRuntimeConfigDocument();
+  const provider = asObject(asObject(document.providers)[providerId]);
+  const baseUrl = normalizeString(provider.base_url);
+  if (!baseUrl || (provider.local !== true && !isLocalModelProviderId(providerId))) {
+    return null;
+  }
+  return { provider_id: providerId, base_url: baseUrl, engine: normalizeString(provider.engine) };
+}
+
+export function updateLocalModelContextWindow(providerId: string, modelId: string, contextWindow: number): boolean {
+  const { document, configPath } = loadRuntimeConfigDocument();
+  const models = asObject(document.models);
+  const token = Object.keys(models).find((key) => {
+    const entry = asObject(models[key]);
+    return modelEntryProviderId(key, entry) === providerId && (normalizeString(entry.model) || key.slice(providerId.length + 1)) === modelId;
+  });
+  if (!token) {
+    return false;
+  }
+  const entry = asObject(models[token]);
+  if (entry.context_window === contextWindow) {
+    return false;
+  }
+  models[token] = { ...entry, context_window: contextWindow };
+  document.models = models;
+  writeRuntimeConfigDocument(document, configPath);
+  return true;
+}
+
+export function readLocalModelProviders(): ConfiguredLocalModelProvider[] {
+  const { document } = loadRuntimeConfigDocument();
+  const providers = asObject(document.providers);
+  const models = asObject(document.models);
+  const result: ConfiguredLocalModelProvider[] = [];
+  for (const [providerId, rawProvider] of Object.entries(providers)) {
+    const provider = asObject(rawProvider);
+    if (!isLocalModelProviderId(providerId) && provider.local !== true) {
+      continue;
+    }
+    const providerModels = Object.entries(models)
+      .filter(([token, entry]) => modelEntryProviderId(token, entry) === providerId)
+      .map(([token, entry]) => {
+        const record = asObject(entry);
+        const contextWindow = record.context_window;
+        return {
+          id: normalizeString(record.model) || token.slice(providerId.length + 1),
+          contextWindow: typeof contextWindow === "number" && contextWindow > 0 ? contextWindow : undefined,
+        };
+      });
+    result.push({
+      provider_id: providerId,
+      base_url: normalizeString(provider.base_url),
+      engine: normalizeString(provider.engine),
+      model_ids: providerModels.map((model) => model.id),
+      context_windows: Object.fromEntries(providerModels.map((model) => [model.id, model.contextWindow])),
+    });
+  }
+  return result;
+}
+
+export function registerLocalModelProvider(params: {
+  baseUrl: string;
+  engine: string;
+  models: LocalModelProviderModelInput[];
+}): RegisteredLocalModelProvider {
+  const baseUrl = normalizeLocalModelBaseUrl(params.baseUrl);
+  const engine = idSegment(params.engine) || "openai_compatible";
+  const modelInputs = params.models.filter((model) => normalizeString(model.id));
+  if (modelInputs.length === 0) {
+    throw new RuntimeConfigServiceError(400, `no models to register for ${baseUrl}`);
+  }
+  const providerId = localModelProviderId(baseUrl, engine);
+  const { document, configPath } = loadRuntimeConfigDocument();
+  const providers = asObject(document.providers);
+  const models = asObject(document.models);
+
+  providers[providerId] = {
+    ...asObject(providers[providerId]),
+    kind: "openai_compatible",
+    base_url: baseUrl,
+    api_key: LOCAL_MODEL_PROVIDER_API_KEY,
+    local: true,
+    engine,
+  };
+
+  const previousEntries = new Map<string, StringMap>();
+  for (const [token, entry] of Object.entries(models)) {
+    if (modelEntryProviderId(token, entry) === providerId) {
+      previousEntries.set(token, asObject(entry));
+    }
+  }
+  removeProviderModelEntries(models, providerId);
+
+  const registered: RegisteredLocalModel[] = [];
+  for (const model of modelInputs) {
+    const modelId = normalizeString(model.id);
+    const token = `${providerId}/${modelId}`;
+    const contextWindow =
+      typeof model.context_window === "number" && Number.isFinite(model.context_window) && model.context_window > 0
+        ? Math.floor(model.context_window)
+        : undefined;
+    const inputModalities = model.supports_vision ? ["text", "image"] : ["text"];
+    const previous = { ...(previousEntries.get(token) ?? {}) };
+    delete previous.provider_id;
+    delete previous.model_id;
+    models[token] = {
+      ...previous,
+      provider: providerId,
+      model: modelId,
+      ...(contextWindow !== undefined ? { context_window: contextWindow } : {}),
+      input_modalities: inputModalities,
+    };
+    registered.push({
+      token,
+      model: modelId,
+      ...(contextWindow !== undefined ? { context_window: contextWindow } : {}),
+      input_modalities: inputModalities,
+    });
+  }
+
+  document.providers = providers;
+  document.models = models;
+  writeRuntimeConfigDocument(document, configPath);
+  const registeredTokens = new Set(registered.map((model) => model.token));
+  return {
+    provider_id: providerId,
+    base_url: baseUrl,
+    engine,
+    models: registered,
+    removed_model_tokens: Array.from(previousEntries.keys()).filter((token) => !registeredTokens.has(token)),
+    config_path: configPath,
+  };
+}
+
+export function unregisterLocalModelProvider(providerId: string): UnregisteredLocalModelProvider {
+  const normalizedProviderId = providerId.trim();
+  if (!isLocalModelProviderId(normalizedProviderId)) {
+    throw new RuntimeConfigServiceError(
+      400,
+      `only local model providers (ids starting with "${LOCAL_MODEL_PROVIDER_PREFIX}") can be removed here`,
+    );
+  }
+  const { document, configPath, loadedFromFile } = loadRuntimeConfigDocument();
+  const providers = asObject(document.providers);
+  const models = asObject(document.models);
+  const hadProvider = Object.prototype.hasOwnProperty.call(providers, normalizedProviderId);
+  delete providers[normalizedProviderId];
+  const removedTokens = removeProviderModelEntries(models, normalizedProviderId);
+  const removed = hadProvider || removedTokens.length > 0;
+  if (removed && loadedFromFile) {
+    document.providers = providers;
+    document.models = models;
+    writeRuntimeConfigDocument(document, configPath);
+  }
+  return {
+    provider_id: normalizedProviderId,
+    removed,
+    removed_model_tokens: removedTokens,
+    config_path: configPath,
+  };
 }
 
 export class FileRuntimeConfigService implements RuntimeConfigServiceLike {

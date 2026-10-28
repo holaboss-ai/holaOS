@@ -23,6 +23,7 @@ import { RenameDialog } from "@/components/ui/rename-dialog";
 import {
   ArrowUpRight,
   BuildingFilled,
+  ChartFilled,
   Check,
   ChevronDownFilled,
   ChevronRight,
@@ -1013,6 +1014,12 @@ function SidebarWorkspaceSection() {
         label="Automations"
         active={workspaceOverlay === "automations"}
         onClick={() => enterWorkspaceOverlay("automations")}
+      />
+      <TeamNavRow
+        icon={<ChartFilled />}
+        label="Evaluations"
+        active={workspaceOverlay === "evaluations"}
+        onClick={() => enterWorkspaceOverlay("evaluations")}
       />
       <TeamNavRow
         icon={<MessageCircleFilled />}

@@ -145,7 +145,7 @@ export function UserQuestionCard({
       <div className="px-3.5 py-2.5">
         <div className="text-sm font-medium text-foreground">{label}</div>
         {current.prompt !== label ? (
-          <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
+          <div className="mt-0.5 max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
             {current.prompt}
           </div>
         ) : null}

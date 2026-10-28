@@ -95,6 +95,7 @@ export interface ComposeBaseAgentPromptRequest {
   operatorSurfaceContext?: AgentOperatorSurfaceContext | null;
   pendingUserMemoryContext?: AgentPendingUserMemoryContext | null;
   sessionAttachmentContext?: AgentSessionAttachmentContext | null;
+  evaluationContext?: string | null;
   capabilityManifest?: AgentCapabilityManifest | null;
   delegatedCapabilityManifest?: AgentCapabilityManifest | null;
   toolNodeContext?: AgentToolNodeContext | null;
@@ -740,6 +741,16 @@ function pushSharedRuntimeContextPromptSections(
     priority: 480,
     volatility: "run",
     content: operatorSurfaceContextPromptSection(request.operatorSurfaceContext)
+  });
+
+  pushPromptLayer(promptSections, {
+    id: "evaluation_context",
+    channel: "context_message",
+    apply_at: "runtime_config",
+    precedence: "runtime_context",
+    priority: 485,
+    volatility: "run",
+    content: request.evaluationContext?.trim() ?? ""
   });
 
   pushPromptLayer(promptSections, {

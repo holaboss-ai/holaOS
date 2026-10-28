@@ -164,8 +164,8 @@ test("migrations on a fresh DB shows the registered runtime migrations", async (
     pending: unknown[];
     registered: unknown[];
   };
-  assert.equal(json.current, 33);
-  assert.equal(json.target, 33);
+  assert.equal(json.current, 34);
+  assert.equal(json.target, 34);
   assert.equal(json.seedVersion, 0);
   assert.deepEqual(json.pending, []);
   assert.deepEqual(json.registered, [
@@ -202,6 +202,7 @@ test("migrations on a fresh DB shows the registered runtime migrations", async (
     { id: 31, name: "drop-local-composio-connections" },
     { id: 32, name: "session-owning-app-id" },
     { id: 33, name: "session-org-id" },
+    { id: 34, name: "evaluations" },
   ]);
 });
 

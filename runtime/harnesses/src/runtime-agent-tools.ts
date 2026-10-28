@@ -283,7 +283,7 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
   {
     id: "capability_install",
     description:
-      "Install a workspace-authored capability from the workspace's `capabilities/<capability_id>/` directory. Reads `capability.yaml`, registers the capability's skills and agent prompt into the workspace, and returns the installed record. Use after you have finished authoring a capability directory to activate it in the current workspace.",
+      "Install a capability into the current workspace: a workspace-authored one from `capabilities/<capability_id>/`, or otherwise a built-in one from the holaOS catalog by id (for example `local-model-review`). Copies its skills (with their helper files) into `skills/`, registers its MCP servers, and returns the installed record with integration status.",
     policy: "mutate"
   },
   {
@@ -303,9 +303,59 @@ export const RUNTIME_AGENT_TOOL_DEFINITIONS = [
     description:
       "Re-run the OAuth sign-in for an already-connected REMOTE MCP server so the user can SWITCH the connected account (or refresh an expired / revoked authorization). Use this when the user asks to 'switch/change the <server> account', 're-authorize', 're-login', or 'sign in as a different user' for a connected MCP server — NOT `mcp_connect` (which adds a new server) or `mcp_refresh` (which only reloads tools without touching auth). Takes a single `server` arg: the id or name of the connected server (e.g. 'heygen'). It does NOT complete the sign-in itself — it surfaces an inline 'Re-authorize' button in the chat that the user clicks to open the browser and pick a different account. Tell the user to click it. (Note: to land on a DIFFERENT account they may need to sign out of that service in their browser first.)",
     policy: "mutate"
+  },
+  {
+    id: "local_models_discover",
+    description:
+      "Find model servers that are ALREADY RUNNING on the user's machine — Ollama, LM Studio, llama.cpp, MLX, vLLM, SGLang, or any OpenAI-compatible server — by probing their default local ports plus any `base_url` you pass. Returns each server's `base_url`, `engine`, the `provider_id` it registers as, whether it is already `registered`, and its chat models with `token`, context window, loaded state and vision support when the server reports them. This never installs an engine or downloads a model: if nothing is found, ask the user to start their local server (or tell you its address) and call it again.",
+    policy: "inspect"
+  },
+  {
+    id: "local_models_register",
+    description:
+      "Register a running local model server (from `local_models_discover`) as a model provider. Its models become selectable in the chat model picker and usable anywhere a model is chosen as `<provider_id>/<model_id>` (the result lists the exact tokens). Pass `base_url`; optionally `models` (model ids) to register a subset — the default is every chat model the server lists. Re-registering the same server refreshes its model list. Only works while the server is running; it does not install or download anything.",
+    policy: "mutate"
+  },
+  {
+    id: "eval_get",
+    description:
+      "Read the evaluation attached to this conversation: question, plan, every run's status and compact results, follow-up proposals, the placeholder keys (with values) you can cite in the opinion, limitations, the data directory with the raw files, and the local models available as targets.",
+    policy: "inspect"
+  },
+  {
+    id: "eval_set_plan",
+    description:
+      "Save the test plan for the evaluation attached to this conversation (only before it starts). `runs` lists what to run: each has a unique lowercase `key`, a `label`, a `target` (provider_id, model_id, base_url, engine — copy them from eval_get targets), `kinds` (speed, capability, agent), optional `sampling`, `samples`, `agent_conditions` (full, lean) and `notes`. Every model must run all three kinds. The developer reviews the plan and starts it; you cannot start runs.",
+    policy: "mutate"
+  },
+  {
+    id: "eval_propose_followup",
+    description:
+      "Propose a follow-up experiment for the evaluation attached to this conversation after its runs finished, when an anomaly needs explaining. Change one variable at a time, cite `evidence` (run key, task id, sample, what the output showed), give a `rationale`, the extra `runs` (same shape as plan runs, new keys) and `estimate_minutes`. The developer approves or rejects it; approved runs execute and join the results.",
+    policy: "mutate"
+  },
+  {
+    id: "eval_write_opinion",
+    description:
+      "Write the opinion layer of the evaluation report attached to this conversation, in the developer's first person, as Markdown. Cite every measured number with a placeholder such as {{speed.<run_key>.decode_tps@0}} (keys from eval_get) instead of typing it. Replaces the current draft; the developer edits it afterwards. Returns unresolved placeholders and numbers that do not match the data.",
+    policy: "mutate"
+  },
+  {
+    id: "eval_draft_posts",
+    description:
+      "Save social post drafts derived from the evaluation report attached to this conversation: any of `x_post` {text}, `x_thread` {posts}, `cn_post` {title, text}, `video_script` {title, outline, script, assets}. Numbers must come from the report (placeholders are resolved). The developer edits and posts them; this does not publish anything.",
+    policy: "mutate"
   }
 ] as const;
 
 export type RuntimeAgentToolId = (typeof RUNTIME_AGENT_TOOL_DEFINITIONS)[number]["id"];
 
 export const RUNTIME_AGENT_TOOL_IDS: RuntimeAgentToolId[] = RUNTIME_AGENT_TOOL_DEFINITIONS.map((tool) => tool.id);
+
+export const EVAL_RUNTIME_TOOL_IDS: ReadonlySet<string> = new Set<RuntimeAgentToolId>([
+  "eval_get",
+  "eval_set_plan",
+  "eval_propose_followup",
+  "eval_write_opinion",
+  "eval_draft_posts",
+]);

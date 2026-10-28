@@ -1812,6 +1812,14 @@ function isPublishPostTool(toolName: string): boolean {
   );
 }
 
+function isPublishApprovalRequest(result: unknown): boolean {
+  if (!isRecord(result) || !isRecord(result.details)) {
+    return false;
+  }
+  const error = result.details.error;
+  return isRecord(error) && error.code === "approval_required";
+}
+
 function reportFirstPostPublishedOnce(onGranted?: () => void): void {
   if (firstPostReportAttempted) {
     return;
@@ -6668,9 +6676,12 @@ export function ChatPane({
               : "";
           const isCompletion =
             eventType === "tool_completed" || toolPhase === "completed";
+          const awaitingPublishApproval =
+            isCompletion && isPublishApprovalRequest(eventPayload.result);
           if (
             isCompletion &&
             eventPayload.error !== true &&
+            !awaitingPublishApproval &&
             isPublishPostTool(toolName)
           ) {
             reportFirstPostPublishedOnce(() =>
@@ -6678,7 +6689,7 @@ export function ChatPane({
             );
           }
           if (
-            toolName === "ask_user_question" &&
+            (toolName === "ask_user_question" || awaitingPublishApproval) &&
             isCompletion &&
             eventPayload.error !== true &&
             selectedWorkspaceId

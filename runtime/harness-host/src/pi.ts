@@ -48,6 +48,7 @@ import {
   inlineHarnessImageAttachment,
   isHarnessFolderAttachment,
 } from "../../harnesses/src/attachment-content.js";
+import { withLocalContextGuidance } from "../../harnesses/src/local-model-endpoint.js";
 import {
   buildHarnessTodoResumeInstruction,
   applyHarnessTodoResumeInstruction,
@@ -3211,6 +3212,8 @@ async function defaultCreateSession(request: HarnessHostPiRequest): Promise<PiSe
     open_macos_settings: "workspace_admin",
     update_workspace_instructions: "workspace_admin",
     holaboss_workspace_integrations_set_default_account: "integration_setup",
+    local_models_discover: "local_models",
+    local_models_register: "local_models",
     cronjobs: "scheduling",
     terminal_session: "terminal",
   };
@@ -3607,7 +3610,10 @@ function maybeMapAssistantTerminalFailure(
   const provider = optionalTrimmedString(message.provider) ?? null;
   const model = optionalTrimmedString(message.model) ?? null;
   const upstream = stopReason === "error" ? peekLatestUpstreamError({ withinMs: 60_000 }) : null;
-  const failureMessage = enrichFailureMessageWithUpstream(baseFailureMessage, upstream);
+  const failureMessage = withLocalContextGuidance(
+    enrichFailureMessageWithUpstream(baseFailureMessage, upstream),
+    provider,
+  );
 
   // An ABORT is unambiguously terminal — the user cancelled and pi will not
   // recover — so fail it eagerly, preserving the AbortError type. (The deferred

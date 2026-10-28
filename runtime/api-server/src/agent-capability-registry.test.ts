@@ -833,3 +833,39 @@ test("renderCapabilityPolicyPromptSection surfaces full-capability semantics for
   assert.match(section, /Treat the surfaced tools above as your direct authority and execute the work that fits this turn/i);
   assert.match(section, /reach for `delegate_task` when the work is genuinely long-running, multi-step, parallel, or interruptible/i);
 });
+
+test("composio inline publishing tools are marked as requiring user confirmation", () => {
+  const evaluation = evaluateAgentCapabilities({
+    harnessId: "pi",
+    sessionKind: "main_session",
+    browserToolsAvailable: false,
+    browserToolIds: [],
+    runtimeToolIds: [],
+    defaultTools: ["read"],
+    extraTools: [],
+    workspaceSkillIds: [],
+    resolvedMcpToolRefs: [],
+    composioInlineToolRefs: [
+      {
+        name: "twitter_creation_of_a_post",
+        toolkit_slug: "twitter",
+        tool_slug: "TWITTER_CREATION_OF_A_POST",
+        connected_account_id: "ca_tw",
+        read_only: false,
+      },
+      {
+        name: "twitter_recent_search",
+        toolkit_slug: "twitter",
+        tool_slug: "TWITTER_RECENT_SEARCH",
+        connected_account_id: "ca_tw",
+        read_only: true,
+      },
+    ],
+  });
+  const post = evaluation.capabilities.find((entry) => entry.id === "twitter_creation_of_a_post");
+  const search = evaluation.capabilities.find((entry) => entry.id === "twitter_recent_search");
+  assert.ok(post);
+  assert.ok(search);
+  assert.equal(post.execution_semantics.requires_user_confirmation, true);
+  assert.equal(search.execution_semantics.requires_user_confirmation, false);
+});

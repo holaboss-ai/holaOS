@@ -11,6 +11,8 @@ import {
   RUNTIME_AGENT_TOOL_DEFINITIONS,
 } from "../../harnesses/src/runtime-agent-tools.js";
 
+import { classifyPublishAction } from "./publish-action-classifier.js";
+
 export interface AgentCapabilityMcpToolRef {
   tool_id: string;
   server_id: string;
@@ -892,6 +894,11 @@ function buildComposioInlineDescriptor(
   ref: ComposioInlineToolCapabilityRef,
 ): StaticAgentCapabilityDescriptor {
   const executionMode: AgentCapabilityExecutionMode = "tool_call";
+  const semantics = executionSemanticsForDescriptor({
+    kind: "mcp_tool",
+    id: ref.name,
+    executionMode,
+  });
   return {
     id: ref.name,
     kind: "mcp_tool",
@@ -907,11 +914,15 @@ function buildComposioInlineDescriptor(
     permission_surface: "mcp_tool",
     execution_mode: executionMode,
     trust_level: "external",
-    execution_semantics: executionSemanticsForDescriptor({
-      kind: "mcp_tool",
-      id: ref.name,
-      executionMode,
-    }),
+    execution_semantics: {
+      ...semantics,
+      requires_user_confirmation:
+        semantics.requires_user_confirmation ||
+        classifyPublishAction({
+          toolkitSlug: ref.toolkit_slug,
+          toolSlug: ref.tool_slug,
+        }) !== null,
+    },
     authority_boundary: authorityBoundaryForDescriptor({
       kind: "mcp_tool",
       id: ref.name,

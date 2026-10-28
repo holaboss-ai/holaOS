@@ -1,0 +1,75 @@
+/** Models the app can benchmark without HolaHub. HolaHub's copy of a config wins whenever it loads. */
+export const BUNDLED_BENCH_SUBJECTS: ReadonlyArray<
+  Record<string, unknown> & {
+    id: string;
+    name: string;
+    vendor?: string;
+    quant: string;
+    /** What Ollama downloads the first time: every layer of the tag's manifest. */
+    download_bytes?: number;
+    /** Below this much memory the model spills out of RAM or VRAM and the run crawls. */
+    min_memory_gb?: number;
+  }
+> = [
+  {
+    type: "model",
+    id: "openbmb-minicpm5-2b",
+    name: "MiniCPM5-2B",
+    vendor: "OpenBMB",
+    quant: "Q4_K_M",
+    download_bytes: 1_561_319_547,
+    min_memory_gb: 8,
+    ollama: {
+      tag: "openbmb/minicpm5-2b:q4_K_M",
+      known_digests: ["71a44e98400fbd490d66332a0ebba31143479a714987c13f45c82e94025cbfa7"],
+    },
+    sampling: { temperature: 1.0, top_p: 0.95, min_p: 0 },
+    suites: ["suite-standard@1.0", "suite-coding@1.0"],
+  },
+  {
+    type: "model",
+    id: "openbmb-minicpm5-2b-q8_0",
+    name: "MiniCPM5-2B",
+    vendor: "OpenBMB",
+    quant: "Q8_0",
+    download_bytes: 2_679_711_865,
+    min_memory_gb: 8,
+    ollama: {
+      tag: "openbmb/minicpm5-2b:q8_0",
+      known_digests: ["5d5aafb9f22cc67d4d2b359dde9aa3659410be7eab884b28ab45d31a8e2f9567"],
+    },
+    sampling: { temperature: 1.0, top_p: 0.95, min_p: 0 },
+    suites: ["suite-standard@1.0", "suite-coding@1.0"],
+  },
+  {
+    type: "model",
+    id: "qwen-qwen3.5-2b",
+    name: "Qwen3.5-2B",
+    vendor: "Qwen",
+    quant: "Q4_K_M",
+    download_bytes: 1_945_781_358,
+    min_memory_gb: 8,
+    ollama: {
+      tag: "qwen3.5:2b-q4_K_M",
+      known_digests: ["1e2d21a4f03ab9e4a9c1976a4b7e88f21de61d65f2c5485d8fde8942be73f1e7"],
+    },
+    // The model card's thinking-mode settings for text tasks; thinking is the model's default.
+    sampling: { temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0, presence_penalty: 1.5 },
+    suites: ["suite-standard@1.0", "suite-coding@1.0"],
+  },
+  {
+    type: "model",
+    id: "qwen-qwen3.6-35b-a3b",
+    name: "Qwen3.6-35B-A3B",
+    vendor: "Qwen",
+    quant: "Q4_K_M",
+    download_bytes: 23_938_333_577,
+    min_memory_gb: 32,
+    ollama: {
+      tag: "qwen3.6:35b-a3b-q4_K_M",
+      known_digests: ["07d35212591fc27746f0a317c975a6d68754fb38e9053d82e25f06057af28522"],
+    },
+    sampling: { temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0, presence_penalty: 1.5 },
+    suites: ["suite-standard@1.0", "suite-coding@1.0"],
+  },
+];

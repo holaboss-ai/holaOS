@@ -32,6 +32,12 @@ export type InternalTab =
       label: string;
     }
   | {
+      id: string;
+      kind: "evaluation";
+      evalId: string;
+      label: string;
+    }
+  | {
       // An empty in-app tab (the "New tab" landing). Not a browser tab — the
       // in-app browser was retired; browsing happens in profile windows.
       id: string;
@@ -119,6 +125,23 @@ export function issueDetailTab(params: {
     workspaceId: params.workspaceId.trim(),
     issueId: normalizedIssueId,
     label: params.label?.trim() || normalizedIssueId,
+  };
+}
+
+export function makeEvaluationTabId(evalId: string): string {
+  return `evaluation:${evalId.trim()}`;
+}
+
+export function evaluationTab(params: {
+  evalId: string;
+  label?: string | null;
+}): Extract<InternalTab, { kind: "evaluation" }> {
+  const evalId = params.evalId.trim();
+  return {
+    id: makeEvaluationTabId(evalId),
+    kind: "evaluation",
+    evalId,
+    label: params.label?.trim() || "Evaluation",
   };
 }
 

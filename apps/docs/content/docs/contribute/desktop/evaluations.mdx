@@ -1,0 +1,57 @@
+---
+title: Evaluations
+description: Test a model running on this machine and publish a report under your own name.
+---
+
+An evaluation answers one question about a model that is already running on this machine or your local network — llama.cpp, Ollama, LM Studio, vLLM, SGLang, MLX or any other OpenAI-compatible server (see [Local model servers](/docs/contribute/desktop/model-configuration#local-model-servers)). holaOS runs the tests, keeps the measurements, and helps you turn them into a report you publish under your name.
+
+A question is one of three kinds:
+
+- **Single model** — is this model good enough for a job on this machine?
+- **Comparison** — which of two or more models, quantizations or settings is better?
+- **Hardware** — how does a model run on this machine?
+
+## Flow
+
+1. **Create.** Open **Evaluations** in the sidebar and choose **New evaluation**: the question, the model or models to test, and the analyst model (your default chat model unless you pick another). holaOS creates the evaluation and a chat bound to it; the analyst drafts a test plan in that chat.
+2. **Plan.** Review the plan in the Plan tab: runs, sampling, samples per task and an estimate of the running time. Edit it, then press **Start**. The analyst cannot start runs itself.
+3. **Run.** Runs execute in the background, one at a time, so speed measurements do not interfere with each other. Progress shows in the Runs tab. A run that fails (for example because the server stopped) can be retried.
+4. **Follow up.** When the runs finish, the analyst reads the results and the raw outputs. If something needs explaining — truncated answers, one category far below the others, a large spread between samples — it proposes a follow-up experiment that changes one thing, with the evidence. You approve or reject it in the Findings tab.
+5. **Report.** The Report tab shows the results, generated from the recorded runs, and your opinion above them. The analyst drafts the opinion in your voice; you edit it.
+6. **Publish.** Publishing locks the results and opens the HolaHub composer with a summary, the charts, and the full report attached. You press Post. Paste the post link back into the evaluation so posts derived from it can link to it.
+7. **Distribute.** The analyst drafts posts from the report — an X post, an X thread, a Chinese short post, a video script and outline. Edit and copy them; for accounts you have connected, ask the analyst to post and approve the exact text when asked.
+
+## What is measured
+
+Every model in a plan runs the standard pack, so reports stay comparable:
+
+| Test | What it measures |
+|---|---|
+| Speed | Time to first token, prefill and decode tokens per second over HTTP with streaming, at empty, 8K and 32K context. Depths beyond the served context are skipped. |
+| Capability (`general-v1`) | A fixed 20-task spot check: math, code with tests, instruction following (including Chinese), a tool call, and long-context retrieval at 8K and 32K. Graded by code, several samples per task. |
+| Agent fitness (`agent-v1`) | Eight agent tasks against a sandboxed virtual file system, under two conditions: `full` sends the real holaOS tool set and system prompt (about 15,000 tokens per request), `lean` sends eight core tools and a short prompt. |
+
+The packs are versioned; a report names the versions it used.
+
+## Results and opinion
+
+A report has two layers:
+
+- **Results** are generated from the recorded runs and cannot be edited. To change a number, run again.
+- **Opinion** is yours. Cite numbers with placeholders such as `{{speed.q4.decode_tps@0}}` or `{{capability.q4.overall.rate}}`; the Report tab lists every available key with its value. holaOS flags placeholders that do not exist and numbers in the text that do not match any measurement.
+
+After publishing, the results stay locked; the opinion can still be edited, and every saved version is kept. To measure again, choose **Re-run as new version**: the plan is copied into a new evaluation linked to the old one.
+
+## What a published report contains
+
+- `report.html` — a self-contained page: opinion, results tables, charts, limitations, the machine and engine, the plan (so someone else can reproduce it) and, unless you turn it off, the raw per-task outputs.
+- `report.md` and `charts/*.png` — the same report as Markdown with images.
+- `data.csv` — every measurement in long format.
+
+Before export or publishing, holaOS removes local details: file paths (keeping the file name), the host name, your user name, local addresses and ports, and LAN IP addresses. Turn off **Include raw data** to leave the per-task outputs out; the report then says the raw data is not public.
+
+To reproduce someone else's report, choose **Reproduce from report** in Evaluations and pick their `report.html`. holaOS reads its plan, points it at your local models, and creates a new evaluation linked to the original.
+
+## Files
+
+Each evaluation keeps its files under `<workspace>/evals/<evaluation id>/`: `data/` holds what the eval toolkit wrote for every run (`speed-<run>.json`, `summary-<run>.json`, `tasks-<run>.jsonl`, `agent-summary-<run>.json`, `agent-tasks-<run>.jsonl`, `manifest-<run>.json`, progress logs) and `report/` holds the exported report.

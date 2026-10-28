@@ -1,0 +1,118 @@
+{
+  "run_id": "0b9f6a2e-7c41-4d3a-8e19-5a6c2d7f8b30",
+  "digest": "1e2d21a4f03ab9e4a9c1976a4b7e88f21de61d65f2c5485d8fde8942be73f1e7",
+  "client": {
+    "app": "holaOS",
+    "version": "0.9.0"
+  },
+  "conditions": {
+    "cpu_busy_pct": 46
+  },
+  "artifacts": {
+    "transcripts": "transcripts"
+  },
+  "events": [
+    {
+      "suite": "suite-coding@1.0",
+      "subject_id": "qwen-qwen3.5-2b",
+      "at": 1793225405000,
+      "type": "run_started",
+      "seq": 1
+    },
+    {
+      "phase": "running",
+      "at": 1793225406300,
+      "type": "phase",
+      "seq": 2
+    },
+    {
+      "task": "warmup",
+      "kind": "warmup",
+      "at": 1793225407100,
+      "type": "task_start",
+      "seq": 3
+    },
+    {
+      "task": "warmup",
+      "delta": "OK",
+      "n": 1,
+      "at": 1793225407600,
+      "type": "text",
+      "seq": 4
+    },
+    {
+      "task": "fix-pagination",
+      "kind": "task",
+      "category": "coding",
+      "tier": 1,
+      "samples": 3,
+      "at": 1793225408000,
+      "type": "task_start",
+      "seq": 5
+    },
+    {
+      "task": "fix-pagination",
+      "sample": 0,
+      "at": 1793225408050,
+      "type": "attempt_start",
+      "seq": 6
+    },
+    {
+      "task": "fix-pagination",
+      "delta": "<think>",
+      "n": 3,
+      "at": 1793225409250,
+      "type": "text",
+      "seq": 7
+    },
+    {
+      "task": "fix-pagination",
+      "sample": 0,
+      "turn": 1,
+      "name": "read",
+      "arg": "pager.py",
+      "at": 1793225411000,
+      "type": "tool_call",
+      "seq": 8
+    },
+    {
+      "task": "fix-pagination",
+      "sample": 0,
+      "passed": true,
+      "reason": null,
+      "finish": "answered",
+      "turns": 4,
+      "tokens": 1250,
+      "seconds": 38.5,
+      "at": 1793225466050,
+      "type": "sample_done",
+      "seq": 9
+    },
+    {
+      "task": "fix-pagination",
+      "kind": "task",
+      "status": "ok",
+      "passed": 3,
+      "samples": 3,
+      "at": 1793225655000,
+      "type": "task_done",
+      "seq": 10
+    },
+    {
+      "task": "parse-duration",
+      "sample": 0,
+      "passed": false,
+      "reason": "request failed",
+      "finish": "request_error",
+      "at": 1793225656000,
+      "type": "sample_done",
+      "seq": 11
+    },
+    {
+      "phase": "finishing",
+      "at": 1793226707000,
+      "type": "phase",
+      "seq": 12
+    }
+  ]
+}

@@ -229,6 +229,38 @@ test("B3: uninstall preserves shared skill dir (refcount)", async () => {
   store.close();
 });
 
+test("installCapability copies a skill's helper files and replaces stale ones on re-install", async () => {
+  const { store, root } = makeStore();
+  const workspaceId = "ws-helpers";
+  const workspaceDir = path.join(root, "workspace", workspaceId);
+  const capDir = path.join(workspaceDir, "capabilities", "with-helpers");
+  const skillSrc = path.join(capDir, "skills", "bench");
+  fs.mkdirSync(path.join(skillSrc, "scripts"), { recursive: true });
+  fs.writeFileSync(
+    path.join(capDir, "capability.yaml"),
+    ["id: with-helpers", "name: With Helpers", "description: Skill with scripts", "skills:", "  - path: skills/bench/SKILL.md"].join("\n"),
+    "utf8",
+  );
+  fs.writeFileSync(path.join(skillSrc, "SKILL.md"), "---\nname: bench\ndescription: Bench\n---\nRun scripts/run.py\n", "utf8");
+  fs.writeFileSync(path.join(skillSrc, "scripts", "run.py"), "print('v1')\n", "utf8");
+  fs.writeFileSync(path.join(skillSrc, "old.json"), "{}", "utf8");
+
+  await installWorkspaceAuthoredCapability({ store, workspaceId, workspaceDir, capabilityId: "with-helpers" });
+  const installed = path.join(workspaceDir, "skills", "bench");
+  assert.equal(fs.readFileSync(path.join(installed, "scripts", "run.py"), "utf8"), "print('v1')\n");
+  assert.ok(fs.existsSync(path.join(installed, "old.json")));
+
+  fs.writeFileSync(path.join(skillSrc, "scripts", "run.py"), "print('v2')\n", "utf8");
+  fs.rmSync(path.join(skillSrc, "old.json"));
+  await installWorkspaceAuthoredCapability({ store, workspaceId, workspaceDir, capabilityId: "with-helpers" });
+  assert.equal(fs.readFileSync(path.join(installed, "scripts", "run.py"), "utf8"), "print('v2')\n");
+  assert.equal(fs.existsSync(path.join(installed, "old.json")), false);
+
+  uninstallCapability({ store, workspaceId, workspaceDir, capabilityId: "with-helpers" });
+  assert.equal(fs.existsSync(installed), false);
+  store.close();
+});
+
 test("installWorkspaceAuthoredCapability installs a manifest written into the workspace", async () => {
   const { store, root } = makeStore();
   const workspaceId = "ws-authored";

@@ -55,6 +55,7 @@ import { migration as m030 } from "./030-integration-tables-control-plane-only.j
 import { migration as m031 } from "./031-drop-local-composio-connections.js";
 import { migration as m032 } from "./032-session-owning-app-id.js";
 import { migration as m033 } from "./033-session-org-id.js";
+import { migration as m034 } from "./034-evaluations.js";
 
 export const RUNTIME_DB_MIGRATIONS: ReadonlyArray<Migration> = [
   m001,
@@ -90,6 +91,7 @@ export const RUNTIME_DB_MIGRATIONS: ReadonlyArray<Migration> = [
   m031,
   m032,
   m033,
+  m034,
 ];
 
 export const LATEST_SEED_VERSION: MigrationId = 0;

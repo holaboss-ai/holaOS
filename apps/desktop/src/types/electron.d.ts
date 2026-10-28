@@ -2440,6 +2440,55 @@ declare global {
 			readImage: () => Promise<ClipboardImagePayload | null>;
 			writeText: (text: string) => Promise<void>;
 		};
+		bench: {
+			/** Main window only: the models that can be benchmarked, and opening the bench window for one. */
+			catalog: () => Promise<
+				import("../../shared/bench-protocol").BenchCatalogEntry[]
+			>;
+			/** Opens the bench window on the model's latest run, or on `runId` when given. */
+			open: (subjectId: string, runId?: string) => Promise<void>;
+			getContext: () => Promise<
+				import("../../shared/bench-protocol").BenchWindowContext | null
+			>;
+			onContext: (
+				listener: (
+					context: import("../../shared/bench-protocol").BenchWindowContext,
+				) => void,
+			) => () => void;
+			renderCard: (
+				runDir: string,
+				name: string,
+				html: string,
+			) => Promise<{ file: string; dataUrl: string }>;
+			saveRecording: (
+				runDir: string,
+				bytes: Uint8Array,
+				extension: string,
+			) => Promise<{ file: string }>;
+			/** The run's events.jsonl or recording, for cutting the kit's videos. */
+			readRunFile: (runDir: string, name: string) => Promise<Uint8Array<ArrayBuffer>>;
+			saveCut: (
+				runDir: string,
+				name: string,
+				bytes: Uint8Array,
+			) => Promise<{ file: string }>;
+			exportKit: (
+				runDir: string,
+				suggestedName: string,
+				files: import("../../shared/bench-protocol").BenchKitFile[],
+			) => Promise<{ path: string | null }>;
+			showInFolder: (runDir: string) => Promise<void>;
+			/** Publishes a finished run to its public HolaHub page. */
+			publish: (
+				runDir: string,
+			) => Promise<import("../../shared/bench-protocol").BenchPublishResult>;
+			share: (
+				runDir: string,
+				cardFile: string,
+				text: string,
+				url: string,
+			) => Promise<void>;
+		};
 		bff: {
 			fetch: (
 				req: import("../../shared/bff-fetch-protocol").BffFetchRequest,

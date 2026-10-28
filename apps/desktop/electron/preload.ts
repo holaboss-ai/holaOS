@@ -1,3 +1,9 @@
+import type {
+	BenchCatalogEntry,
+	BenchKitFile,
+	BenchPublishResult,
+	BenchWindowContext,
+} from "../shared/bench-protocol.js";
 import {
 	type ChatStartInput,
 	HOST_EMPLOYEES_CHANGED_EVENT,
@@ -1743,6 +1749,59 @@ contextBridge.exposeInMainWorld("electronAPI", {
 			) as Promise<ClipboardImagePayload | null>,
 		writeText: (text: string) =>
 			ipcRenderer.invoke("clipboard:writeText", text) as Promise<void>,
+	},
+	bench: {
+		catalog: () =>
+			ipcRenderer.invoke("bench:catalog") as Promise<BenchCatalogEntry[]>,
+		open: (subjectId: string, runId?: string) =>
+			ipcRenderer.invoke("bench:open", subjectId, runId) as Promise<void>,
+		getContext: () =>
+			ipcRenderer.invoke("bench:getContext") as Promise<BenchWindowContext | null>,
+		onContext: (listener: (context: BenchWindowContext) => void) => {
+			const wrapped = (
+				_event: Electron.IpcRendererEvent,
+				context: BenchWindowContext,
+			) => listener(context);
+			ipcRenderer.on("bench:context", wrapped);
+			return () => ipcRenderer.removeListener("bench:context", wrapped);
+		},
+		renderCard: (runDir: string, name: string, html: string) =>
+			ipcRenderer.invoke("bench:renderCard", runDir, name, html) as Promise<{
+				file: string;
+				dataUrl: string;
+			}>,
+		saveRecording: (runDir: string, bytes: Uint8Array, extension: string) =>
+			ipcRenderer.invoke(
+				"bench:saveRecording",
+				runDir,
+				bytes,
+				extension,
+			) as Promise<{ file: string }>,
+		readRunFile: (runDir: string, name: string) =>
+			ipcRenderer.invoke("bench:readRunFile", runDir, name) as Promise<Uint8Array>,
+		saveCut: (runDir: string, name: string, bytes: Uint8Array) =>
+			ipcRenderer.invoke("bench:saveCut", runDir, name, bytes) as Promise<{
+				file: string;
+			}>,
+		exportKit: (runDir: string, suggestedName: string, files: BenchKitFile[]) =>
+			ipcRenderer.invoke(
+				"bench:exportKit",
+				runDir,
+				suggestedName,
+				files,
+			) as Promise<{ path: string | null }>,
+		showInFolder: (runDir: string) =>
+			ipcRenderer.invoke("bench:showInFolder", runDir) as Promise<void>,
+		publish: (runDir: string) =>
+			ipcRenderer.invoke("bench:publish", runDir) as Promise<BenchPublishResult>,
+		share: (runDir: string, cardFile: string, text: string, url: string) =>
+			ipcRenderer.invoke(
+				"bench:share",
+				runDir,
+				cardFile,
+				text,
+				url,
+			) as Promise<void>,
 	},
 	bff: {
 		/**

@@ -1,0 +1,322 @@
+{
+  "suite": {
+    "id": "suite-standard",
+    "version": "1.0",
+    "sha256": "4bbdf2da8b959801bb223c2a13d71fe952604138798ef2da0705df45794b6f67"
+  },
+  "test_agent": {
+    "executor": "holaeval@1.1.0",
+    "judge": "holaeval@1.1.0"
+  },
+  "model": "openbmb/minicpm5-2b:q4_k_m",
+  "capabilities": [
+    "completion",
+    "tools",
+    "thinking"
+  ],
+  "request": {
+    "num_ctx": 16384,
+    "sampling": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "min_p": 0.0
+    },
+    "samples": 3,
+    "keep_alive": "30m"
+  },
+  "warmup_load_ms": 1,
+  "machine": {
+    "platform": "macOS-26.0-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "cpu": "Apple M4 Max",
+    "model": "Mac16,5",
+    "memory_gb": 64,
+    "power": "AC"
+  },
+  "results": [
+    {
+      "task": "speed@0",
+      "kind": "speed",
+      "status": "ok",
+      "metrics": {
+        "depth": 0,
+        "runs": [
+          {
+            "ttft_ms": 1,
+            "completion_tokens": 256,
+            "prompt_tokens": 29,
+            "decode_tps": 128831.3,
+            "engine_decode_tps": 100.0,
+            "engine_prefill_tps": 1450.0,
+            "load_ms": 1,
+            "reloaded": false,
+            "seconds": 0.0
+          },
+          {
+            "ttft_ms": 1,
+            "completion_tokens": 256,
+            "prompt_tokens": 29,
+            "decode_tps": 135428.3,
+            "engine_decode_tps": 100.0,
+            "engine_prefill_tps": 1450.0,
+            "load_ms": 1,
+            "reloaded": false,
+            "seconds": 0.0
+          },
+          {
+            "ttft_ms": 0,
+            "completion_tokens": 256,
+            "prompt_tokens": 29,
+            "decode_tps": 123884.1,
+            "engine_decode_tps": 100.0,
+            "engine_prefill_tps": 1450.0,
+            "load_ms": 1,
+            "reloaded": false,
+            "seconds": 0.0
+          }
+        ],
+        "ttft_ms": 1,
+        "ttft_ms_sd": 0.0,
+        "decode_tps": 129381.2,
+        "decode_tps_sd": 4728.9,
+        "engine_decode_tps": 100.0,
+        "engine_decode_tps_sd": 0.0,
+        "engine_prefill_tps": 1450.0,
+        "engine_prefill_tps_sd": 0.0,
+        "model_bytes": 2000,
+        "vram_bytes": 1500,
+        "cpu_offload": true
+      },
+      "tokens": 768,
+      "time": 0.0
+    },
+    {
+      "task": "speed@8k",
+      "kind": "speed",
+      "status": "ok",
+      "metrics": {
+        "depth": 8192,
+        "runs": [
+          {
+            "ttft_ms": 1,
+            "completion_tokens": 256,
+            "prompt_tokens": 8635,
+            "decode_tps": 128138.0,
+            "engine_decode_tps": 100.0,
+            "engine_prefill_tps": 431750.0,
+            "load_ms": 1,
+            "reloaded": false,
+            "seconds": 0.0
+          },
+          {
+            "ttft_ms": 1,
+            "completion_tokens": 256,
+            "prompt_tokens": 8649,
+            "decode_tps": 151894.9,
+            "engine_decode_tps": 100.0,
+            "engine_prefill_tps": 432450.0,
+            "load_ms": 1,
+            "reloaded": false,
+            "seconds": 0.0
+          },
+          {
+            "ttft_ms": 1,
+            "completion_tokens": 256,
+            "prompt_tokens": 8635,
+            "decode_tps": 135602.2,
+            "engine_decode_tps": 100.0,
+            "engine_prefill_tps": 431750.0,
+            "load_ms": 1,
+            "reloaded": false,
+            "seconds": 0.0
+          }
+        ],
+        "ttft_ms": 1,
+        "ttft_ms_sd": 0.0,
+        "decode_tps": 138545.0,
+        "decode_tps_sd": 9919.4,
+        "engine_decode_tps": 100.0,
+        "engine_decode_tps_sd": 0.0,
+        "engine_prefill_tps": 431983.3,
+        "engine_prefill_tps_sd": 330.0,
+        "model_bytes": 2000,
+        "vram_bytes": 1500,
+        "cpu_offload": true
+      },
+      "tokens": 768,
+      "time": 0.0
+    },
+    {
+      "task": "code-intervals",
+      "kind": "task",
+      "category": "code",
+      "status": "ok",
+      "pass": true,
+      "passed": 3,
+      "samples": 3,
+      "score": 1.0,
+      "reasons": {},
+      "tokens": 6,
+      "time": 0.0,
+      "attempts": [
+        {
+          "sample": 0,
+          "passed": true,
+          "reason": null,
+          "tokens": 2,
+          "seconds": 0.0,
+          "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef merge_intervals(intervals):\n    out = []\n    for s, e in sorted(intervals):\n        if out and s <= out[-1][1]:\n            out[-1][1] = max(out[-1][1], e)\n        else:\n            out.append([s, e])\n    return out\n```",
+          "thinking": "",
+          "tool_calls": null
+        },
+        {
+          "sample": 1,
+          "passed": true,
+          "reason": null,
+          "tokens": 2,
+          "seconds": 0.0,
+          "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef m",
+          "thinking": "",
+          "tool_calls": null
+        },
+        {
+          "sample": 2,
+          "passed": true,
+          "reason": null,
+          "tokens": 2,
+          "seconds": 0.0,
+          "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef m",
+          "thinking": "",
+          "tool_calls": null
+        }
+      ]
+    },
+    {
+      "task": "tool-flight",
+      "kind": "task",
+      "category": "tool",
+      "status": "ok",
+      "pass": true,
+      "passed": 3,
+      "samples": 3,
+      "score": 1.0,
+      "reasons": {},
+      "tokens": 3,
+      "time": 0.0,
+      "attempts": [
+        {
+          "sample": 0,
+          "passed": true,
+          "reason": null,
+          "tokens": 1,
+          "seconds": 0.0,
+          "content": "",
+          "thinking": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "search_flights",
+                "arguments": {
+                  "origin": "SFO",
+                  "destination": "NRT",
+                  "date": "2026-11-03"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "sample": 1,
+          "passed": true,
+          "reason": null,
+          "tokens": 1,
+          "seconds": 0.0,
+          "content": "",
+          "thinking": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "search_flights",
+                "arguments": {
+                  "origin": "SFO",
+                  "destination": "NRT",
+                  "date": "2026-11-03"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "sample": 2,
+          "passed": true,
+          "reason": null,
+          "tokens": 1,
+          "seconds": 0.0,
+          "content": "",
+          "thinking": "",
+          "tool_calls": [
+            {
+              "function": {
+                "name": "search_flights",
+                "arguments": {
+                  "origin": "SFO",
+                  "destination": "NRT",
+                  "date": "2026-11-03"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "task": "needle-8k",
+      "kind": "task",
+      "category": "long_context",
+      "status": "ok",
+      "pass": true,
+      "passed": 3,
+      "samples": 3,
+      "score": 1.0,
+      "reasons": {},
+      "tokens": 6,
+      "time": 0.0,
+      "attempts": [
+        {
+          "sample": 0,
+          "passed": true,
+          "reason": null,
+          "tokens": 2,
+          "seconds": 0.0,
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "thinking": "",
+          "tool_calls": null
+        },
+        {
+          "sample": 1,
+          "passed": true,
+          "reason": null,
+          "tokens": 2,
+          "seconds": 0.0,
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "thinking": "",
+          "tool_calls": null
+        },
+        {
+          "sample": 2,
+          "passed": true,
+          "reason": null,
+          "tokens": 2,
+          "seconds": 0.0,
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "thinking": "",
+          "tool_calls": null
+        }
+      ]
+    }
+  ],
+  "started_at": "2026-10-24T05:59:15Z",
+  "finished_at": "2026-10-24T05:59:15Z",
+  "wall_seconds": 0.1
+}

@@ -388,6 +388,11 @@ export async function installCapability(params: {
     if ("path" in skill) {
       const { skillId, content } = skillIdForPathRef(capability, skill.path);
       const skillDir = path.join(workspaceDir, "skills", skillId);
+      const sourceSkillDir = path.dirname(path.join(capability.sourceDir, skill.path));
+      if (path.resolve(sourceSkillDir) !== path.resolve(capability.sourceDir)) {
+        fs.rmSync(skillDir, { recursive: true, force: true });
+        fs.cpSync(sourceSkillDir, skillDir, { recursive: true });
+      }
       fs.mkdirSync(skillDir, { recursive: true });
       fs.writeFileSync(path.join(skillDir, "SKILL.md"), content, "utf8");
       installedSkillIds.push(skillId);

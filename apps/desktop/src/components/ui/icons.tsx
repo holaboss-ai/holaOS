@@ -191,6 +191,7 @@ import {
 	Add2 as Add2Filled_re,
 	AddCircle2 as AddCircle2Filled_re,
 	Building as BuildingFilled_re,
+	Chart as ChartFilled_re,
 	ChatPlus as ChatPlusFilled_re,
 	ChatRound as ChatRoundFilled_re,
 	ChevronDown as ChevronDownFilled_re,
@@ -492,6 +493,7 @@ export const SettingsFilled = makeFilledIcon(Setting2Filled_re);
 export const MessageSquarePlusFilled = makeFilledIcon(ChatPlusFilled_re);
 export const StoreFilled = makeFilledIcon(StoreFilled_re);
 export const BuildingFilled = makeFilledIcon(BuildingFilled_re);
+export const ChartFilled = makeFilledIcon(ChartFilled_re);
 export const GridFilled = makeFilledIcon(GridFilled_re);
 export const CircleDotFilled = makeFilledIcon(RecordCircleFilled_re);
 export const ChevronDownFilled = makeFilledIcon(ChevronDownFilled_re);

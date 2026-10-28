@@ -25,6 +25,8 @@ import { BootSplash } from "@/components/layout/BootSplash";
 import { BootGate } from "./BootGate";
 import { AutomationsSurface, Center, SkillsTab } from "./Center";
 import { ChannelsPane } from "@/components/panes/ChannelsPane";
+import { EvaluationsPane } from "@/components/evaluations/EvaluationsPane";
+import { NewEvaluationDialog } from "@/components/evaluations/NewEvaluationDialog";
 import { CustomizePane } from "@/components/panes/CustomizePane";
 import { SharePreviewPane } from "@/components/panes/ChatPane/SharePreviewPane";
 import { ProfilesPane } from "@/components/panes/ProfilesPane";
@@ -507,6 +509,7 @@ function AppShellContent() {
       <IntegrationCredentialDialog />
       <EmployeeChatStreamManager />
       <NewIssueDialog />
+      <NewEvaluationDialog />
       <SearchDialog />
       <Overlays />
       <NotificationStack />
@@ -609,6 +612,8 @@ function ShellMainArea({
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-background">
         {workspaceOverlay === "automations" ? (
           <AutomationsSurface workspaceId={selectedWorkspaceId} />
+        ) : workspaceOverlay === "evaluations" ? (
+          <EvaluationsPane />
         ) : workspaceOverlay === "channels" ? (
           <ChannelsPane />
         ) : workspaceOverlay === "customize" ? (

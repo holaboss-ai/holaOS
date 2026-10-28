@@ -257,10 +257,10 @@ The runtime also treats unprefixed `claude...` model ids as Anthropic models. If
       "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
       "api_key": "AIza-your-gemini-api-key"
     },
-    "ollama_direct": {
+    "local_ollama": {
       "kind": "openai_compatible",
-      "base_url": "http://localhost:11434/v1",
-      "api_key": "ollama"
+      "base_url": "http://127.0.0.1:11434/v1",
+      "local": true
     }
   },
   "models": {
@@ -284,9 +284,10 @@ The runtime also treats unprefixed `claude...` model ids as Anthropic models. If
       "provider": "gemini_direct",
       "model": "gemini-2.5-flash"
     },
-    "ollama_direct/llama3.1:8b": {
-      "provider": "ollama_direct",
-      "model": "llama3.1:8b"
+    "local_ollama/llama3.1:8b": {
+      "provider": "local_ollama",
+      "model": "llama3.1:8b",
+      "context_window": 8192
     }
   }
 }
@@ -300,44 +301,81 @@ Provider `kind` values supported by the runtime resolver:
 - `anthropic_native`
 - `openrouter`
 
-## Verify Ollama through the desktop UI
+## Local model servers
 
-This is the simplest end-to-end check for the local `ollama_direct` path:
+holaOS can use a model server that is already running on this machine or on the local network: Ollama, LM Studio, llama.cpp `llama-server`, MLX, vLLM, SGLang, or anything else that speaks the OpenAI chat completions API. holaOS does not install engines or download models; start the server yourself first.
 
-1. Install and start Ollama on your machine.
-2. Pull a small local model:
+### Find and register a running server
 
-```bash
-ollama pull llama3.1:8b
-```
+The runtime checks the usual ports (11434, 1234, 8080, 8000, 30000) when it starts and every 30 seconds after that. A server it finds is registered automatically and its models appear in the chat model picker. When the server's model list changes, the registration is updated. To turn this off, set `"local_models": { "auto_detect": false }` in `runtime-config.json`, or set `HOLABOSS_LOCAL_MODEL_AUTODETECT=0`.
 
-3. Launch the desktop app.
-4. Open `Settings -> Model Providers`.
-5. Connect `Ollama` with:
-   - base URL: `http://localhost:11434/v1`
-   - API key: `ollama`
-   - models: `llama3.1:8b`
-6. Open a workspace chat and select `ollama_direct/llama3.1:8b`.
-7. Send this prompt:
-
-```text
-Reply with exactly: OK
-```
-
-Expected result:
-
-- the run starts with provider `ollama_direct`
-- the model resolves to `llama3.1:8b`
-- the assistant replies with `OK`
-
-If the model does not show up or the request fails, verify Ollama directly first:
+For a server on another port or machine, ask the agent ("use the model I have running in LM Studio"), or call the runtime directly:
 
 ```bash
-curl http://localhost:11434/v1/chat/completions \
+# list servers on the usual ports (11434, 1234, 8080, 8000, 30000) with their models and context windows
+curl http://127.0.0.1:<runtime-port>/api/v1/local-models/discover
+
+# add one, so its models appear in the chat model picker as <provider>/<model>
+curl -X POST http://127.0.0.1:<runtime-port>/api/v1/local-models/register \
   -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer ollama' \
-  -d '{"model":"llama3.1:8b","messages":[{"role":"user","content":"Reply with exactly: OK"}],"temperature":0}'
+  -d '{"base_url":"http://127.0.0.1:1234/v1"}'
 ```
+
+The agent has the same operations as the `local_models_discover` and `local_models_register` tools.
+
+Registration writes a provider and its models into `runtime-config.json`:
+
+```json
+{
+  "providers": {
+    "local_lmstudio": {
+      "kind": "openai_compatible",
+      "base_url": "http://127.0.0.1:1234/v1",
+      "api_key": "local",
+      "local": true
+    }
+  },
+  "models": {
+    "local_lmstudio/qwen/qwen3-8b": {
+      "provider": "local_lmstudio",
+      "model": "qwen/qwen3-8b",
+      "context_window": 32768,
+      "input_modalities": ["text"]
+    }
+  }
+}
+```
+
+You can also write this by hand. A provider is treated as local when it sets `"local": true`, uses kind `local`, or its base URL host is `localhost`, `127.0.0.0/8`, `::1`, `*.local`, `host.docker.internal`, or a private IPv4 range. For local providers:
+
+- a base URL without a path gets `/v1` appended (`http://localhost:8080` → `http://localhost:8080/v1`)
+- `api_key` is optional, and cloud API keys from the environment are never sent to them
+- model ids may contain `/` (`qwen/qwen3-8b`, `mlx-community/...`)
+- the context window comes from `context_window` (default 32768) and output is capped at `max_tokens`, or half the context up to 16384
+- input is text-only unless `input_modalities` includes `"image"`
+
+### Context window
+
+holaOS sends its instructions and tool definitions with every request (about 14,000 tokens), so a local model needs a context window of at least 16,384 tokens; 32,768 or more is recommended. Before each run the runtime asks the server what context it is actually serving (llama.cpp `/props`, Ollama `/api/ps`, LM Studio `/api/v0/models`, vLLM `/v1/models`), records it, and stops with instructions if it is too small:
+
+- llama.cpp: restart `llama-server` with `-c 32768`
+- Ollama: set `OLLAMA_CONTEXT_LENGTH=32768` and restart Ollama, or use a Modelfile with `PARAMETER num_ctx 32768`. Ollama serves models with a small default context and silently truncates longer prompts, so this matters even when the model itself supports a long context.
+- LM Studio: reload the model with a larger Context Length
+- vLLM: `--max-model-len 32768`
+
+For Ollama and LM Studio, a model that is not loaded yet is loaded first so its real context can be read.
+
+If a model does not respond, check the server directly first:
+
+```bash
+curl http://127.0.0.1:1234/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"qwen/qwen3-8b","messages":[{"role":"user","content":"Reply with exactly: OK"}],"temperature":0}'
+```
+
+### Evaluate a local model
+
+To test a running model and publish a report about it, use [Evaluations](/docs/contribute/desktop/evaluations).
 
 ## Environment overrides
 

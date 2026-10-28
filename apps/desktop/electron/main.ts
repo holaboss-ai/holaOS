@@ -1,5 +1,7 @@
 // holaboss-2026.616.1 bundle cycle: cdhash 1ee72b15 stuck in Apple notary; bump bytes to force fresh ticket.
 import { loadDesktopEnv } from "./desktopEnv";
+import { benchLinkFromApp, isRunId, parseBenchDeepLink } from "./bench-links";
+import { createBenchWindowController } from "./bench-window";
 import { applyLoginShellPathToEnv } from "./shell-path";
 import { ensureExtractedWindowsRuntime } from "./runtime-archive";
 import {
@@ -725,6 +727,11 @@ function focusMainWindow(): void {
 // off before the fallthrough, so an action link is never misread as an auth
 // token — which is what an unrecognised hostname becomes.
 function dispatchDeepLink(targetUrl: string): void {
+  const bench = parseBenchDeepLink(deepLinkUrl(targetUrl));
+  if (bench) {
+    void benchWindow.open(bench);
+    return;
+  }
   const openApp = maybeOpenAppUrl(targetUrl);
   if (openApp) {
     handleOpenAppDeepLink(openApp);
@@ -1824,6 +1831,34 @@ const HUB_APP_BASE_URL = ((): string => {
     return "";
   }
 })();
+// One-click benchmark window. Model configs and public result pages live on HolaHub.
+const benchWindow = createBenchWindowController({
+  preloadPath: path.join(__dirname, "preload.cjs"),
+  loadRenderer: async (win, query) => {
+    if (isDev) {
+      const url = new URL(RESOLVED_DEV_SERVER_URL);
+      for (const [key, value] of Object.entries(query)) {
+        url.searchParams.set(key, value);
+      }
+      await win.loadURL(url.toString());
+    } else {
+      await win.loadFile(path.join(__dirname, "../dist/index.html"), { query });
+    }
+  },
+  subjectsBaseUrl: () =>
+    configuredRemoteBaseUrl(["HOLABOSS_BENCH_SUBJECTS_URL"]) ||
+    (HUB_APP_BASE_URL ? `${HUB_APP_BASE_URL}/bench/subjects` : ""),
+  resultBaseUrl: () => (HUB_APP_BASE_URL ? `${HUB_APP_BASE_URL}/bench/runs` : ""),
+  workspaceRoot: () => path.join(runtimeSandboxRoot(), "workspace"),
+  hubApiBaseUrl: () =>
+    AUTH_BASE_URL && HUB_APP_BASE_URL ? `${AUTH_BASE_URL}/gateway/hub` : "",
+  cookieHeader: () => authCookieHeader(),
+  submitterName: async () => {
+    const user = await getAuthenticatedUser().catch(() => null);
+    return typeof user?.name === "string" ? user.name.trim() : "";
+  },
+});
+
 // Where web HolaApp MCP servers are reached — an SSE MCP at
 // `<base>/mcp/<holaAppId>/sse`. The gateway treats `/mcp/*` as auth-exempt
 // pass-through to the workflow-backend (the servers do their own bearer auth),
@@ -1896,13 +1931,16 @@ const RUNTIME_MODEL_CATALOG_REFRESH_INTERVAL_MS = 3 * 60 * 1000;
 const RUNTIME_MODEL_CATALOG_REFRESH_FAILURE_BACKOFF_MS = 60 * 1000;
 const RUNTIME_MODEL_CATALOG_FETCH_TIMEOUT_MS = 8_000;
 
-type TrustedIpcSenderScope = "main" | "auth-popup";
+type TrustedIpcSenderScope = "main" | "auth-popup" | "bench";
 
 function trustedIpcSenderWindow(
   scope: TrustedIpcSenderScope,
 ): BrowserWindow | null {
   if (scope === "main") {
     return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  }
+  if (scope === "bench") {
+    return benchWindow.window();
   }
   return authPopupWindow && !authPopupWindow.isDestroyed()
     ? authPopupWindow
@@ -6623,6 +6661,43 @@ function runtimeProviderLabel(providerId: string): string {
     .join(" ");
 }
 
+const LOCAL_RUNTIME_PROVIDER_ENGINE_LABELS: Record<string, string> = {
+  ollama: "Ollama",
+  lmstudio: "LM Studio",
+  llamacpp: "llama.cpp",
+  mlx: "MLX",
+  vllm: "vLLM",
+  sglang: "SGLang",
+  openai_compatible: "OpenAI-compatible",
+};
+
+function localRuntimeProviderLabel(
+  providerId: string,
+  providerPayload: Record<string, unknown>,
+  baseUrl: string,
+): string {
+  const normalizedProviderId = providerId.trim().toLowerCase();
+  if (providerPayload.local !== true && !normalizedProviderId.startsWith("local_")) {
+    return "";
+  }
+  const engine =
+    runtimeFirstNonEmptyString(providerPayload.engine).toLowerCase() ||
+    normalizedProviderId.replace(/^local_/, "");
+  const engineLabel =
+    LOCAL_RUNTIME_PROVIDER_ENGINE_LABELS[engine] ??
+    (engine ? runtimeProviderLabel(engine) : "Model server");
+  if (normalizedProviderId === `local_${engine}`) {
+    return `Local · ${engineLabel}`;
+  }
+  let host = "";
+  try {
+    host = new URL(baseUrl).host;
+  } catch {
+    host = "";
+  }
+  return host ? `Local · ${engineLabel} (${host})` : `Local · ${engineLabel}`;
+}
+
 function normalizeRuntimeProviderKind(
   rawKind: string,
   providerId: string,
@@ -7213,7 +7288,9 @@ function runtimeProviderModelGroups(
     providers.set(canonicalProviderId, {
       id: canonicalProviderId,
       kind,
-      label: runtimeProviderLabel(canonicalProviderId),
+      label:
+        localRuntimeProviderLabel(canonicalProviderId, providerPayload, baseUrl) ||
+        runtimeProviderLabel(canonicalProviderId),
     });
   }
 
@@ -17203,6 +17280,43 @@ async function emitRuntimeConfig(config?: RuntimeConfigPayload) {
   }
 }
 
+let runtimeConfigFileWatcher: FSWatcher | null = null;
+let runtimeConfigFileChangeTimer: ReturnType<typeof setTimeout> | null = null;
+
+// The runtime registers providers (e.g. local model servers) by writing this file directly.
+function startRuntimeConfigFileWatcher(): void {
+  if (runtimeConfigFileWatcher) {
+    return;
+  }
+  const configPath = runtimeConfigPath();
+  const watchedFileName = path.basename(configPath);
+  try {
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    runtimeConfigFileWatcher = watch(
+      path.dirname(configPath),
+      { persistent: false },
+      (_eventType, filename) => {
+        if (filename && String(filename) !== watchedFileName) {
+          return;
+        }
+        if (runtimeConfigFileChangeTimer) {
+          clearTimeout(runtimeConfigFileChangeTimer);
+        }
+        runtimeConfigFileChangeTimer = setTimeout(() => {
+          runtimeConfigFileChangeTimer = null;
+          void emitRuntimeConfig().catch(() => undefined);
+        }, 250);
+      },
+    );
+    runtimeConfigFileWatcher.on("error", () => {
+      runtimeConfigFileWatcher?.close();
+      runtimeConfigFileWatcher = null;
+    });
+  } catch {
+    runtimeConfigFileWatcher = null;
+  }
+}
+
 async function fileExists(targetPath: string) {
   try {
     await fs.access(targetPath);
@@ -27020,6 +27134,10 @@ app.whenReady().then(() => {
   void ensureDesktopBrowserServiceStarted();
 });
 
+app.whenReady().then(() => {
+  startRuntimeConfigFileWatcher();
+});
+
 app.whenReady().then(async () => {
   if (!singleInstanceLock) {
     return;
@@ -27565,7 +27683,7 @@ app.whenReady().then(async () => {
   // gets a real-time stream + can poll this IPC for the same state in
   // microseconds. (Boot timing: shaved ~1s off the splash by removing
   // the redundant probe round-trip from this hot path.)
-  handleTrustedIpc("runtime:getStatus", ["main", "auth-popup"], () =>
+  handleTrustedIpc("runtime:getStatus", ["main", "auth-popup", "bench"], () =>
     Promise.resolve(runtimeStatus),
   );
   handleTrustedIpc("runtime:getDbMaintenance", ["main"], () =>
@@ -27969,11 +28087,20 @@ app.whenReady().then(async () => {
   );
   handleTrustedIpc(
     "ui:openExternalUrl",
-    ["main", "auth-popup"],
+    ["main", "auth-popup", "bench"],
     async (_event, rawUrl: string) => {
       await openExternalUrl(rawUrl);
     },
   );
+  benchWindow.register();
+  handleTrustedIpc("bench:catalog", ["main"], () => benchWindow.catalog());
+  handleTrustedIpc("bench:open", ["main"], async (_event, subjectId: unknown, runId?: unknown) => {
+    const link = benchLinkFromApp(subjectId);
+    if (!link) {
+      throw new Error("Unknown model.");
+    }
+    await benchWindow.open(link, isRunId(runId) ? runId : null);
+  });
   handleTrustedIpc(
     "clipboard:readImage",
     ["main"],

@@ -15,6 +15,10 @@ import {
   type AgentToolNodeContext,
 } from "./agent-runtime-prompt.js";
 import {
+  isLocalModelEndpoint,
+  withDefaultHttpScheme,
+} from "./local-model-endpoint.js";
+import {
   renderRecalledMemoryPromptSection,
   type AgentRecalledMemoryContext,
 } from "./memory-retrieval-pack.js";
@@ -60,6 +64,7 @@ export interface AgentRuntimeConfigCliRequest {
   operator_surface_context?: AgentOperatorSurfaceContext | null;
   pending_user_memory_context?: AgentPendingUserMemoryContext | null;
   session_attachment_context?: AgentSessionAttachmentContext | null;
+  evaluation_context?: string | null;
   selected_model?: string | null;
   default_provider_id: string;
   session_mode: string;
@@ -181,6 +186,8 @@ const PROVIDER_KIND_HOLABOSS_PROXY = "holaboss_proxy";
 const PROVIDER_KIND_OPENAI_COMPATIBLE = "openai_compatible";
 const PROVIDER_KIND_ANTHROPIC_NATIVE = "anthropic_native";
 const PROVIDER_KIND_OPENROUTER = "openrouter";
+const LOCAL_PROVIDER_KINDS = new Set(["local", "local_openai_compatible"]);
+const LOCAL_PROVIDER_PLACEHOLDER_API_KEY = "local";
 const HOLABOSS_PROXY_PROVIDER_ID = "holaboss_model_proxy";
 const DEFAULT_RUNTIME_STRUCTURED_RETRY_COUNT = 2;
 const DIRECT_OPENAI_FALLBACK_FLAG =
@@ -296,6 +303,7 @@ interface ConfiguredRuntimeProvider {
   apiKey: string;
   headers: Record<string, string>;
   routes: Record<string, string>;
+  local: boolean;
 }
 
 interface ConfiguredRuntimeModel {
@@ -410,6 +418,9 @@ function normalizeProviderKind(
   if (!normalizedKind && lowerBaseUrl.includes("model-proxy")) {
     return PROVIDER_KIND_HOLABOSS_PROXY;
   }
+  if (LOCAL_PROVIDER_KINDS.has(normalizedKind)) {
+    return PROVIDER_KIND_OPENAI_COMPATIBLE;
+  }
   if (
     normalizedKind === PROVIDER_KIND_OPENROUTER ||
     normalizedProviderId.includes("openrouter")
@@ -517,7 +528,11 @@ function assertCanonicalConfiguredModelId(
   modelId: string,
 ): void {
   const normalizedModelId = modelId.trim();
-  if (!normalizedModelId || !providerRequiresUnscopedModelId(provider.kind)) {
+  if (
+    !normalizedModelId ||
+    provider.local ||
+    !providerRequiresUnscopedModelId(provider.kind)
+  ) {
     return;
   }
   if (!normalizedModelId.includes("/")) {
@@ -633,15 +648,12 @@ function configuredRuntimeModelCatalog(
       ...asStringRecord(providerPayload.routes),
       ...asStringRecord(options.routes),
     };
-    const kind = normalizeProviderKind(
-      firstNonEmptyString(
-        providerPayload.kind as string | undefined,
-        providerPayload.type as string | undefined,
-        options.kind as string | undefined,
-      ),
-      providerId,
-      baseUrl,
+    const rawKind = firstNonEmptyString(
+      providerPayload.kind as string | undefined,
+      providerPayload.type as string | undefined,
+      options.kind as string | undefined,
     );
+    const kind = normalizeProviderKind(rawKind, providerId, baseUrl);
     const headers = withOpenRouterAttributionHeaders(kind, {
       ...asStringRecord(providerPayload.headers),
       ...asStringRecord(options.headers),
@@ -653,6 +665,12 @@ function configuredRuntimeModelCatalog(
       apiKey,
       headers,
       routes,
+      local:
+        kind !== PROVIDER_KIND_HOLABOSS_PROXY &&
+        (providerPayload.local === true ||
+          options.local === true ||
+          LOCAL_PROVIDER_KINDS.has(rawKind.toLowerCase()) ||
+          isLocalModelEndpoint(baseUrl)),
     });
   }
 
@@ -677,8 +695,9 @@ function configuredRuntimeModelCatalog(
         apiKey: legacyAuthToken,
         headers: {},
         routes: {},
+        local: false,
       });
-    } else {
+    } else if (!current.local) {
       providers.set(legacyProviderId, {
         ...current,
         baseUrl: current.baseUrl || legacyBaseUrl,
@@ -1212,6 +1231,12 @@ function configuredProviderFallbackCredentials(
 ): { apiKey: string; baseRoot: string } {
   const normalizedModelProxyProvider =
     normalizeModelProxyProvider(modelProxyProvider);
+  if (provider.local) {
+    return {
+      apiKey: provider.apiKey || LOCAL_PROVIDER_PLACEHOLDER_API_KEY,
+      baseRoot: withDefaultHttpScheme(provider.baseUrl).replace(/\/+$/, ""),
+    };
+  }
   if (provider.kind === PROVIDER_KIND_OPENROUTER) {
     return {
       apiKey: firstNonEmptyString(
@@ -1277,7 +1302,7 @@ function configuredDirectProviderBaseUrl(
   baseRoot: string,
 ): string {
   const normalizedProvider = normalizeModelProxyProvider(modelProxyProvider);
-  if (provider.kind === PROVIDER_KIND_OPENROUTER) {
+  if (provider.local || provider.kind === PROVIDER_KIND_OPENROUTER) {
     return normalizeDirectProviderBaseUrl(baseRoot, normalizedProvider);
   }
   return baseUrlForProvider(baseRoot, normalizedProvider);
@@ -1767,6 +1792,7 @@ export function projectAgentRuntimeConfig(
     operatorSurfaceContext: request.operator_surface_context ?? null,
     pendingUserMemoryContext: request.pending_user_memory_context ?? null,
     sessionAttachmentContext: request.session_attachment_context ?? null,
+    evaluationContext: request.evaluation_context ?? null,
     capabilityManifest,
     delegatedCapabilityManifest,
     toolNodeContext: toolNodeContextForPrompt,
