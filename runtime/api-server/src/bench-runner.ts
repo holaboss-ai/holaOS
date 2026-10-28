@@ -388,7 +388,7 @@ export class BenchRunner {
       if (suite.platforms && !suite.platforms.includes(platform)) {
         throw new BenchError(
           "unsupported_platform",
-          "The coding scenario runs only on macOS for now. It's coming to Windows in November.",
+          "The coding scenario runs on macOS only for now; it needs a sandbox we haven't shipped for Windows yet.",
           { platforms: [...suite.platforms] },
         );
       }

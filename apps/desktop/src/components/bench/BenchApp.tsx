@@ -336,7 +336,7 @@ function SuitePicker({ suite, onChange }: { suite: string; onChange: (suite: str
           </button>
         ))}
       </div>
-      {IS_MAC ? null : <span className="text-muted-foreground text-xs">Coding scenario: coming to Windows in November.</span>}
+      {IS_MAC ? null : <span className="text-muted-foreground text-xs">The coding scenario runs on macOS only for now; it needs a sandbox we haven't shipped for Windows yet.</span>}
     </div>
   );
 }
