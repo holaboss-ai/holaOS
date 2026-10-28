@@ -63,7 +63,7 @@ def build_run_record(*, run_id, bench, subject, digest, evidence, client, artifa
             "settings": {
                 **bench["request"],
                 "warmup_load_ms": bench["warmup_load_ms"],
-                **({"sandbox": bench["sandbox"]} if bench.get("sandbox") else {}),
+                **({"sandbox": bench["sandbox"]} if js_truthy(bench.get("sandbox")) else {}),
             },
         },
         "runtime": {
@@ -83,6 +83,12 @@ def build_run_record(*, run_id, bench, subject, digest, evidence, client, artifa
         "finished_at": bench["finished_at"],
         "wall_seconds": bench["wall_seconds"],
     }
+
+
+def js_truthy(value):
+    """JavaScript's truthiness, where an empty object or list is true."""
+    return value is not None and value is not False and value != "" and not (
+        isinstance(value, (int, float)) and (value == 0 or value != value))
 
 
 def js_round(x):

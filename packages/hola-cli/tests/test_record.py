@@ -10,30 +10,41 @@ SUBJECT = {
 }
 
 
-def read(name):
-    return json.loads((support.PARITY / name).read_text(encoding="utf-8"))
+def read(name, fixture=""):
+    return json.loads((support.PARITY / fixture / name).read_text(encoding="utf-8"))
 
 
 @unittest.skipUnless(support.PARITY.is_dir(), "the parity golden lives in the holaOS repo")
 class ParityGoldenTest(unittest.TestCase):
-    def build(self, client):
-        inputs = read("inputs.json")
+    def build(self, client, fixture=""):
+        inputs = read("inputs.json", fixture)
         return record.build_run_record(
-            run_id=inputs["run_id"], bench=read("bench-output.json"), subject=read("subject.json"),
-            digest=inputs["digest"], evidence=read("evidence.json"), client=client,
-            artifacts={"recording": None, "cards": [], "highlights": record.bench_highlights(inputs["events"])},
+            run_id=inputs["run_id"], bench=read("bench-output.json", fixture), subject=read("subject.json", fixture),
+            digest=inputs["digest"], evidence=read("evidence.json", fixture), client=client,
+            artifacts={"recording": None, "cards": [], "highlights": record.bench_highlights(inputs["events"]),
+                       **inputs.get("artifacts", {})},
             conditions=inputs["conditions"])
 
     def test_the_cli_builds_the_exact_run_record_the_desktop_test_expects(self):
-        built = self.build(read("inputs.json")["client"])
-        expected = (support.PARITY / "run-record.json").read_text(encoding="utf-8")
-        self.assertEqual(record.dumps(built, sort_keys=True), expected)
+        for fixture in ("", "coding"):
+            with self.subTest(fixture=fixture or "standard"):
+                built = self.build(read("inputs.json", fixture)["client"], fixture)
+                expected = (support.PARITY / fixture / "run-record.json").read_text(encoding="utf-8")
+                self.assertEqual(record.dumps(built, sort_keys=True), expected)
 
     def test_the_client_is_the_only_field_that_differs(self):
         desktop = self.build({"app": "holaOS", "version": "0.9.0"})
         cli = self.build({"app": "hola-cli", "version": "0.1.0"})
         cli["runtime"]["client"] = desktop["runtime"]["client"]
         self.assertEqual(record.dumps(cli), record.dumps(desktop))
+
+    def test_sandbox_evidence_follows_javascripts_truthiness(self):
+        bench = read("bench-output.json", "coding")
+        build = lambda sandbox: record.build_run_record(
+            run_id="r", bench={**bench, "sandbox": sandbox}, subject=read("subject.json", "coding"), digest=None,
+            evidence={"kind": "local", "provider": {}}, client={}, artifacts={}, conditions={})
+        self.assertEqual(build({})["test_agent"]["settings"]["sandbox"], {})
+        self.assertNotIn("sandbox", build(None)["test_agent"]["settings"])
 
 
 class RunRecordTest(unittest.TestCase):

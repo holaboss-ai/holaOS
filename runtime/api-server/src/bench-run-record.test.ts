@@ -115,19 +115,21 @@ function canonicalJson(value: unknown): string {
   return `${JSON.stringify(sortKeys(value), null, 2)}\n`;
 }
 
-test("parity golden: the desktop builds the exact Run Record the hola CLI's test expects", () => {
-  const dir = path.join(here, "__fixtures__", "parity");
-  const read = (name: string) => JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
-  const inputs = read("inputs.json");
-  const built = buildRunRecord({
-    runId: inputs.run_id,
-    bench: read("bench-output.json"),
-    subject: read("subject.json"),
-    digest: inputs.digest,
-    evidence: read("evidence.json"),
-    client: inputs.client,
-    artifacts: { recording: null, cards: [], highlights: benchHighlights(inputs.events) },
-    conditions: inputs.conditions,
+for (const fixture of ["parity", "parity/coding"]) {
+  test(`parity golden (${fixture}): the desktop builds the exact Run Record the hola CLI's test expects`, () => {
+    const dir = path.join(here, "__fixtures__", fixture);
+    const read = (name: string) => JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+    const inputs = read("inputs.json");
+    const built = buildRunRecord({
+      runId: inputs.run_id,
+      bench: read("bench-output.json"),
+      subject: read("subject.json"),
+      digest: inputs.digest,
+      evidence: read("evidence.json"),
+      client: inputs.client,
+      artifacts: { recording: null, cards: [], highlights: benchHighlights(inputs.events), ...inputs.artifacts },
+      conditions: inputs.conditions,
+    });
+    assert.equal(canonicalJson(built), fs.readFileSync(path.join(dir, "run-record.json"), "utf8"));
   });
-  assert.equal(canonicalJson(built), fs.readFileSync(path.join(dir, "run-record.json"), "utf8"));
-});
+}
