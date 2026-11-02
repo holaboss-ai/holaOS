@@ -17,6 +17,17 @@ test("Atlas Cloud preset uses the OpenAI-compatible endpoint", () => {
   });
 });
 
+test("Runcrate preset uses the OpenAI-compatible endpoint", () => {
+  assert.deepEqual(providerFormPreset("runcrate"), {
+    id: "runcrate",
+    label: "Runcrate",
+    displayName: "Runcrate",
+    providerType: "openai_compatible",
+    apiHost: "https://api.runcrate.ai/v1",
+    keyPlaceholder: "rc_…",
+  });
+});
+
 test("unknown provider presets fall back to an empty custom form", () => {
   const preset = providerFormPreset("unknown");
 
