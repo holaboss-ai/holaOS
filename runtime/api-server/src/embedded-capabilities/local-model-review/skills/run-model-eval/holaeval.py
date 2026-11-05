@@ -392,11 +392,19 @@ def code_block(text):
 
 
 def run_python_tests(code, tests, timeout=10):
-    with tempfile.TemporaryDirectory() as d:
+    # On a cloud worker the model's code runs as nobody, with no network and none of the worker's environment.
+    confine = linux_confinement() if linux_root() else None
+    with tempfile.TemporaryDirectory(dir="/tmp" if confine else None) as d:
         path = Path(d) / "solution.py"
         path.write_text(code + "\n\n" + tests + "\nprint('ALL_PASS')\n")
+        kwargs = {}
+        if confine:
+            os.chmod(d, 0o711)
+            os.chmod(path, 0o644)
+            kwargs = {"env": {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}, "preexec_fn": confine}
         try:
-            out = subprocess.run([sys.executable, "-I", str(path)], cwd=d, capture_output=True, text=True, timeout=timeout)
+            out = subprocess.run([sys.executable, "-I", str(path)], cwd=d, capture_output=True, text=True, timeout=timeout,
+                                 **kwargs)
         except subprocess.TimeoutExpired:
             return False, "tests timed out"
         if out.returncode == 0 and "ALL_PASS" in out.stdout:
@@ -1172,6 +1180,11 @@ def cmd_bench(args):
     root = server_root(args.base_url.strip().rstrip("/"))
     pack_path = Path(args.pack)
     pack = load_pack(pack_path)
+    sandboxed = linux_root() and any((t.get("grader") or {}).get("type") == "python_tests" for t in pack["tasks"])
+    if sandboxed:
+        problem = linux_sandbox_problem(None)
+        if problem:
+            sys.exit(f"{pack['id']} runs model-written code and {problem}")
     subject = json.loads(Path(args.subject).read_text()) if args.subject else {}
     model = args.model
     emit = Emitter()
@@ -1180,7 +1193,8 @@ def cmd_bench(args):
     capabilities = show.get("capabilities") or []
     sampling = {k: v for k, v in dict(pack.get("sampling") or {}, **(subject.get("sampling") or {})).items() if k in SAMPLING_OPTIONS}
     extra = {"think": subject["think"]} if "think" in subject else {}
-    base_options = {"num_ctx": pack["num_ctx"]}
+    threads = {"num_thread": args.num_thread} if getattr(args, "num_thread", None) else {}
+    base_options = {"num_ctx": pack["num_ctx"], **threads}
     samples = args.samples or pack.get("samples", 3)
     machine = machine_info()
     load = LoadSampler(getattr(args, "ollama_pid", None))
@@ -1214,9 +1228,11 @@ def cmd_bench(args):
         "test_agent": {"executor": f"holaeval@{HOLAEVAL_VERSION}", "judge": f"holaeval@{HOLAEVAL_VERSION}"},
         "model": model,
         "capabilities": capabilities,
-        "request": {"num_ctx": pack["num_ctx"], "sampling": sampling, "samples": samples, "keep_alive": BENCH_KEEP_ALIVE, **extra},
+        "request": {"num_ctx": pack["num_ctx"], "sampling": sampling, "samples": samples, "keep_alive": BENCH_KEEP_ALIVE, **extra,
+                    **threads},
         "warmup_load_ms": round(warm["load_s"] * 1000),
         "machine": machine,
+        **({"sandbox": {"os": LINUX_SANDBOX, "audit_hook": False, "network": False}} if sandboxed else {}),
         "conditions": median_load([run for r in results if r["kind"] == "speed" for run in r["metrics"]["runs"]]),
         "results": results,
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
@@ -2452,13 +2468,94 @@ def sbpl_string(path):
     return '"' + path.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def linux_confinement():
+    """Built in the parent: preexec_fn runs after a fork, where importing or loading a library can deadlock."""
+    import ctypes
+    import errno
+    import resource
+    import socket
+    import struct
+    arch, socket_nr = {"x86_64": (0xC000003E, 41), "aarch64": (0xC00000B7, 198)}[platform.machine()]
+    deny, allow = 0x00050000 | errno.EPERM, 0x7FFF0000
+    load, jeq, jge, ret = 0x20, 0x15, 0x35, 0x06
+
+    def ins(code, k=0, jt=0, jf=0):
+        return struct.pack("=HBBI", code, jt, jf, k)
+
+    # Seccomp, because a network namespace needs CAP_SYS_ADMIN and containers rarely grant it. x32 syscall
+    # numbers would dodge the checks, and io_uring can open sockets without socket().
+    program = b"".join([
+        ins(load, 4), ins(jeq, arch, 1, 0), ins(ret, deny),
+        ins(load, 0), ins(jge, 0x40000000, 0, 1), ins(ret, deny),
+        ins(jeq, 425, 0, 1), ins(ret, deny),
+        ins(jeq, socket_nr, 1, 0), ins(ret, allow),
+        ins(load, 16), ins(jeq, socket.AF_UNIX, 0, 1), ins(ret, allow), ins(ret, deny),
+    ])
+
+    class Prog(ctypes.Structure):
+        _fields_ = [("len", ctypes.c_ushort), ("filter", ctypes.c_void_p)]
+
+    buffer = ctypes.create_string_buffer(program, len(program))
+    prog = Prog(len(program) // 8, ctypes.cast(buffer, ctypes.c_void_p))
+    libc = ctypes.CDLL(None, use_errno=True)
+
+    def apply():
+        # PR_SET_NO_NEW_PRIVS, then PR_SET_SECCOMP with SECCOMP_MODE_FILTER.
+        if libc.prctl(38, 1, 0, 0, 0) != 0 or libc.prctl(22, 2, ctypes.byref(prog), 0, 0) != 0:
+            raise OSError(ctypes.get_errno(), "seccomp filter refused")
+        os.setgroups([])
+        os.setgid(SANDBOX_UID)
+        os.setuid(SANDBOX_UID)
+        resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+        resource.setrlimit(resource.RLIMIT_AS, (4 << 30, 4 << 30))
+
+    # prog holds a raw pointer into this buffer.
+    apply.program = buffer
+    return apply
+
+
+SANDBOX_UID = 65534
+LINUX_SANDBOX = "linux-uid-seccomp"
+
+
+def linux_root():
+    """A cloud worker: only root can drop the model's code to an unprivileged user."""
+    return sys.platform.startswith("linux") and os.geteuid() == 0
+LINUX_SMOKE = r'''
+import os, socket, sys
+
+def refused(fn):
+    try:
+        fn()
+    except OSError:
+        return True
+    return False
+
+home, pack = sys.argv[1:3]
+escapes = []
+if not refused(lambda: socket.socket(socket.AF_INET)):
+    escapes.append("opened a network socket")
+if not refused(lambda: open(os.path.join(home, ".holaeval-smoke"), "w")):
+    escapes.append("wrote to the home directory")
+if not refused(lambda: os.listdir(pack)):
+    escapes.append("read the test pack")
+print("; ".join(escapes) or "ok")
+'''
+
+
 class CodeSandbox:
-    """Runs unittest on a fresh copy of the repo. Every platform gets the audit-hook guard and a
-    stripped environment; macOS adds a Seatbelt profile (no network, no exec, writes only in the copy)."""
+    """Runs unittest on a fresh copy of the repo. Every platform gets the audit-hook guard and a stripped
+    environment. macOS adds a Seatbelt profile (no network, no exec, writes only in the copy). Linux as root,
+    which is a cloud worker, runs tests as an unprivileged user with no network, unable to read the pack."""
 
     OUTPUT_TAIL = 65536
 
     def __init__(self, work, deny_read=None, os_sandbox=True, python=None, cpu_seconds=20):
+        self.linux = bool(os_sandbox) and linux_root()
+        if self.linux:
+            # Under /tmp because the unprivileged user can't traverse the run's own directory in root's home.
+            work = tempfile.mkdtemp(prefix="holaeval-sandbox-", dir="/tmp")
+            os.chmod(work, 0o711)
         Path(work).mkdir(parents=True, exist_ok=True)
         self.work = Path(os.path.realpath(work))
         self.python = os.path.realpath(python or sys.executable)
@@ -2467,10 +2564,17 @@ class CodeSandbox:
         self.boot = self.work / "sandbox_boot.py"
         self.boot.write_text(SANDBOX_BOOT)
         self.seatbelt = bool(os_sandbox) and sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec")
+        self.confine = None
+        if self.linux:
+            os.chmod(self.boot, 0o644)
+            if self.deny_read:
+                os.chmod(self.deny_read, 0o700)
+            self.confine = linux_confinement()
 
     @property
     def evidence(self):
-        return {"os": "seatbelt" if self.seatbelt else None, "audit_hook": True, "network": False if self.seatbelt else None}
+        layer = "seatbelt" if self.seatbelt else LINUX_SANDBOX if self.linux else None
+        return {"os": layer, "audit_hook": True, "network": False if layer else None}
 
     def profile(self, run_dir):
         prefix = os.path.dirname(os.path.dirname(self.python))
@@ -2489,6 +2593,8 @@ class CodeSandbox:
                     resource.setrlimit(getattr(resource, name), (value, value))
                 except (ValueError, OSError):
                     pass
+        if self.confine:
+            self.confine()
 
     def run(self, files, names=(), verbosity=2, timeout=20):
         run_dir = self.work / "run"
@@ -2496,6 +2602,10 @@ class CodeSandbox:
         repo, tmp = run_dir / "repo", run_dir / "tmp"
         materialize(files, repo)
         (tmp / "home").mkdir(parents=True)
+        if self.linux:
+            for root, _dirs, names_here in os.walk(run_dir):
+                for path in (root, *(os.path.join(root, name) for name in names_here)):
+                    os.chown(path, SANDBOX_UID, SANDBOX_UID)
         nonce = os.urandom(8).hex()
         env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp / "home"), "TMPDIR": str(tmp), "LANG": "C.UTF-8",
                "PYTHONDONTWRITEBYTECODE": "1", "PYTHONHASHSEED": "0", "HOLAEVAL_SANDBOX_NONCE": nonce}
@@ -2527,6 +2637,26 @@ class CodeSandbox:
         text = tag.sub("", text).rstrip()
         return {"timed_out": timed_out, "returncode": proc.returncode, "result": result, "output": text,
                 "denials": text.count("PermissionError: sandbox: ")}
+
+
+def linux_sandbox_problem(deny_read):
+    """Why the Linux layer can't hold here, or None. With no audit hook to help, a confined child must fail every escape."""
+    if os.geteuid() != 0:
+        return "needs root to run tests as an unprivileged user (a cloud worker runs as root)"
+    try:
+        box = CodeSandbox("", deny_read=deny_read, cpu_seconds=10)
+    except (KeyError, OSError) as exc:
+        return f"can't set up its Linux sandbox here ({exc!r})"
+    try:
+        proc = subprocess.run([box.python, "-I", "-B", "-c", LINUX_SMOKE, os.path.expanduser("~root"), box.deny_read], cwd=box.work,
+                              env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}, capture_output=True, text=True, timeout=20,
+                              preexec_fn=box.limits)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"couldn't start a confined process ({exc})"
+    finally:
+        shutil.rmtree(box.work, ignore_errors=True)
+    out = proc.stdout.strip()
+    return None if out == "ok" else f"failed its Linux sandbox smoke test ({out or proc.stderr.strip()[-200:]})"
 
 
 def test_module(target):
@@ -2835,20 +2965,23 @@ def cmd_code(args):
     pack_path = Path(args.pack)
     pack = load_code_pack(pack_path)
     if args.engine == "ollama" and not args.no_os_sandbox and sys.platform != "darwin":
-        sys.exit("suite-coding runs model-written code and needs the macOS sandbox; pass --no-os-sandbox to rely on the Python guard only")
+        problem = linux_sandbox_problem(pack["_root"]) if sys.platform.startswith("linux") else "needs the macOS sandbox"
+        if problem:
+            sys.exit(f"suite-coding runs model-written code and {problem}; pass --no-os-sandbox to rely on the Python guard only")
     subject = json.loads(Path(args.subject).read_text()) if args.subject else {}
     model = args.model
     emit = Emitter()
     started = time.time()
     sampling = {k: v for k, v in dict(pack.get("sampling") or {}, **(subject.get("sampling") or {})).items() if k in SAMPLING_OPTIONS}
     extra = {"think": subject["think"]} if "think" in subject else {}
+    threads = {"num_thread": args.num_thread} if getattr(args, "num_thread", None) else {}
     samples = args.samples or pack["samples"]
     machine = machine_info()
     warm_ms = None
     if args.engine == "ollama":
         root = server_root(args.base_url.strip().rstrip("/"))
         capabilities = http_json(root + "/api/show", {"model": model}, timeout=60).get("capabilities") or []
-        engine = OllamaCodeEngine(root, model, dict({"num_ctx": pack["num_ctx"]}, **sampling), extra, emit)
+        engine = OllamaCodeEngine(root, model, dict({"num_ctx": pack["num_ctx"], **threads}, **sampling), extra, emit)
     else:
         capabilities = ["completion", "tools"]
         engine = OpenAICodeEngine(normalize_base(args.base_url), model, sampling)
@@ -2857,7 +2990,7 @@ def cmd_code(args):
         emit.task = "warmup"
         emit("task_start", task="warmup", kind="warmup")
         warm = ollama_chat(root, {"model": model, "messages": [{"role": "user", "content": "Reply with OK."}],
-                                  "options": {"num_ctx": pack["num_ctx"], "temperature": 0, "num_predict": 16},
+                                  "options": {"num_ctx": pack["num_ctx"], **threads, "temperature": 0, "num_predict": 16},
                                   "keep_alive": BENCH_KEEP_ALIVE, **extra})
         warm_ms = round(warm["load_s"] * 1000)
         emit("task_done", task="warmup", kind="warmup", load_ms=warm_ms)
@@ -2899,7 +3032,7 @@ def cmd_code(args):
         "engine": args.engine,
         "capabilities": capabilities,
         "request": {"num_ctx": pack["num_ctx"], "sampling": sampling, "samples": samples, "keep_alive": BENCH_KEEP_ALIVE,
-                    **extra, "budgets": pack["budgets"]},
+                    **extra, **threads, "budgets": pack["budgets"]},
         "warmup_load_ms": warm_ms,
         "machine": machine,
         "sandbox": sandbox_evidence,
@@ -3335,6 +3468,10 @@ def selftest_bench():
     assert record["suite"]["id"] == "suite-standard" and len(record["suite"]["sha256"]) == 64
     kinds = [e["event"] for e in events]
     assert kinds[0] == "start" and kinds[-1] == "done" and "text" in kinds and kinds.count("sample_done") == 9
+    assert not any("num_thread" in body["options"] for body in chats) and "num_thread" not in record["request"]
+    record, _, requests = bench(["completion", "tools"], only="code-intervals", num_thread=8)
+    chats = [body for path, body in requests if path == "/api/chat"]
+    assert chats and all(body["options"]["num_thread"] == 8 for body in chats) and record["request"]["num_thread"] == 8
     assert sum(e["n"] for e in events if e["event"] == "text" and e["task"] == "speed@0") == 4 * 256
     done = [e for e in events if e["event"] == "request_done"]
     assert [e["task"] for e in done].count("warmup") == 1 and len(done) == 1 + 8 + 9, len(done)
@@ -3727,6 +3864,7 @@ def main():
     p.add_argument("--pack", default=str(DEFAULT_SUITE))
     p.add_argument("--subject")
     p.add_argument("--ollama-pid", dest="ollama_pid", type=int)
+    p.add_argument("--num-thread", dest="num_thread", type=int)
     p.add_argument("--out", required=True)
     p.add_argument("--label", default="main")
     p.add_argument("--samples", type=int)
@@ -3745,6 +3883,7 @@ def main():
     p.add_argument("--engine", choices=["ollama", "openai"], default="ollama",
                    help="openai is for calibration against an API model; its results are marked calibration_only")
     p.add_argument("--no-os-sandbox", dest="no_os_sandbox", action="store_true")
+    p.add_argument("--num-thread", dest="num_thread", type=int)
     p.set_defaults(fn=cmd_code)
     p = sub.add_parser("codepack")
     p.add_argument("--pack", default=str(DEFAULT_CODE_SUITE))
