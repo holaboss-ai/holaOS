@@ -1,8 +1,8 @@
-"""Signing in to HolaHub and publishing a run.
+"""Signing in to the hub with the OAuth device flow.
 
-`benchclub login` uses the OAuth device flow (RFC 8628), so it works over SSH on a machine with no
-browser: it prints a code, and the person approves it on any device. HolaHub scopes the session
-it gets to publishing runs, saying who it is, and signing out.
+`benchclub login` works over SSH on a machine with no browser: it prints a code, and the person
+approves it on any device. The hub scopes the session to claiming jobs, saying who it is, and signing
+out. Submitting a run is a separate, claim-first flow — see submit.py.
 """
 
 import json
@@ -13,15 +13,12 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-from benchclub import __version__, hub, paths, runs
+from benchclub import __version__, hub, paths
 from benchclub.errors import HolaError
-from benchclub.record import publish_blockers
 
-CLIENT_ID = "benchclub"
+CLIENT_ID = "benchclub-cli"
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 TIMEOUT_S = 30
-
-SIGN_IN = "Run `benchclub login`, then publish again."
 
 
 def _json(raw):
@@ -161,7 +158,7 @@ def _finish_login(token, out):
     _remember(token, user)
     if previous and previous["token"] != token:
         _revoke(previous["token"])
-    out.good(f"Signed in as {user.get('name') or 'you'}. `benchclub publish` can now put your runs on HolaHub.")
+    out.good(f"Signed in as {user.get('name') or 'you'}. `benchclub run <code>` can now submit runs to the hub.")
     return user
 
 
@@ -173,52 +170,6 @@ def logout():
     _revoke(session["token"])
     _forget()
     return True
-
-
-def publish_run(run_dir, record=None):
-    """Uploads the run's record and returns its HolaHub page. HolaHub draws the cards."""
-    record = record if record is not None else runs.read_record(run_dir)
-    if record is None:
-        raise HolaError("not_found", f"Couldn't read the run in {paths.display(run_dir)}.", "See your runs with `benchclub runs`.")
-    blockers = publish_blockers(record)
-    if blockers:
-        raise HolaError("not_publishable", f"This run can't be published: {'; '.join(blockers)}.",
-                        "It stays on this machine. `benchclub eval` again makes a run you can publish.")
-    session = saved_session()
-    if session is None:
-        raise HolaError("not_signed_in", "You're not signed in to HolaHub.", SIGN_IN)
-    policy = hub.fetch_cli_policy()
-    if hub.version_status(policy)["can_publish"] is False:
-        raise hub.publish_refusal("client_too_old", record, {"min_publish": policy["min_publish"]})
-    user = whoami(session["token"])
-    if user is None:
-        raise HolaError("signed_out", "Your sign-in has expired or was signed out.", SIGN_IN)
-    status, body = _request("POST", "/gateway/hub/bench/runs", token=session["token"], body={
-        "run_record": record, "submitter_name": user.get("name") or "",
-    })
-    body = body if isinstance(body, dict) else {}
-    if status in (200, 201) and body.get("id"):
-        url = f"{hub.hub_base()}/bench/runs/{body['id']}"
-        runs.mark_published(run_dir, url)
-        return url
-    raise _refusal(status, body, record)
-
-
-def _refusal(status, body, record):
-    if status == 401:
-        return HolaError("signed_out", "Your sign-in has expired or was signed out.", SIGN_IN)
-    if status == 422:
-        details = {key: value for key, value in body.items() if key not in ("error", "message")}
-        return hub.publish_refusal(body.get("error") or "unknown", record, details)
-    if status == 409:
-        return HolaError("run_taken", "This run was already published from a different HolaHub account.",
-                         "Sign in with that account, or run the benchmark again.")
-    if status == 400:
-        issue = (body.get("issues") or [{}])[0]
-        detail = f" ({issue.get('message')})" if isinstance(issue, dict) and issue.get("message") else ""
-        return HolaError("invalid_run", f"HolaHub couldn't read this run record{detail}.",
-                         "Update benchclub, run the benchmark again, then publish the new run.")
-    return HolaError("publish_failed", f"HolaHub couldn't take the run right now (HTTP {status}).", "Try again in a minute.")
 
 
 def _emit(value):
@@ -261,27 +212,13 @@ def cmd_whoami(args, out):
     return 0
 
 
-def cmd_publish(args, out):
-    run_dir, record = runs.resolve(args.run)
-    url = publish_run(run_dir, record)
-    if args.json:
-        _emit({"ok": True, "run_id": record.get("run_id"), "url": url})
-    else:
-        out.good(f"Published: {url}")
-    return 0
-
-
 def add_commands(sub):
-    """Registers login, logout, whoami and publish on cli.py's subparsers."""
+    """Registers login, logout and whoami on cli.py's subparsers."""
     for name, fn, help_text in (
-        ("login", cmd_login, "sign in to HolaHub with a code you approve on any device"),
-        ("logout", cmd_logout, "sign out of HolaHub and delete the saved token"),
-        ("whoami", cmd_whoami, "show who you're signed in to HolaHub as"),
+        ("login", cmd_login, "sign in to the hub with a code you approve on any device"),
+        ("logout", cmd_logout, "sign out of the hub and delete the saved token"),
+        ("whoami", cmd_whoami, "show who you're signed in to the hub as"),
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--json", action="store_true")
         p.set_defaults(fn=fn)
-    p = sub.add_parser("publish", help="put a saved run on HolaHub")
-    p.add_argument("run", help='a run id, a unique prefix of one, or "latest"')
-    p.add_argument("--json", action="store_true")
-    p.set_defaults(fn=cmd_publish)
