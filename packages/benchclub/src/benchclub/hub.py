@@ -9,7 +9,7 @@ import re
 import urllib.parse
 import urllib.request
 
-from benchclub import __version__, pinned
+from benchclub import __version__, paths, pinned
 from benchclub.errors import HolaError
 from benchclub.ollama import compare_versions
 
@@ -18,16 +18,36 @@ DEFAULT_API = "https://api.holaos.ai"
 TIMEOUT_S = 10
 
 
+def saved_hub(env=None):
+    """The hub `benchclub login --hub` remembered, or None."""
+    try:
+        config = json.loads(paths.config_path(env).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = config.get("hub") if isinstance(config, dict) else None
+    return value.rstrip("/") if isinstance(value, str) and value else None
+
+
+def remember_hub(url, env=None):
+    """Save the hub every later command talks to. Returns the normalized URL."""
+    parts = urllib.parse.urlsplit(url.strip())
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise HolaError("bad_hub", f"{url} isn't a hub address.", "Use the full address, e.g. https://hub.example.com.")
+    normalized = f"{parts.scheme}://{parts.netloc}{parts.path}".rstrip("/")
+    paths.write_private(paths.config_path(env), json.dumps({"hub": normalized}, indent=2))
+    return normalized
+
+
 def hub_base(env=None):
-    """HolaHub's site, where the subject configs are static files. Staging: BENCHCLUB_HUB=https://hub.imerchstaging.com"""
+    """Where subject configs are read: $BENCHCLUB_HUB, else the remembered hub, else HolaHub's site."""
     env = os.environ if env is None else env
-    return (env.get("BENCHCLUB_HUB") or DEFAULT_HUB).rstrip("/")
+    return (env.get("BENCHCLUB_HUB") or saved_hub(env) or DEFAULT_HUB).rstrip("/")
 
 
 def api_base(env=None):
     """The BFF in front of HolaHub's API (`<api>/gateway/hub/...`). Staging: BENCHCLUB_API=https://api.imerchstaging.com"""
     env = os.environ if env is None else env
-    return (env.get("BENCHCLUB_API") or DEFAULT_API).rstrip("/")
+    return (env.get("BENCHCLUB_API") or saved_hub(env) or DEFAULT_API).rstrip("/")
 
 
 def fetch_json(url, timeout=TIMEOUT_S):

@@ -178,6 +178,8 @@ def _emit(value):
 
 def cmd_login(args, out):
     progress = type(out)(sys.stderr) if args.json else out
+    if getattr(args, "hub", None):
+        hub.remember_hub(args.hub)
     user = login(progress)
     if args.json:
         _emit({"ok": True, "user": {"id": user.get("id"), "name": user.get("name")}, "api": hub.api_base()})
@@ -221,4 +223,6 @@ def add_commands(sub):
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--json", action="store_true")
+        if name == "login":
+            p.add_argument("--hub", metavar="URL", help="the hub to sign in to; later commands use it too")
         p.set_defaults(fn=fn)
