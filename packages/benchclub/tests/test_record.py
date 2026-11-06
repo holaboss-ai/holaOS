@@ -81,6 +81,22 @@ class GoldenTest(unittest.TestCase):
         self.assertEqual(record.events_canonical(native),
                          '{"event":"run_start","t":5}\n{"event":"task_done","passed":true,"sample":0,"t":7,"task":"t"}')
 
+    def test_lifecycle_events_never_reach_the_wire(self):
+        # engine run noise (phase, pull_progress, done, …) stays in the local record only — the leak that
+        # a lifecycle 'done' event's absolute path caused on the first real run cannot recur on the wire.
+        native = [{"type": "run_started", "at": 1, "seq": 1},
+                  {"type": "phase", "phase": "pulling", "at": 2, "seq": 2},
+                  {"type": "pull_progress", "status": "x", "at": 3, "seq": 3},
+                  {"type": "task_start", "task": "speed@0", "kind": "speed", "at": 4, "seq": 4},
+                  {"type": "done", "file": "/Users/someone/.benchclub/runs/r/bench-main.json", "at": 5, "seq": 5}]
+        self.assertEqual([w["event"] for w in record.wire_events(native)], ["run_start", "task_start"])
+
+    def test_wire_scrubs_the_home_prefix_from_every_string(self):
+        native = [{"type": "tool_result", "task": "csv-export", "sample": 0, "name": "read_file", "error": True,
+                   "summary": "could not open /home/alice/repo/x.py", "at": 9, "seq": 1}]
+        wire = record.wire_events(native, home="/home/alice")
+        self.assertEqual(wire[0]["summary"], "could not open ~/repo/x.py")
+
     def test_unsupported_task_omits_counts(self):
         engine_result = {"task": "tool-flight", "kind": "task", "category": "tool", "status": "unsupported",
                          "reason": "no tools", "pass": None, "passed": 0, "samples": 0, "score": None, "tokens": 0, "time": 0}

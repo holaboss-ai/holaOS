@@ -2,10 +2,10 @@
   "artifacts": null,
   "counted": null,
   "events": {
-    "bytes": 1489,
+    "bytes": 1126,
     "chunks": 0,
-    "last_seq": 18,
-    "sha256": "009774a8ac456323236f0f18ddf2d36b406aab327ad388f908f10d5eff892abb"
+    "last_seq": 12,
+    "sha256": "2690d0fc28c1a371af0bf81f23fe4e98770f2efe8c6f15d48eb31b06a01370ef"
   },
   "finished_at": "2026-10-27T05:33:17Z",
   "job_id": "local:6f1c2a9e-3b7d-4e1a-9c55-0d2f8e7a4b11",
@@ -15,8 +15,8 @@
   "results": [
     {
       "events": {
-        "from_seq": 9,
-        "to_seq": 12
+        "from_seq": 4,
+        "to_seq": 7
       },
       "kind": "speed",
       "metrics": {
@@ -83,8 +83,8 @@
     },
     {
       "events": {
-        "from_seq": 13,
-        "to_seq": 14
+        "from_seq": 8,
+        "to_seq": 9
       },
       "kind": "speed",
       "metrics": {
@@ -159,8 +159,8 @@
         {
           "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef merge_intervals(intervals):\n    out = []\n    for s, e in sorted(intervals):\n        if out and s <= out[-1][1]:\n            out[-1][1] = max(out[-1][1], e)\n        else:\n            out.append([s, e])\n    return out\n```",
           "events": {
-            "from_seq": 15,
-            "to_seq": 15
+            "from_seq": 10,
+            "to_seq": 10
           },
           "passed": true,
           "reason": null,
@@ -173,8 +173,8 @@
         {
           "content": "<think>先写测试：“merge” \t\\ \u0001 — ok</think>```python\ndef m",
           "events": {
-            "from_seq": 15,
-            "to_seq": 15
+            "from_seq": 10,
+            "to_seq": 10
           },
           "passed": true,
           "reason": null,
@@ -187,8 +187,8 @@
         {
           "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef m",
           "events": {
-            "from_seq": 15,
-            "to_seq": 15
+            "from_seq": 10,
+            "to_seq": 10
           },
           "passed": true,
           "reason": null,
@@ -218,8 +218,8 @@
         {
           "content": "",
           "events": {
-            "from_seq": 16,
-            "to_seq": 16
+            "from_seq": 11,
+            "to_seq": 11
           },
           "passed": false,
           "reason": "request failed: HTTP 500",
@@ -232,8 +232,8 @@
         {
           "content": "",
           "events": {
-            "from_seq": 16,
-            "to_seq": 16
+            "from_seq": 11,
+            "to_seq": 11
           },
           "passed": false,
           "reason": "request failed: HTTP 500",
@@ -246,8 +246,8 @@
         {
           "content": "",
           "events": {
-            "from_seq": 16,
-            "to_seq": 16
+            "from_seq": 11,
+            "to_seq": 11
           },
           "passed": false,
           "reason": "request failed: HTTP 500",
@@ -275,8 +275,8 @@
         {
           "content": "<think>maybe 0000-AA</think>7391-QX",
           "events": {
-            "from_seq": 17,
-            "to_seq": 17
+            "from_seq": 12,
+            "to_seq": 12
           },
           "passed": true,
           "reason": null,
@@ -289,8 +289,8 @@
         {
           "content": "<think>maybe 0000-AA</think>7391-QX",
           "events": {
-            "from_seq": 17,
-            "to_seq": 17
+            "from_seq": 12,
+            "to_seq": 12
           },
           "passed": true,
           "reason": null,
@@ -303,8 +303,8 @@
         {
           "content": "<think>maybe 0000-AA</think>7391-QX",
           "events": {
-            "from_seq": 17,
-            "to_seq": 17
+            "from_seq": 12,
+            "to_seq": 12
           },
           "passed": true,
           "reason": null,
