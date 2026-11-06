@@ -41,10 +41,10 @@ def _quiet(_kind, _data):
     pass
 
 
-def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_model=False, unload=None,
-             ignore_memory=False, ui=_quiet, confirm=lambda models: False, env=None, runs_root=None, state_dir=None,
-             find_binary=ollama.find_binary, port=None, user_url=None, cpu_busy=machine.measure_cpu_busy,
-             hardware=machine.machine_info):
+def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, job_id=None, placement="local", ollama_url=None,
+             keep_model=False, unload=None, ignore_memory=False, ui=_quiet, confirm=lambda models: False, env=None,
+             runs_root=None, state_dir=None, find_binary=ollama.find_binary, port=None, user_url=None,
+             cpu_busy=machine.measure_cpu_busy, hardware=machine.machine_info):
     """Runs the suite and saves the Run Record; returns the result `benchclub eval --json` prints."""
     env = dict(os.environ if env is None else env)
     try:
@@ -178,7 +178,7 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, ollama_url=None, keep_m
         status = "done"
         finalize(status)
         record = build_run_record(
-            run_id=run.run_id, job_id=f"local:{run.run_id}", placement="local", bench=bench, subject=subject,
+            run_id=run.run_id, job_id=job_id or f"local:{run.run_id}", placement=placement, bench=bench, subject=subject,
             digest=digest, evidence=evidence, client=dict(CLIENT), events=run.events,
             conditions={"cpu_busy_pct": cpu})
         record_path = run.run_dir / "run-record.json"

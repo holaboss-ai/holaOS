@@ -21,9 +21,9 @@ from benchclub.record import js_round
 from benchclub.errors import HolaError
 
 try:
-    from benchclub import account
+    from benchclub import account, submit
 except ImportError:
-    account = None
+    account = submit = None
 
 CODING_SUITES = {suite for suite, spec in pinned.SUITES.items() if spec["command"] == "code"}
 TASK_LABELS = {"code-intervals": "code", "tool-flight": "tool call", "needle-8k": "8K recall"}
@@ -280,8 +280,8 @@ def print_eval_result(result, versions, out, record=None):
     out.line()
     out.line(f"Saved {paths.display(result['record_path'])}")
     if result["publishable"]:
-        if account is not None:
-            out.line(f"Publish it: benchclub publish {result['run_id'][:8]}   (sign in first: benchclub login)")
+        out.line("This run stays on this machine. To put a run on the hub, create a job on the web and")
+        out.line("claim its code: benchclub run <code>   (sign in first: benchclub login)", indent=4)
     else:
         out.line(f"This run stays on this machine: {'; '.join(result['publish_blockers'])}.")
     if versions and versions["behind"]:
@@ -547,6 +547,8 @@ def parser():
         p.set_defaults(fn=fn)
     if account is not None:
         account.add_commands(sub)
+    if submit is not None:
+        submit.add_commands(sub)
     return ap
 
 

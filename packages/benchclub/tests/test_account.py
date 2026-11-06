@@ -14,10 +14,9 @@ from pathlib import Path
 from unittest import mock
 
 import support  # noqa: F401  (puts src/ on the path)
-from benchclub import account, cli, paths, runs
+from benchclub import account, cli, paths
 from benchclub.errors import HolaError
 
-RUN_ID = "6f1c2a9e-3b7d-4e1a-9c55-0d2f8e7a4b11"
 TOKEN = "hcli_tok"
 
 
@@ -27,9 +26,6 @@ class FakeHub:
     def __init__(self):
         self.polls = []  # what each /device/token poll answers, in order
         self.signed_out = set()
-        self.published = []
-        self.refuse = None  # (status, body) to answer the next publishes with
-        self.min_publish = "0.1.0"
 
     def handle(self, method, path, token, body):
         if (method, path) == ("POST", "/api/auth/device/code"):
@@ -38,8 +34,6 @@ class FakeHub:
                          "expires_in": 600, "interval": 5}
         if (method, path) == ("POST", "/api/auth/device/token"):
             return self.polls.pop(0) if self.polls else (400, {"error": "authorization_pending"})
-        if (method, path) == ("GET", "/gateway/hub/public/bench/cli.json"):
-            return 200, {"latest": "0.1.0", "min_publish": self.min_publish}
         signed_in = token is not None and token.startswith("hcli_") and token not in self.signed_out
         if (method, path) == ("GET", "/api/auth/get-session"):
             user = {"id": "u1", "name": "Sudo", "email": "sudo@example.com"}
@@ -47,13 +41,6 @@ class FakeHub:
         if (method, path) == ("POST", "/api/auth/sign-out"):
             self.signed_out.add(token)
             return 200, {"success": True}
-        if (method, path) == ("POST", "/gateway/hub/bench/runs"):
-            if not signed_in:
-                return 401, {"error": "Authentication required"}
-            if self.refuse:
-                return self.refuse
-            self.published.append(body)
-            return 201, {"id": body["run_record"]["run_id"]}
         return 404, {"error": "not_found"}
 
 
@@ -82,21 +69,6 @@ def serve(fake):
     return server
 
 
-def run_record(run_id=RUN_ID, started_at="2026-10-27T10:00:00Z", **overrides):
-    record = {
-        "schema": "benchclub.run-record/0.2", "run_id": run_id, "job_id": f"local:{run_id}", "placement": "local",
-        "started_at": started_at,
-        "suite": {"id": "suite-standard", "version": "1.0"},
-        "subject": {"id": "openbmb-minicpm5-2b", "name": "MiniCPM5-2B", "quant": "Q4_K_M", "version": "71a44e98400f",
-                    "digest_registered": True},
-        "runtime": {"client": {"app": "benchclub", "version": "0.1.0"},
-                    "provider": {"engine": "ollama", "version": "0.40.10", "managed": True}},
-        "results": [],
-    }
-    record.update(overrides)
-    return record
-
-
 class AccountTest(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp())
@@ -119,13 +91,6 @@ class AccountTest(unittest.TestCase):
     def signed_in(self):
         self.fake.polls = [(200, {"access_token": TOKEN})]
         self.login()
-
-    def save_run(self, record=None):
-        record = record or run_record()
-        run_dir = paths.runs_dir() / record["run_id"]
-        run_dir.mkdir(parents=True)
-        (run_dir / "run-record.json").write_text(json.dumps(record))
-        return run_dir
 
     def test_login_shows_the_code_waits_for_approval_and_saves_a_private_token(self):
         self.fake.polls = [(400, {"error": "authorization_pending"}), (400, {"error": "slow_down"}),
@@ -155,48 +120,6 @@ class AccountTest(unittest.TestCase):
         self.assertEqual(expired.exception.next_step, "Run `benchclub login` again.")
         self.assertFalse(paths.credentials_path().exists())
 
-    def test_a_signed_out_publish_says_how_to_sign_in(self):
-        with self.assertRaises(HolaError) as caught:
-            account.publish_run(self.save_run())
-        self.assertEqual(caught.exception.code, "not_signed_in")
-        self.assertIn("benchclub login", caught.exception.next_step)
-
-    def test_publish_uploads_the_record_as_is_and_returns_the_run_page(self):
-        self.signed_in()
-        self.save_run()
-        run_dir, record = runs.resolve("6f1c")
-        url = account.publish_run(run_dir, record)
-        self.assertEqual(url, f"https://hub.example/bench/runs/{RUN_ID}")
-        self.assertEqual(self.fake.published, [{"run_record": run_record(), "submitter_name": "Sudo"}])
-        self.assertEqual(runs.published(run_dir)["url"], url)
-
-    def test_a_run_holahub_would_refuse_never_leaves_the_machine(self):
-        self.signed_in()
-        unmanaged = run_record(runtime={"client": {"app": "benchclub", "version": "0.1.0"}, "provider": {"engine": "ollama"}})
-        with self.assertRaises(HolaError) as caught:
-            account.publish_run(self.save_run(unmanaged))
-        self.assertEqual(caught.exception.code, "not_publishable")
-        self.assertEqual(self.fake.published, [])
-
-    def test_a_refused_run_reads_holahubs_reason(self):
-        self.signed_in()
-        run_dir = self.save_run()
-        self.fake.refuse = (422, {"error": "unregistered_build", "message": "server wording"})
-        with self.assertRaises(HolaError) as caught:
-            account.publish_run(run_dir)
-        self.assertEqual(caught.exception.code, "unregistered_build")
-        self.assertIn("71a44e98400f", caught.exception.message)
-        self.assertIsNone(runs.published(run_dir))
-
-    def test_a_retired_version_is_refused_before_uploading(self):
-        self.signed_in()
-        self.fake.min_publish = "9.0.0"
-        with self.assertRaises(HolaError) as caught:
-            account.publish_run(self.save_run())
-        self.assertEqual(caught.exception.code, "client_too_old")
-        self.assertIn("9.0.0", caught.exception.message)
-        self.assertEqual(self.fake.published, [])
-
     def test_logout_revokes_the_session_and_deletes_the_token(self):
         self.signed_in()
         self.assertTrue(account.logout())
@@ -207,28 +130,23 @@ class AccountTest(unittest.TestCase):
     def test_a_token_revoked_elsewhere_reads_as_signed_out(self):
         self.signed_in()
         self.fake.signed_out.add(TOKEN)
-        with self.assertRaises(HolaError) as caught:
-            account.publish_run(self.save_run())
-        self.assertEqual(caught.exception.code, "signed_out")
+        self.assertIsNone(account.whoami(TOKEN))
 
-    def test_an_unreachable_holahub_names_the_host_and_what_to_check(self):
+    def test_an_unreachable_hub_names_the_host_and_what_to_check(self):
         with mock.patch.dict(os.environ, {"BENCHCLUB_API": "http://127.0.0.1:9"}):
             with self.assertRaises(HolaError) as caught:
                 self.login()
         self.assertEqual(caught.exception.code, "offline")
         self.assertIn("127.0.0.1:9", caught.exception.message)
 
-    def test_the_hola_command_wires_publish_whoami_and_logout_with_json(self):
+    def test_the_benchclub_command_wires_whoami_and_logout_with_json(self):
         self.signed_in()
-        self.save_run()
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
-            self.assertEqual(cli.main(["publish", "latest", "--json"]), 0)
             self.assertEqual(cli.main(["whoami", "--json"]), 0)
             self.assertEqual(cli.main(["logout", "--json"]), 0)
             self.assertEqual(cli.main(["whoami", "--json"]), 1)
-        published, me, out, after = json_documents(stdout.getvalue())
-        self.assertEqual(published, {"ok": True, "run_id": RUN_ID, "url": f"https://hub.example/bench/runs/{RUN_ID}"})
+        me, out, after = json_documents(stdout.getvalue())
         self.assertEqual(me["user"]["name"], "Sudo")
         self.assertEqual(out, {"ok": True, "was_signed_in": True})
         self.assertEqual(after["error"]["code"], "not_signed_in")
