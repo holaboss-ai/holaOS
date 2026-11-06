@@ -1,12 +1,12 @@
-"""Run Record assembly: a port of runtime/api-server/src/bench-run-record.ts.
+"""Run Record assembly: the CLI/runner is the sole writer of benchclub.run-record/0.2.
 
-The desktop and the CLI must write the same record for the same run; the parity golden in
-runtime/api-server/src/__fixtures__/parity/ is asserted byte for byte by both test suites.
+The record's goldens live with this package (tests/golden/); the desktop is out of scope (ruling D).
 """
 
 import hashlib
 import json
 import math
+from pathlib import Path
 
 RUN_RECORD_SCHEMA = "benchclub.run-record/0.2"
 
@@ -83,26 +83,50 @@ def jcs(value):
 
 _WIRE_NAME = {"run_started": "run_start", "run_finished": "run_done",
               "sample_done": "task_done", "attempt_start": "task_start"}
+# The only event names carried on the wire (contract: event-chunk/0.1 name table). Everything else is
+# engine lifecycle noise (phase/engine_ready/pull_progress/start/done …) that stays in the local record and
+# never reaches the server — regrade, seq anchoring and replay all key on these. tool_result is the paired
+# outcome of tool_call (agent-loop evidence); request_error is a reserved name this engine doesn't emit.
+_CANONICAL = {"run_start", "run_done", "task_start", "task_done", "text", "tool_call", "tool_result",
+              "request_error"}
+
+
+def _scrub_home(value, home):
+    """Replace the OS user-home prefix with '~' in every string, recursively — so no run leaks a username
+    into the uploaded log (defense-in-depth beside dropping lifecycle events; the first real run leaked a
+    $HOME path via a lifecycle 'file' field)."""
+    if isinstance(value, str):
+        return value.replace(home, "~") if home and home in value else value
+    if isinstance(value, dict):
+        return {k: _scrub_home(v, home) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_home(v, home) for v in value]
+    return value
 
 
 def _to_wire(event):
     """A persisted native event ({type, at, seq, ...}) → the event-chunk wire shape ({event, t, ...}),
-    or None when it isn't carried on the wire. Name table (contract round 3): run_start/run_done;
-    per-sample task_start/task_done (carry sample); warmup/speed task boundaries keep task_start/task_done
-    with no sample; the capability task-level aggregate (kind=task, no sample) is derivable from samples
-    and dropped. Transport fields (type, at, seq) become event and t; seq is positional on the wire."""
-    native = event.get("type")
-    if native in ("task_start", "task_done") and "sample" not in event and event.get("kind") == "task":
+    or None when it isn't carried on the wire. Only canonical names ride the wire; lifecycle events are
+    dropped. task_start/task_done come in two scopes: sample-scoped (capability samples, sample present)
+    and task-scoped (warmup/speed, no sample); the capability task-level aggregate (kind=task, no sample)
+    is derivable from samples and dropped. Transport fields (type, at, seq) become event and t; seq is
+    positional on the wire."""
+    name = _WIRE_NAME.get(event.get("type"), event.get("type"))
+    if name not in _CANONICAL:
+        return None
+    if name in ("task_start", "task_done") and "sample" not in event and event.get("kind") == "task":
         return None
     wire = {k: v for k, v in event.items() if k not in ("type", "at", "seq")}
-    wire["event"] = _WIRE_NAME.get(native, native)
+    wire["event"] = name
     wire["t"] = event.get("at")
     return wire
 
 
-def wire_events(events):
-    """The native stream normalized to the ordered event-chunk wire log (seq is positional, 0-based)."""
-    return [w for w in (_to_wire(e) for e in events) if w is not None]
+def wire_events(events, home=None):
+    """The native stream normalized to the ordered event-chunk wire log (seq is positional, 0-based),
+    with the uploader's home prefix scrubbed from every string value."""
+    home = str(Path.home()) if home is None else home
+    return [_scrub_home(w, home) for w in (_to_wire(e) for e in events) if w is not None]
 
 
 def events_canonical(events):

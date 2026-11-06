@@ -29,7 +29,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-HOLAEVAL_VERSION = "1.3.0"
+HOLAEVAL_VERSION = "1.3.1"
 HERE = Path(__file__).resolve().parent
 DEFAULT_PACK = HERE / "packs" / "general-v1.json"
 OTHER_VENDORS = {
@@ -1258,7 +1258,7 @@ def cmd_bench(args):
         "wall_seconds": round(time.time() - started, 1),
     }
     (out / f"bench-{args.label}.json").write_text(json.dumps(record, indent=2, ensure_ascii=False))
-    emit("done", file=str(out / f"bench-{args.label}.json"))
+    emit("done", file=f"bench-{args.label}.json")
 
 
 def bench_showcase(root, model, base_options, extra, emit):
@@ -3052,7 +3052,7 @@ def cmd_code(args):
     if args.engine != "ollama":
         record["calibration_only"] = True
     (out / f"code-{args.label}.json").write_text(json.dumps(record, indent=2, ensure_ascii=False))
-    emit("done", file=str(out / f"code-{args.label}.json"))
+    emit("done", file=f"code-{args.label}.json")
 
 
 # ---------- tables ----------
