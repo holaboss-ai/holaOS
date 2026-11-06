@@ -1,28 +1,20 @@
-name: hola-cli
+name: benchclub
 
 on:
   pull_request:
     paths:
-      - packages/hola-cli/**
-      - runtime/api-server/src/embedded-capabilities/local-model-review/skills/run-model-eval/**
-      - runtime/api-server/src/bench-conditions.json
-      - runtime/api-server/src/__fixtures__/parity/**
-      - apps/desktop/shared/bench-subjects.ts
-      - .github/workflows/hola-cli.yml
+      - packages/benchclub/**
+      - .github/workflows/benchclub.yml
   push:
     paths:
-      - packages/hola-cli/**
-      - runtime/api-server/src/embedded-capabilities/local-model-review/skills/run-model-eval/**
-      - runtime/api-server/src/bench-conditions.json
-      - runtime/api-server/src/__fixtures__/parity/**
-      - apps/desktop/shared/bench-subjects.ts
-      - .github/workflows/hola-cli.yml
+      - packages/benchclub/**
+      - .github/workflows/benchclub.yml
 
 permissions:
   contents: read
 
 concurrency:
-  group: hola-cli-${{ github.ref }}
+  group: benchclub-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -45,9 +37,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Engine copy matches the desktop's
-        working-directory: packages/hola-cli
+      - name: Engine manifest is current
+        working-directory: packages/benchclub
         run: python scripts/sync-engine.py --check
       - name: Unit tests
-        working-directory: packages/hola-cli
+        working-directory: packages/benchclub
         run: python -m unittest discover -s tests -v
