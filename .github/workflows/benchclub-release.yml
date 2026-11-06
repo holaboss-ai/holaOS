@@ -1,9 +1,9 @@
-name: hola-cli release
+name: benchclub release
 
 on:
   push:
     tags:
-      - "hola-cli-v*"
+      - "benchclub-v*"
 
 permissions:
   contents: read
@@ -21,24 +21,24 @@ jobs:
           node-version: 24
       - name: Tag matches the package version
         run: |
-          version=$(python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('packages/hola-cli/src/hola/__init__.py').read()).group(1))")
-          if [ "hola-cli-v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match hola-cli ${version} in src/hola/__init__.py"
+          version=$(python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('packages/benchclub/src/benchclub/__init__.py').read()).group(1))")
+          if [ "benchclub-v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match benchclub ${version} in src/benchclub/__init__.py"
             exit 1
           fi
-      - name: Engine copy matches the desktop's
-        working-directory: packages/hola-cli
+      - name: Engine manifest is current
+        working-directory: packages/benchclub
         run: python scripts/sync-engine.py --check
       - name: Unit tests
-        working-directory: packages/hola-cli
+        working-directory: packages/benchclub
         run: python -m unittest discover -s tests
       - name: Build sdist and wheel
         run: |
           python -m pip install build
-          python -m build packages/hola-cli --outdir dist
+          python -m build packages/benchclub --outdir dist
       - uses: actions/upload-artifact@v7
         with:
-          name: hola-cli-dist
+          name: benchclub-dist
           path: dist/
           if-no-files-found: error
 
@@ -48,12 +48,12 @@ jobs:
     # PyPI trusted publishing: the pending publisher on PyPI names this workflow file and this environment.
     environment:
       name: pypi
-      url: https://pypi.org/project/hola-cli/
+      url: https://pypi.org/project/benchclub/
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: hola-cli-dist
+          name: benchclub-dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
