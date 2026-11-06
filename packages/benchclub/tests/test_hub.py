@@ -105,3 +105,28 @@ class HubTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RememberedHubTest(unittest.TestCase):
+    def test_login_hub_is_used_by_later_commands(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as home:
+            env = {"BENCHCLUB_HOME": home}
+            self.assertEqual(hub.api_base(env), hub.DEFAULT_API)
+            saved = hub.remember_hub("http://localhost:3081/", env)
+            self.assertEqual(saved, "http://localhost:3081")
+            self.assertEqual(hub.api_base(env), "http://localhost:3081")
+            self.assertEqual(hub.hub_base(env), "http://localhost:3081")
+
+    def test_environment_beats_the_remembered_hub(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as home:
+            hub.remember_hub("http://localhost:3081", {"BENCHCLUB_HOME": home})
+            env = {"BENCHCLUB_HOME": home, "BENCHCLUB_API": "https://api.example.com"}
+            self.assertEqual(hub.api_base(env), "https://api.example.com")
+
+    def test_a_hub_needs_a_scheme_and_host(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as home:
+            with self.assertRaises(HolaError):
+                hub.remember_hub("localhost:3081", {"BENCHCLUB_HOME": home})

@@ -32,6 +32,11 @@ def credentials_path(env=None):
     return home(env) / "credentials.json"
 
 
+def config_path(env=None):
+    """Non-secret settings, e.g. the hub `benchclub login --hub` chose."""
+    return home(env) / "config.json"
+
+
 def log_path(env=None):
     return home(env) / "benchclub.log"
 
