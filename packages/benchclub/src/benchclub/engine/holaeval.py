@@ -426,8 +426,8 @@ def run_python_tests(code, tests, timeout=10):
         return True, None
     if not res:
         return False, "tests failed: the test process exited before reporting"
-    found = EXCEPTION_LINE.findall(r["output"])
-    return False, f"tests failed: {(found[-1] if found else 'no output')[:160]}"
+    found = EXCEPTION_LINE.findall(r["output"].replace("\r\n", "\n"))
+    return False, f"tests failed: {(found[-1].strip() if found else 'no output')[:160]}"
 
 
 def check_rules(text, rules):
