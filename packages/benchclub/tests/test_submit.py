@@ -32,6 +32,11 @@ JOB = {
     "lease_seconds": 60,
     "heartbeat_seconds": 1,
 }
+CATALOG = {"suites": ["suite-standard@1.0"],
+           "runtime_profiles": [{"id": "ollama-0.40", "engine": "ollama", "version_min": "0.40.0", "version_max": None}],
+           "subjects": [{"type": "model", "id": "openbmb-minicpm5-2b", "name": "MiniCPM5-2B", "vendor": "OpenBMB",
+                         "quant": "Q4_K_M", "suites": ["suite-standard@1.0"], "build_digest": JOB["build"]["digest"],
+                         "ollama": {"tag": "openbmb/minicpm5-2b:q4_K_M", "known_digests": [JOB["build"]["digest"][7:]]}}]}
 
 
 class FakeHub:
@@ -47,6 +52,7 @@ class FakeHub:
         self.beat = threading.Event()      # set when a heartbeat arrives
         self.cancel_on_heartbeat = False   # when True, heartbeat answers {"cancel": true}
         self.claim_status = (200, None)    # override to force a claim error
+        self.jobs = []            # bodies posted to /v1/jobs
         self.complete_response = {"status": "finalized", "counted": True, "not_counted_reason": None,
                                   "url": "https://hub.example/bench/runs/01JB7XQ2M8K4N6P8R0T2V4X6Y8"}
 
@@ -59,6 +65,13 @@ class FakeHub:
         signed_in = token is not None and token.startswith("hcli_")
         if (method, path) == ("GET", "/api/auth/get-session"):
             return 200, ({"user": {"id": "u1", "name": "Sudo"}} if signed_in else None)
+        if (method, path) == ("GET", "/v1/cli/catalog"):
+            return 200, CATALOG
+        if (method, path) == ("POST", "/v1/jobs"):
+            if not signed_in:
+                return 401, {"code": "unauthorized"}
+            self.jobs.append(body)
+            return 201, {"job_id": JOB["job_id"], "claim_code": "K7Q2M9", "command": "benchclub run K7Q2M9"}
         if (method, path) == ("POST", "/runner/v1/claim"):
             if self.claim_status[0] != 200:
                 return self.claim_status
@@ -236,10 +249,45 @@ class SubmitTest(unittest.TestCase):
         with mock.patch.object(submit, "run_job",
                                return_value={"outcome": {"status": "finalized", "run_id": "r", "counted": False,
                                                           "not_counted_reason": ["engine_outside_profile"], "url": None}}):
-            args = type("A", (), {"code": "ABCD1234", "json": False})()
+            args = type("A", (), {"target": "ABCD1234", "json": False})()
             submit.cmd_run(args, cli.Out(printed))
-        self.assertIn("not counted", printed.getvalue())
-        self.assertIn("engine_outside_profile", printed.getvalue())
+        self.assertIn("this run doesn't count", printed.getvalue())
+        self.assertIn("doesn't count runs on this Ollama version", printed.getvalue())
+
+    def test_a_busy_machine_counts_but_says_speed_does_not(self):
+        printed = io.StringIO()
+        submit.report(cli.Out(printed), {"status": "finalized", "counted": True,
+                                         "not_counted_reason": ["machine_busy"], "url": "https://x/r/1"})
+        self.assertIn("Submitted and counted", printed.getvalue())
+        self.assertIn("Speed isn't counted", printed.getvalue())
+
+    def test_a_model_name_creates_a_job_on_its_registered_build_then_claims_it(self):
+        with mock.patch.object(submit, "engine_check", return_value=None), \
+                mock.patch.object(submit, "run_job", return_value={"outcome": {"status": "finalized", "counted": True}}) as run_job:
+            args = type("A", (), {"target": "minicpm5-2b", "json": False})()
+            submit.cmd_run(args, cli.Out(io.StringIO()))
+        self.assertEqual(self.fake.jobs, [{"subject": "openbmb-minicpm5-2b", "placement": "local",
+                                           "suite": {"id": "suite-standard", "version": "1.0"},
+                                           "build_digest": JOB["build"]["digest"]}])
+        self.assertEqual(run_job.call_args.args[0], "K7Q2M9")
+
+    def test_an_ollama_version_that_wont_count_stops_before_a_job_is_made(self):
+        engine = {"version": "0.41.0", "supported": "0.40.x"}
+        with mock.patch.object(submit, "engine_check", return_value=engine), \
+                mock.patch.object(submit, "run_job") as run_job:
+            args = type("A", (), {"target": "minicpm5-2b", "json": False})()
+            with self.assertRaises(HolaError) as caught:
+                submit.cmd_run(args, cli.Out(io.StringIO()))
+        self.assertEqual(caught.exception.code, "engine_not_counted")
+        self.assertIn("0.40.x", caught.exception.message)
+        self.assertEqual((self.fake.jobs, run_job.called), ([], False))
+
+    def test_codes_and_model_names_are_told_apart(self):
+        self.assertEqual(submit.resolve_target("minicpm5-2b"), ("model", submit.hub.fetch_subjects_index()[0][0]))
+        self.assertEqual(submit.resolve_target("k7q-2m9".upper()), ("code", "K7Q2M9"))
+        with self.assertRaises(HolaError) as caught:
+            submit.resolve_target("qwen")
+        self.assertEqual(caught.exception.code, "unknown_subject")
 
     def test_the_benchclub_command_wires_run_with_json(self):
         outcome = {"status": "finalized", "run_id": "r1", "counted": True, "not_counted_reason": None,

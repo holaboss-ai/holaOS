@@ -271,14 +271,14 @@ def bench_highlights(events):
 
 
 def publish_blockers(record):
-    """Why HolaHub would refuse this record; empty when it can be published."""
+    """Why BenchClub would refuse this record; empty when it can be published."""
     blockers = []
     provider = (record.get("runtime") or {}).get("provider") or {}
     if provider.get("managed") is not True:
         blockers.append("it ran on an Ollama server benchclub did not start, so its conditions are unknown")
     subject = record.get("subject") or {}
     if subject.get("digest_registered") is not True:
-        blockers.append(f"the model build ({(subject.get('version') or 'unknown')[:12]}) is not one HolaHub has registered")
+        blockers.append(f"the model build ({(subject.get('version') or 'unknown')[:12]}) is not one BenchClub has registered")
     return blockers
 
 

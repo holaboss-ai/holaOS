@@ -1,4 +1,4 @@
-"""Signing in to the hub with the OAuth device flow.
+"""Signing in to BenchClub with the OAuth device flow.
 
 `benchclub login` works over SSH on a machine with no browser: it prints a code, and the person
 approves it on any device. The hub scopes the session to claiming jobs, saying who it is, and signing
@@ -89,7 +89,7 @@ def _forget():
 
 
 def whoami(token):
-    """The signed-in user for a token, or None when HolaHub no longer accepts it."""
+    """The signed-in user for a token, or None when BenchClub no longer accepts it."""
     status, body = _request("GET", "/api/auth/get-session", token=token)
     if status != 200 or not isinstance(body, dict) or not isinstance(body.get("user"), dict):
         return None
@@ -111,7 +111,7 @@ def login(out, sleep=time.sleep, clock=time.monotonic):
     """Runs the device flow and saves the session; returns the signed-in user."""
     status, grant = _request("POST", "/api/auth/device/code", body={"client_id": CLIENT_ID})
     if status != 200 or not isinstance(grant, dict) or "device_code" not in grant:
-        raise HolaError("login_failed", f"HolaHub didn't start a sign-in (HTTP {status}).", "Try again in a minute.")
+        raise HolaError("login_failed", f"BenchClub didn't start a sign-in (HTTP {status}).", "Try again in a minute.")
     out.line("To sign in, open this page on any device:")
     out.line(grant["verification_uri"], indent=4)
     out.line("and enter the code:")
@@ -152,18 +152,18 @@ def login(out, sleep=time.sleep, clock=time.monotonic):
 def _finish_login(token, out):
     user = whoami(token)
     if user is None:
-        raise HolaError("login_failed", "HolaHub approved the sign-in but didn't accept the session.",
+        raise HolaError("login_failed", "BenchClub approved the sign-in but didn't accept the session.",
                         "Run `benchclub login` again.")
     previous = saved_session()
     _remember(token, user)
     if previous and previous["token"] != token:
         _revoke(previous["token"])
-    out.good(f"Signed in as {user.get('name') or 'you'}. `benchclub run <code>` can now submit runs to the hub.")
+    out.good(f"Signed in as {user.get('name') or 'you'}. Run a model with `benchclub run <model>`; `benchclub list` shows them.")
     return user
 
 
 def logout():
-    """Revokes the saved session on HolaHub and deletes it; False when there was none."""
+    """Revokes the saved session on BenchClub and deletes it; False when there was none."""
     session = saved_session()
     if session is None:
         return False
@@ -191,7 +191,7 @@ def cmd_logout(args, out):
     if args.json:
         _emit({"ok": True, "was_signed_in": signed_out})
     elif signed_out:
-        out.good("Signed out. The sign-in on HolaHub is revoked and the saved token deleted.")
+        out.good("Signed out. The sign-in on BenchClub is revoked and the saved token deleted.")
     else:
         out.line("You weren't signed in.")
     return 0
@@ -200,7 +200,7 @@ def cmd_logout(args, out):
 def cmd_whoami(args, out):
     session = saved_session()
     if session is None:
-        raise HolaError("not_signed_in", "You're not signed in to HolaHub.", "Run `benchclub login`.")
+        raise HolaError("not_signed_in", "You're not signed in to BenchClub.", "Run `benchclub login`.")
     user = whoami(session["token"])
     if user is None:
         raise HolaError("signed_out", "Your sign-in has expired or was signed out.", "Run `benchclub login`.")
@@ -217,12 +217,12 @@ def cmd_whoami(args, out):
 def add_commands(sub):
     """Registers login, logout and whoami on cli.py's subparsers."""
     for name, fn, help_text in (
-        ("login", cmd_login, "sign in to the hub with a code you approve on any device"),
-        ("logout", cmd_logout, "sign out of the hub and delete the saved token"),
-        ("whoami", cmd_whoami, "show who you're signed in to the hub as"),
+        ("login", cmd_login, "sign in to BenchClub with a code you approve on any device"),
+        ("logout", cmd_logout, "sign out of BenchClub and delete the saved token"),
+        ("whoami", cmd_whoami, "show who you're signed in to BenchClub as"),
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--json", action="store_true")
         if name == "login":
-            p.add_argument("--hub", metavar="URL", help="the hub to sign in to; later commands use it too")
+            p.add_argument("--hub", metavar="URL", help="another BenchClub to sign in to, e.g. a local one; later commands use it too")
         p.set_defaults(fn=fn)

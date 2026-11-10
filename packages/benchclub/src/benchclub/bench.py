@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -14,6 +15,7 @@ from benchclub.errors import HolaError
 from benchclub.record import SubjectError, build_run_record, dumps, min_ollama_version, parse_bench_subject
 
 BENCH_LABEL = "main"
+DISK_MARGIN_BYTES = 2**30
 STDERR_TAIL_CHARS = 4000
 CLIENT = {"app": "benchclub", "version": __version__}
 
@@ -44,7 +46,8 @@ def _quiet(_kind, _data):
 def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, job_id=None, placement="local", ollama_url=None,
              keep_model=False, unload=None, ignore_memory=False, ui=_quiet, confirm=lambda models: False, env=None,
              runs_root=None, state_dir=None, find_binary=ollama.find_binary, port=None, user_url=None,
-             cpu_busy=machine.measure_cpu_busy, hardware=machine.machine_info):
+             cpu_busy=machine.measure_cpu_busy, hardware=machine.machine_info, busiest=machine.busiest_programs,
+             confirm_busy=lambda info: True, disk_free=lambda path: shutil.disk_usage(path).free):
     """Runs the suite and saves the Run Record; returns the result `benchclub eval --json` prints."""
     env = dict(os.environ if env is None else env)
     try:
@@ -123,10 +126,14 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, job_id=None, placement=
                 ui("user_models_unloaded", {"models": [m["name"] for m in loaded]})
 
         cpu = cpu_busy()
-        if cpu is not None and cpu > threshold:
+        busy = cpu is not None and cpu > threshold
+        top = busiest() if busy else []
+        if busy:
             run.emit("machine_busy", {"cpu_busy_pct": cpu})
-        ui("machine", {"summary": machine.summary(hw), "cpu_busy_pct": cpu,
-                       "busy": cpu is not None and cpu > threshold})
+        ui("machine", {"summary": machine.summary(hw), "cpu_busy_pct": cpu, "busy": busy, "busiest": top})
+        if busy and not confirm_busy({"cpu_busy_pct": cpu, "busiest": top}):
+            raise HolaError("machine_busy", "Stopped before the run started, so nothing was saved.",
+                            "Close the busy programs, then run it again.", {"cpu_busy_pct": cpu, "busiest": top})
 
         if ollama_url:
             instance = ollama.ExternalOllama(ollama_url)
@@ -150,6 +157,18 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, job_id=None, placement=
             had_model = instance.has_model(tag)
         except (OSError, ValueError):
             had_model = True  # unsure means it may be the user's: never remove it
+
+        need = subject.get("download_bytes")
+        if not had_model and not ollama_url and isinstance(need, int) and need > 0:
+            models_dir = Path(ollama.default_models_dir(env))
+            probe = next((p for p in (models_dir, *models_dir.parents) if p.exists()), Path.home())
+            free = disk_free(probe)
+            if free < need + DISK_MARGIN_BYTES:
+                raise HolaError("not_enough_disk",
+                                f"{subject['name']} {subject['quant']} downloads {need / 2**30:.1f} GB; "
+                                f"{paths.display(models_dir)} has {free / 2**30:.1f} GB free.",
+                                "Free some disk space, or set OLLAMA_MODELS to a disk with more room, then run it again.",
+                                {"download_bytes": need, "free_bytes": free})
 
         def on_pull(progress):
             run.emit("pull_progress", dict(progress))

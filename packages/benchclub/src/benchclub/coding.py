@@ -1,4 +1,4 @@
-"""suite-coding@1.0 in words: the task matrix and the generated review, as HolaHub's run page writes them.
+"""suite-coding@1.0 in words: the task matrix and the generated review, as BenchClub's run page writes them.
 
 A port of codingReview and its helpers in frontend apps/holahub/src/routes/bench-run-page.tsx, so the same record
 reads the same in a terminal and on the run page.

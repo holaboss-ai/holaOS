@@ -121,7 +121,7 @@ class EvalTest(unittest.TestCase):
         result = self.run_eval(subject)
         self.assertFalse(result["subject"]["digest_registered"])
         self.assertFalse(result["publishable"])
-        self.assertIn("not one HolaHub has registered", result["publish_blockers"][0])
+        self.assertIn("not one BenchClub has registered", result["publish_blockers"][0])
 
     def test_a_pre_run_reading_is_busy_only_above_the_shared_threshold(self):
         for reading, busy in ((40, False), (41, True)):
@@ -130,6 +130,18 @@ class EvalTest(unittest.TestCase):
             run_dir = max(Path(self.box.env["BENCHCLUB_HOME"], "runs").iterdir(), key=lambda p: p.stat().st_mtime)
             events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines()]
             self.assertEqual(any(e["type"] == "machine_busy" for e in events), busy, reading)
+
+    def test_a_busy_machine_can_stop_the_run_before_ollama_starts(self):
+        seen = []
+        self.fails("machine_busy", cpu_busy=lambda: 85, busiest=lambda: [("Chrome", 30)],
+                   confirm_busy=lambda info: seen.append(info) or False)
+        self.assertEqual(seen, [{"cpu_busy_pct": 85, "busiest": [("Chrome", 30)]}])
+        self.assertFalse((self.box.state / "env.json").exists())
+
+    def test_too_little_disk_stops_before_the_download(self):
+        err = self.fails("not_enough_disk", disk_free=lambda path: 2**30)
+        self.assertIn("downloads 1.5 GB", err.message)
+        self.assertNotIn("/api/pull", [r["path"] for r in self.box.requests()])
 
     def test_no_ollama(self):
         err = self.fails("ollama_missing", find_binary=lambda env: None)

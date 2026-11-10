@@ -285,7 +285,7 @@ class OllamaInstance:
                 self.stopped_leftover = True
             elif server_version(self.base_url) is not None:
                 raise HolaError("busy", f"Another Ollama is already running on port {self.port}, probably a benchmark "
-                                        "started elsewhere (holaOS or another benchclub eval).",
+                                        "started elsewhere (another benchclub run).",
                                 "Wait for it to finish, then run this again. If nothing is running, find what holds "
                                 f"the port with `{port_finder(self.port)}` and stop it.")
             else:

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "benchclub"
 dynamic = ["version"]
-description = "Benchmark a local model with the same engine, conditions and Run Record as the holaOS desktop app."
+description = "Benchmark open models on your own hardware and submit the runs to BenchClub."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Modified Apache 2.0: https://github.com/holaboss-ai/holaOS/blob/main/LICENSE" }

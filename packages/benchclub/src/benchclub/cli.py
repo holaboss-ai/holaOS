@@ -13,6 +13,7 @@ import textwrap
 import threading
 import time
 import traceback
+import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -120,8 +121,10 @@ class EvalView(Out):
         self.good(f"{d['summary']} {self.sep} {load}")
         if d["busy"] and self.speed_suite:
             limit = pinned.conditions()["busy_others_cpu_pct"]
-            self.warn(f"Other apps are using {d['cpu_busy_pct']}% of the CPU. If they use over {limit}% while it "
-                      "generates, this card won't count in charts.", "Close other apps for a clean run.")
+            busiest = ", ".join(f"{name} {pct}%" for name, pct in d.get("busiest") or [])
+            self.warn(f"Other apps are using {d['cpu_busy_pct']}% of the CPU" + (f" (most: {busiest})" if busiest else "")
+                      + f". If they use over {limit}% while it generates, its speed won't count.",
+                      "Close them for a clean run. Scores count either way.")
 
     def on_user_models_unloaded(self, d):
         self.good(f"Unloaded {', '.join(d['models'])} from your own Ollama")
@@ -155,7 +158,7 @@ class EvalView(Out):
             self.good(f"{d['name']} {d['quant']}{size} {self.sep} digest verified")
         else:
             self.warn(f"{d['name']} {d['quant']}{size} {self.sep} unverified build ({(d['digest'] or 'no digest')[:12]})",
-                      "HolaHub hasn't registered this build, so the run will stay on this machine.")
+                      "BenchClub hasn't registered this build, so a run of it won't count.")
 
     def on_model_kept(self, d):
         self.warn(f"Couldn't remove {d['tag']}, which this run downloaded.", f"Remove it yourself with `ollama rm {d['tag']}`.")
@@ -276,17 +279,49 @@ def print_eval_result(result, versions, out, record=None):
         note = busy_note(result["conditions"])
         if note:
             out.line()
-            out.warn(note, "Close other apps and run it again for a card that counts.")
+            out.warn(note, "Close other apps and run it again for a speed that counts.")
     out.line()
     out.line(f"Saved {paths.display(result['record_path'])}")
     if result["publishable"]:
-        out.line("This run stays on this machine. To put a run on the hub, create a job on the web and")
-        out.line("claim its code: benchclub run <code>   (sign in first: benchclub login)", indent=4)
+        out.line("This run stays on this machine. To count it on BenchClub, sign in (benchclub login) and run:")
+        out.line(f"benchclub run {(result.get('subject') or {}).get('tag') or '<model>'}", indent=4)
     else:
         out.line(f"This run stays on this machine: {'; '.join(result['publish_blockers'])}.")
     if versions and versions["behind"]:
         out.warn(f"benchclub {versions['latest']} is out (you have {versions['current']}).",
                  "Update with the tool you installed it with, e.g. `pipx upgrade benchclub` or `uvx benchclub@latest`.")
+
+
+def ask(out, question, default, message=None):
+    """A yes/no question on the terminal; Enter takes the default."""
+    if message:
+        out.warn(message)
+    try:
+        answer = input("    " + question).strip().lower()
+    except EOFError:
+        return default
+    return answer in ("y", "yes") if answer else default
+
+
+def unload_prompt(view, interactive):
+    """run_eval's `confirm`: whether to unload the models the user's own Ollama holds."""
+    def confirm(models):
+        if not interactive:
+            return False
+        view.end_pending()
+        names = ", ".join(f"{m['name']} ({gb(m['size_vram'])})" if m.get("size_vram") else m["name"] for m in models)
+        return ask(view, "Unload now? [y/N] ", False, f"Your own Ollama has {names} in memory, which would slow the benchmark down.")
+    return confirm
+
+
+def busy_prompt(view, interactive):
+    """run_eval's `confirm_busy`: start anyway, or stop so the person can close what's busy."""
+    def confirm(_info):
+        if not interactive or not view.speed_suite:
+            return True
+        view.end_pending()
+        return ask(view, "Start anyway? [Y/n] ", True)
+    return confirm
 
 
 def background(fn):
@@ -303,22 +338,13 @@ def cmd_eval(args, out):
     config, config_source = hub.fetch_subject(entry["id"])
     view = EvalView(config, out.stream, args.suite)
     if not args.json and config_source == "bundled":
-        view.warn("HolaHub's config for this model couldn't be loaded, so this uses the one bundled with benchclub.")
-
-    def confirm(models):
-        if args.json or not sys.stdin.isatty():
-            return False
-        names = ", ".join(f"{m['name']} ({gb(m['size_vram'])})" if m.get("size_vram") else m["name"] for m in models)
-        view.warn(f"Your own Ollama has {names} in memory, which would slow the benchmark down.")
-        try:
-            return input("    Unload now? [y/N] ").strip().lower() in ("y", "yes")
-        except EOFError:
-            return False
-
+        view.warn("BenchClub's config for this model couldn't be loaded, so this uses the one bundled with benchclub.")
+    interactive = not args.json and sys.stdin.isatty()
     try:
         result = bench.run_eval(config, suite=args.suite, ollama_url=args.ollama_url, keep_model=args.keep_model,
                                 unload=True if args.unload else None, ignore_memory=args.ignore_memory,
-                                ui=(lambda kind, data: None) if args.json else view, confirm=confirm)
+                                ui=(lambda kind, data: None) if args.json else view,
+                                confirm=unload_prompt(view, interactive), confirm_busy=busy_prompt(view, interactive))
     finally:
         view.end_pending()
     status = versions()
@@ -335,13 +361,13 @@ def cmd_list(args, out):
         emit_json({"ok": True, "source": source, "subjects": entries})
         return 0
     if source == "bundled":
-        out.warn("HolaHub's model list couldn't be loaded; these are the models bundled with benchclub.")
+        out.warn("BenchClub's model list couldn't be loaded; these are the models bundled with benchclub.")
     rows = [("Model", "Quant", "Download", "Memory", "Suites", "Run it with")]
     for e in entries:
-        short = min([e["id"], *[a for a in e["aliases"] if ":" not in a]], key=len)
+        short = min([e["id"], *e["aliases"]], key=len)
         rows.append((e["name"] or e["id"], e["quant"] or "", gb(e["download_bytes"]),
                      f"{e['min_memory_gb']} GB" if e.get("min_memory_gb") else "–", ", ".join(e["suites"]),
-                     f"benchclub eval {short}"))
+                     f"benchclub run {short}"))
     table(rows, out)
     return 0
 
@@ -358,7 +384,7 @@ def cmd_runs(args, out):
         emit_json({"ok": True, "runs": found})
         return 0
     if not found:
-        out.line("No runs yet. Start one: benchclub eval <model>   (models: benchclub list)")
+        out.line("No runs yet. Start one: benchclub run <model>   (models: benchclub list)")
         return 0
     rows = [("Run", "Model", "Quant", "When", "Speed", "Published")]
     for r in found:
@@ -379,24 +405,24 @@ def cmd_runs(args, out):
 
 
 def load_check(busy, threshold=None):
-    """doctor's background-load line: a warning only above the threshold that keeps a card out of charts."""
+    """doctor's background-load line: a warning only above the threshold that voids a run's speed."""
     if busy is None:
         return None
     threshold = pinned.conditions()["busy_others_cpu_pct"] if threshold is None else threshold
     if busy <= threshold:
         return {"id": "load", "status": "ok", "message": f"Background load {busy}%", "next_step": None}
     return {"id": "load", "status": "warn", "message": f"Background load {busy}%",
-            "next_step": f"Over {threshold}%, a run's card won't count in charts. Close other apps before you run."}
+            "next_step": f"Over {threshold}%, a run's speed won't count. Close other apps before you run."}
 
 
 def busy_note(conditions):
-    """The after-run sentence for a run whose card won't count in charts, or None."""
+    """The after-run sentence for a run whose speed won't count, or None."""
     if not runs.was_busy(conditions):
         return None
     pct, when = runs.busy_reading(conditions)
     if when == "during":
-        return f"Other programs used {pct:g}% of the CPU while it generated, so this card won't count in charts."
-    return f"Other programs used {pct:g}% of the CPU when the run started, so this card won't count in charts."
+        return f"Other programs used {pct:g}% of the CPU while it generated, so its speed won't count."
+    return f"Other programs used {pct:g}% of the CPU when the run started, so its speed won't count."
 
 
 def check(checks, id, status, message, next_step=None):
@@ -413,6 +439,19 @@ def fake_ip_addresses(host="registry.ollama.ai"):
     return sorted(a for a in addresses if ipaddress.ip_address(a) in FAKE_IP_NET)
 
 
+def without_credentials(url):
+    """A proxy URL fit to paste when asking for help: the user and password masked."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return url
+    if not (parts.username or parts.password):
+        return url
+    host = parts.hostname or ""
+    netloc = f"***@{host}" + (f":{parts.port}" if parts.port else "")
+    return urllib.parse.urlunsplit(parts._replace(netloc=netloc))
+
+
 def doctor_checks(env=None):
     env = os.environ if env is None else env
     checks = []
@@ -425,9 +464,14 @@ def doctor_checks(env=None):
         check(checks, "ollama", "fail", "Ollama is not installed.", f"Install it from {ollama.OLLAMA_DOWNLOAD_URL}.")
     else:
         version = ollama.binary_version(binary)
-        check(checks, "ollama", "ok" if version else "warn",
-              f"Ollama {version or '(version unknown)'} at {paths.display(binary)}",
-              None if version else "`ollama --version` didn't answer; reinstall Ollama if runs fail to start.")
+        supported = hub.counted_versions(version, hub.runtime_profiles(env))
+        if supported:
+            check(checks, "ollama", "warn", f"Ollama {version} at {paths.display(binary)}, but BenchClub counts runs on "
+                                            f"Ollama {supported}.", f"Install Ollama {supported} for your runs to count.")
+        else:
+            check(checks, "ollama", "ok" if version else "warn",
+                  f"Ollama {version or '(version unknown)'} at {paths.display(binary)}",
+                  None if version else "`ollama --version` didn't answer; reinstall Ollama if runs fail to start.")
 
     models_dir = Path(ollama.default_models_dir(env))
     probe = next((p for p in (models_dir, *models_dir.parents) if p.exists()), Path.home())
@@ -455,7 +499,7 @@ def doctor_checks(env=None):
     loaded = ollama.user_loaded_models(ollama.user_base_url(env))
     if loaded:
         check(checks, "user_models", "warn", f"Your own Ollama has {', '.join(m['name'] for m in loaded)} in memory.",
-              "`benchclub eval` offers to unload them, or pass --unload.")
+              "`benchclub run` offers to unload them, or pass --unload.")
 
     port = ollama.default_port(env)
     if ollama.server_version(f"http://127.0.0.1:{port}") is not None:
@@ -479,19 +523,19 @@ def doctor_checks(env=None):
         check(checks, "network", "warn", f"registry.ollama.ai resolves to {fake[0]}, a fake-ip proxy address, and no HTTPS proxy is set.",
               FAKE_IP_NEXT_STEP)
     else:
-        via = f" through {proxy}" if proxy else ""
+        via = f" through {without_credentials(proxy)}" if proxy else ""
         check(checks, "network", "ok", f"Model downloads go{via or ' direct'}")
 
     entries, source = hub.fetch_subjects_index(env)
-    check(checks, "holahub", "ok" if source == "hub" else "warn",
-          f"HolaHub lists {len(entries)} models" if source == "hub"
-          else f"HolaHub's model list couldn't be loaded; benchclub falls back to its {len(entries)} bundled models",
-          None if source == "hub" else "Check your connection; publishing needs HolaHub.")
+    check(checks, "hub", "ok" if source == "hub" else "warn",
+          f"BenchClub at {hub.api_base(env)} lists {len(entries)} models" if source == "hub"
+          else f"BenchClub's model list couldn't be loaded; benchclub falls back to its {len(entries)} bundled models",
+          None if source == "hub" else "Check your connection; counted runs need BenchClub.")
     status = hub.version_status(hub.fetch_cli_policy(env))
     if status["latest"] is None:
         check(checks, "version", "ok", f"benchclub {__version__}")
     elif status["can_publish"] is False:
-        check(checks, "version", "fail", f"benchclub {__version__} is below the oldest version HolaHub accepts runs from.",
+        check(checks, "version", "fail", f"benchclub {__version__} is below the oldest version BenchClub accepts runs from.",
               "Update benchclub before you publish.")
     else:
         check(checks, "version", "warn" if status["behind"] else "ok",
@@ -527,10 +571,10 @@ def emit_json(value):
 
 
 def parser():
-    ap = argparse.ArgumentParser(prog="benchclub", description="Benchmark a local model the way holaOS does.")
+    ap = argparse.ArgumentParser(prog="benchclub", description="Benchmark open models on your own hardware for BenchClub.")
     ap.add_argument("--version", action="version", version=f"benchclub {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True, metavar="command")
-    p = sub.add_parser("eval", help="benchmark a model and save the run")
+    p = sub.add_parser("eval", help="benchmark a model offline; the run stays on this machine")
     p.add_argument("subject", help="a model id or alias from `benchclub list`, e.g. minicpm5-2b")
     p.add_argument("--suite", default=pinned.DEFAULT_SUITE,
                    help="suite-standard@1.0 (speed and three checks, the default) or suite-coding@1.0 (macOS only)")

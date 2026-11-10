@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import support
+from benchclub import cli
 
 SRC = support.PACKAGE / "src"
 
@@ -23,6 +24,12 @@ def alive(pid):
 
 
 @unittest.skipIf(os.name == "nt", "the fake ollama is a shebang script, which Windows cannot exec")
+class ProxyTextTest(unittest.TestCase):
+    def test_doctor_masks_a_proxys_credentials(self):
+        self.assertEqual(cli.without_credentials("http://user:secret@10.0.0.2:7890"), "http://***@10.0.0.2:7890")
+        self.assertEqual(cli.without_credentials("http://10.0.0.2:7890"), "http://10.0.0.2:7890")
+
+
 class CliTest(unittest.TestCase):
     def setUp(self):
         self.box = support.Sandbox()
@@ -81,13 +88,13 @@ class CliTest(unittest.TestCase):
         self.assertIn("qwen-qwen3.5-2b", ids)
         qwen = next(s for s in listed["subjects"] if s["id"] == "qwen-qwen3.5-2b")
         self.assertIn("qwen3.5-2b", qwen["aliases"])
-        self.assertIn("benchclub eval qwen3.5-2b", self.benchclub("list").stdout)
+        self.assertIn("benchclub run qwen3.5-2b", self.benchclub("list").stdout)
 
     def test_doctor_reports_every_check(self):
         out = self.benchclub("doctor", "--json")
         report = json.loads(out.stdout)
         ids = [c["id"] for c in report["checks"]]
-        for expected in ("python", "ollama", "models_dir", "machine", "port", "network", "holahub", "version", "engine"):
+        for expected in ("python", "ollama", "models_dir", "machine", "port", "network", "hub", "version", "engine"):
             self.assertIn(expected, ids)
         ollama_check = next(c for c in report["checks"] if c["id"] == "ollama")
         self.assertEqual(ollama_check["status"], "ok")
