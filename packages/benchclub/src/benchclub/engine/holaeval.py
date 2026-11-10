@@ -844,6 +844,107 @@ def ollama_chat(root, payload, on_text=None, timeout=900):
     }
 
 
+def api_base(url):
+    """A remote API's base as given (e.g. .../v1 or Gemini's .../v1beta/openai): only a scheme is added."""
+    url = url.strip().rstrip("/")
+    return url if re.match(r"^https?://", url) else "https://" + url
+
+
+def api_payload(payload, max_key="max_tokens"):
+    """An Ollama-style bench payload as an OpenAI chat request. Sampling is the provider's default, so options other
+    than the token budget are dropped; so are num_ctx, keep_alive and think, which only Ollama reads."""
+    out = {"model": payload["model"], "messages": payload["messages"], "stream": True,
+           "stream_options": {"include_usage": True}, max_key: (payload.get("options") or {}).get("num_predict", 6000)}
+    if payload.get("tools"):
+        out["tools"] = payload["tools"]
+    return out
+
+
+def api_post(base, body, timeout):
+    req = urllib.request.Request(base + "/chat/completions", data=json.dumps(body).encode(), method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Authorization", "Bearer " + os.environ.get("HOLAEVAL_API_KEY", ""))
+    # Cloudflare-fronted APIs refuse urllib's default User-Agent.
+    req.add_header("User-Agent", f"holaeval/{HOLAEVAL_VERSION}")
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        raw = exc.read() or b""
+        try:
+            err = json.loads(raw).get("error")
+            detail = err.get("message") if isinstance(err, dict) else err
+        except (ValueError, AttributeError):
+            detail = raw.decode("utf-8", "replace")[:300]
+        raise RuntimeError(f"HTTP {exc.code}: {detail or exc.reason}") from None
+
+
+def openai_chat(base, payload, on_text=None, timeout=900):
+    """Stream /chat/completions on a remote API and answer in ollama_chat's shape. Engine-side durations don't
+    exist here, so the *_s engine fields are 0 and token counts come from the final usage chunk."""
+    started = time.perf_counter()
+    try:
+        resp = api_post(base, api_payload(payload), timeout)
+    except RuntimeError as exc:
+        # OpenAI's reasoning models take only max_completion_tokens.
+        if "max_completion_tokens" not in str(exc):
+            raise
+        resp = api_post(base, api_payload(payload, "max_completion_tokens"), timeout)
+    first = last = None
+    content, thinking, calls = [], [], {}
+    finish, usage, chunks = None, {}, 0
+    with resp as r:
+        for raw in r:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            body = line[5:].strip()
+            if body == "[DONE]":
+                break
+            evt = json.loads(body)
+            if evt.get("error"):
+                err = evt["error"]
+                raise RuntimeError(err.get("message") if isinstance(err, dict) else str(err))
+            usage = evt.get("usage") or usage
+            for choice in evt.get("choices") or []:
+                delta = choice.get("delta") or {}
+                piece = delta.get("content") or ""
+                thought = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                if piece or thought or delta.get("tool_calls"):
+                    now = time.perf_counter()
+                    first = first or now
+                    last = now
+                content.append(piece)
+                thinking.append(thought)
+                for part in delta.get("tool_calls") or []:
+                    call = calls.setdefault(part.get("index", len(calls)), {"id": None, "name": "", "arguments": ""})
+                    fn = part.get("function") or {}
+                    call["id"] = part.get("id") or call["id"]
+                    call["name"] += fn.get("name") or ""
+                    call["arguments"] += fn.get("arguments") or ""
+                if piece or thought:
+                    chunks += 1
+                    if on_text:
+                        on_text(thought + piece)
+                finish = choice.get("finish_reason") or finish
+    tool_calls = [{"id": c["id"], "function": {"name": c["name"], "arguments": c["arguments"]}}
+                  for _, c in sorted(calls.items())]
+    return {
+        "ttft_s": first - started if first else None,
+        "gen_s": last - first if first and last else None,
+        "total_s": time.perf_counter() - started,
+        "content": "".join(content),
+        "thinking": "".join(thinking),
+        "tool_calls": tool_calls or None,
+        "done_reason": "length" if finish == "length" else finish,
+        "eval_count": usage.get("completion_tokens") or 0,
+        "chunks": chunks,
+        "eval_s": 0,
+        "prompt_eval_count": usage.get("prompt_tokens") or 0,
+        "prompt_eval_s": 0,
+        "load_s": 0,
+    }
+
+
 def strip_think(text):
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
     cut = text.find("<think>")
@@ -1145,7 +1246,7 @@ def bench_speed(root, model, depth, cfg, base_options, extra, emit, load=None):
     return result
 
 
-def bench_task(root, model, task, samples, base_options, extra, capabilities, emit):
+def bench_task(root, model, task, samples, base_options, extra, capabilities, emit, send=ollama_chat):
     emit.task = task["id"]
     emit("task_start", task=task["id"], kind="task", category=task["category"], samples=samples)
     if task.get("tools") and "tools" not in capabilities:
@@ -1162,7 +1263,7 @@ def bench_task(root, model, task, samples, base_options, extra, capabilities, em
         if task.get("tools"):
             payload["tools"] = task["tools"]
         try:
-            r = ollama_chat(root, payload, on_text=emit.text)
+            r = send(root, payload, on_text=emit.text)
             request_done(emit, task["id"], r)
             raw = r["content"]
             resp = {"content": strip_think(raw), "tool_calls": r["tool_calls"],
@@ -1195,6 +1296,8 @@ def bench_task(root, model, task, samples, base_options, extra, capabilities, em
 
 
 def cmd_bench(args):
+    if getattr(args, "engine", "ollama") == "openai":
+        return bench_api(args)
     root = server_root(args.base_url.strip().rstrip("/"))
     pack_path = Path(args.pack)
     pack = load_pack(pack_path)
@@ -1252,6 +1355,56 @@ def cmd_bench(args):
         "machine": machine,
         **({"sandbox": {"os": LINUX_SANDBOX, "audit_hook": False, "network": False}} if sandboxed else {}),
         "conditions": median_load([run for r in results if r["kind"] == "speed" for run in r["metrics"]["runs"]]),
+        "results": results,
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
+        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "wall_seconds": round(time.time() - started, 1),
+    }
+    (out / f"bench-{args.label}.json").write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    emit("done", file=f"bench-{args.label}.json")
+
+
+def bench_api(args):
+    """The suite's graded tasks against a remote OpenAI-compatible API (a hosted model, no weights). Speed is the
+    provider's serving, not hardware, so speed tasks don't run; the record is an API reference, never a scored run."""
+    base = api_base(args.base_url)
+    pack_path = Path(args.pack)
+    pack = load_pack(pack_path)
+    sandboxed = linux_root() and any((t.get("grader") or {}).get("type") == "python_tests" for t in pack["tasks"])
+    if sandboxed:
+        problem = linux_sandbox_problem(None)
+        if problem:
+            sys.exit(f"{pack['id']} runs model-written code and {problem}")
+    model = args.model
+    send = lambda _root, payload, on_text=None: openai_chat(base, payload, on_text=on_text)
+    capabilities = ["completion", "tools"]
+    samples = args.samples or pack.get("samples", 3)
+    emit = Emitter()
+    started = time.time()
+    emit("start", model=model, suite=f"{pack['id']}@{pack['version']}", capabilities=capabilities, engine="openai")
+
+    emit.task = "warmup"
+    emit("task_start", task="warmup", kind="warmup")
+    warm = send(base, {"model": model, "messages": [{"role": "user", "content": "Reply with OK."}],
+                       "options": {"num_predict": 16}})
+    request_done(emit, "warmup", warm)
+    emit("task_done", task="warmup", kind="warmup", load_ms=0)
+
+    only = [s for s in (args.only or "").split(",") if s]
+    results = [bench_task(base, model, task, samples, {}, {}, capabilities, emit, send=send)
+               for task in pack["tasks"] if not only or task["id"] in only]
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    record = {
+        "suite": {"id": pack["id"], "version": pack["version"], "sha256": sha256_file(pack_path)},
+        "test_agent": {"executor": f"holaeval@{HOLAEVAL_VERSION}", "judge": f"holaeval@{HOLAEVAL_VERSION}"},
+        "engine": "openai_compatible",
+        "api": {"base_url": base},
+        "model": model,
+        "capabilities": capabilities,
+        "request": {"sampling": "provider default", "samples": samples},
+        "reference_only": True,
+        **({"sandbox": {"os": LINUX_SANDBOX, "audit_hook": False, "network": False}} if sandboxed else {}),
         "results": results,
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
         "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -3349,9 +3502,10 @@ def cmd_selftest(_args):
     assert normalize_base("http://127.0.0.1:11434/v1/") == "http://127.0.0.1:11434/v1"
     agent_ids = selftest_agent()
     bench_ids = selftest_bench()
+    api_ids = selftest_api()
     code_ids = selftest_code()
     print(f"selftest ok ({len(ids)} tasks in {pack['id']}, {len(agent_ids)} agent tasks, {len(bench_ids)} bench results, "
-          f"{len(code_ids)} coding tasks)")
+          f"{len(api_ids)} API reference results, {len(code_ids)} coding tasks)")
 
 
 MERGE_OK = ("def merge_intervals(intervals):\n    out = []\n    for s, e in sorted(intervals):\n"
@@ -3509,6 +3663,108 @@ def selftest_bench():
     record, _, requests = bench(["completion"], only="tool-flight")
     assert record["results"][0]["status"] == "unsupported" and record["results"][0]["pass"] is None
     assert not any(body.get("tools") for path, body in requests if path == "/api/chat")
+    return list(by_task)
+
+
+def fake_openai(completion_tokens_only=False):
+    """Minimal OpenAI-compatible API streaming SSE: text, reasoning, tool calls split across chunks, a usage chunk.
+    With completion_tokens_only it refuses max_tokens the way OpenAI's reasoning models do."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, body, self.headers.get("Authorization")))
+            if completion_tokens_only and "max_tokens" in body:
+                data = json.dumps({"error": {"message": "Use 'max_completion_tokens' instead."}}).encode()
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            prompt = body["messages"][-1]["content"]
+            deltas = [{"reasoning": "thinking it over. "}]
+            if body.get("tools"):
+                deltas += [{"tool_calls": [{"index": 0, "id": "call_1", "type": "function",
+                                            "function": {"name": "search_flights", "arguments": '{"origin": "SFO", '}}]},
+                           {"tool_calls": [{"index": 0, "function": {"arguments": '"destination": "NRT", "date": "2026-11-03"}'}}]}]
+            elif "merge_intervals" in prompt:
+                deltas += [{"content": "```python\n"}, {"content": MERGE_OK + "```"}]
+            elif "blue vault" in prompt:
+                deltas += [{"content": "7391-"}, {"content": "QX"}]
+            else:
+                deltas += [{"content": "OK"}]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            finish = "tool_calls" if body.get("tools") else "stop"
+            for i, delta in enumerate(deltas):
+                choice = {"index": 0, "delta": delta, "finish_reason": finish if i == len(deltas) - 1 else None}
+                self.wfile.write(b"data: " + json.dumps({"choices": [choice]}).encode() + b"\n\n")
+            usage = {"prompt_tokens": len(prompt) // 4, "completion_tokens": 7 * len(deltas)}
+            self.wfile.write(b"data: " + json.dumps({"choices": [], "usage": usage}).encode() + b"\n\ndata: [DONE]\n\n")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}/v1", requests
+
+
+def selftest_api():
+    import contextlib
+    import io
+
+    assert api_base("api.example.com/v1beta/openai/") == "https://api.example.com/v1beta/openai"
+
+    def bench(**fake):
+        server, base, requests = fake_openai(**fake)
+        old = os.environ.get("HOLAEVAL_API_KEY")
+        os.environ["HOLAEVAL_API_KEY"] = "sk-test"
+        with tempfile.TemporaryDirectory() as d:
+            ns = argparse.Namespace(base_url=base, model="vendor-model", pack=str(DEFAULT_SUITE), subject=None, out=d,
+                                    label="t", samples=None, only="", engine="openai")
+            buf = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    cmd_bench(ns)
+            finally:
+                server.shutdown()
+                if old is None:
+                    os.environ.pop("HOLAEVAL_API_KEY", None)
+                else:
+                    os.environ["HOLAEVAL_API_KEY"] = old
+            record = json.loads((Path(d) / "bench-t.json").read_text())
+        return record, [json.loads(line) for line in buf.getvalue().splitlines()], requests
+
+    record, events, requests = bench()
+    by_task = {r["task"]: r for r in record["results"]}
+    assert list(by_task) == ["code-intervals", "tool-flight", "needle-8k"], list(by_task)
+    for tid, r in by_task.items():
+        assert (r["passed"], r["samples"]) == (3, 3), (tid, r["reasons"])
+    assert record["reference_only"] is True and record["engine"] == "openai_compatible" and "machine" not in record
+    attempt = by_task["tool-flight"]["attempts"][0]
+    assert attempt["thinking"] == "thinking it over. " and attempt["tool_calls"][0]["function"]["name"] == "search_flights"
+    assert all(path == "/v1/chat/completions" and auth == "Bearer sk-test" for path, _, auth in requests)
+    bodies = [body for _, body, _ in requests]
+    assert len(bodies) == 1 + 9 and all(body["stream"] for body in bodies)
+    leaked = {"options", "keep_alive", "think", "temperature", "top_p", "min_p", "num_ctx"}
+    assert not any(leaked & body.keys() for body in bodies), "remote requests use the provider's default sampling"
+    assert [b.get("tools") is not None for b in bodies].count(True) == 3
+    budgets = {t["id"]: t.get("max_tokens", 6000) for t in load_pack(DEFAULT_SUITE)["tasks"]}
+    assert sorted(b["max_tokens"] for b in bodies[1:]) == sorted(v for v in budgets.values() for _ in range(3))
+    done = [e for e in events if e["event"] == "request_done"]
+    assert len(done) == 10 and all(e["eval_count"] for e in done)
+    assert not any(e["event"] == "task_start" and e.get("kind") == "speed" for e in events)
+
+    record, _, requests = bench(completion_tokens_only=True)
+    assert all(r["passed"] == 3 for r in record["results"]), [r["reasons"] for r in record["results"]]
+    retried = [body for _, body, _ in requests if "max_completion_tokens" in body]
+    assert len(retried) == 10 and len(requests) == 20
     return list(by_task)
 
 
@@ -3878,6 +4134,9 @@ def main():
     p.add_argument("--samples", type=int)
     p.add_argument("--only", default="")
     p.add_argument("--showcase", action="store_true", help="after the speed tasks, one unscored generation to record on screen")
+    p.add_argument("--engine", choices=["ollama", "openai"], default="ollama",
+                   help="openai: a hosted model behind an OpenAI-compatible API (key in HOLAEVAL_API_KEY); graded "
+                        "tasks only, marked reference_only")
     p.set_defaults(fn=cmd_bench)
     p = sub.add_parser("code")
     p.add_argument("--base-url", required=True)

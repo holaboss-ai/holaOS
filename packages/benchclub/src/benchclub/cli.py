@@ -17,7 +17,7 @@ import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
-from benchclub import __version__, bench, coding, hub, machine, ollama, paths, pinned, runs
+from benchclub import __version__, bench, coding, hub, machine, ollama, paths, pinned, remote, runs
 from benchclub.record import js_round
 from benchclub.errors import HolaError
 
@@ -589,6 +589,7 @@ def parser():
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--json", action="store_true")
         p.set_defaults(fn=fn)
+    remote.add_commands(sub)
     if account is not None:
         account.add_commands(sub)
     if submit is not None:
