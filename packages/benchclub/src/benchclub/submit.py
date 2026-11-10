@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import threading
+import time
 from pathlib import Path
 
 from benchclub import account, bench, hub, ollama, pinned, record as record_mod, runs
@@ -21,6 +22,7 @@ EVENT_CHUNK_SCHEMA = "benchclub.event-chunk/0.1"
 SIGN_IN = "Run `benchclub login`, then run this again."
 CODE_SHAPE = re.compile(r"[A-Z0-9]{4,12}")
 CODE_NOISE = re.compile(r"[\s-]")
+PROGRESS_SECONDS = 3
 
 # What each not-counted reason means and what to do, in the order they are worth fixing.
 REASONS = {
@@ -120,11 +122,71 @@ def claim(code, session_token):
     raise HolaError("claim_failed", f"BenchClub didn't hand out the job (HTTP {status}).", "Try again in a minute.")
 
 
-def heartbeat(job_id, token):
-    """Renew the lease; returns the parsed response. The server signals {"cancel": true} when the job is no
-    longer active, which the caller must honor by stopping and aborting."""
-    _status, body = account._request("POST", f"/runner/v1/jobs/{job_id}/heartbeat", body={}, token=token)
-    return body if isinstance(body, dict) else {}
+class Progress:
+    """Passes UI events through and keeps what the run is doing, for the heartbeat to show on the website.
+
+    Display only: nothing here is scored, and the server ignores a progress it can't read.
+    """
+
+    def __init__(self, ui):
+        self.ui = ui
+        self.lock = threading.Lock()
+        self.changed = threading.Event()
+        self.layers = {}
+        self.state = {"phase": "pull", "pull": None, "speed": [], "tasks": []}
+
+    def __call__(self, kind, data):
+        self.ui(kind, data)
+        with self.lock:
+            if kind == "pull":
+                moved = self._pull(data)
+            elif kind == "event":
+                moved = self._event(data)
+            else:
+                moved = False
+        if moved:
+            self.changed.set()
+
+    def _pull(self, data):
+        total, done, digest = data.get("total"), data.get("completed"), data.get("digest")
+        if not (isinstance(total, int) and total > 0 and digest):
+            return False
+        self.layers[digest] = (min(int(done or 0), total), total)
+        self.state["phase"] = "pull"
+        self.state["pull"] = {"done": sum(d for d, _ in self.layers.values()),
+                              "total": sum(t for _, t in self.layers.values())}
+        return True
+
+    def _event(self, e):
+        kind, step, tasks = e.get("type"), e.get("kind"), self.state["tasks"]
+        if kind == "task_start" and step in ("warmup", "speed"):
+            self.state["phase"] = step
+        elif kind == "task_done" and step == "speed" and isinstance(e.get("decode_tps"), (int, float)):
+            self.state["speed"].append(round(float(e["decode_tps"]), 1))
+        elif kind == "task_start" and step == "task":
+            self.state["phase"] = "tasks"
+            total = e.get("samples")
+            tasks.append({"task": str(e.get("task")), "category": e.get("category"), "samples": [],
+                          "total": total if isinstance(total, int) else None})
+        elif kind == "sample_done" and tasks and e.get("task") == tasks[-1]["task"]:
+            tasks[-1]["samples"].append(e.get("passed") is True)
+        elif kind == "task_done" and step == "task" and tasks and e.get("status") == "unsupported":
+            tasks[-1]["unsupported"] = True
+        else:
+            return False
+        return True
+
+    def snapshot(self):
+        with self.lock:
+            return json.loads(json.dumps(self.state))
+
+
+def heartbeat(job_id, token, progress=None):
+    """Renew the lease, carrying what the run is doing; returns the parsed response. The server signals
+    {"cancel": true} when the job is no longer active, which the caller must honor by stopping and aborting."""
+    body = {"progress": progress} if progress else {}
+    _status, reply = account._request("POST", f"/runner/v1/jobs/{job_id}/heartbeat", body=body, token=token)
+    return reply if isinstance(reply, dict) else {}
 
 
 def abort(job_id, token, reason):
@@ -171,19 +233,28 @@ def complete(job_id, token, record):
     raise HolaError("complete_failed", f"BenchClub couldn't take the run (HTTP {status}).", "Run it again to retry.")
 
 
-def _heartbeat_until_done(worker, job, token, interval):
-    """Join the run thread, heartbeating each time it is still alive after `interval`. Returns True if the
-    server asked to cancel (heartbeat → {"cancel": true}), else False when the run finishes on its own.
+def _heartbeat_until_done(worker, job, token, interval, progress=None):
+    """Join the run thread, heartbeating every `interval` while it is alive, and sooner (at most every
+    PROGRESS_SECONDS) when the run's progress moved. Returns True if the server asked to cancel
+    (heartbeat → {"cancel": true}), else False when the run finishes on its own.
 
     A transient heartbeat error is swallowed — the lease survives a few missed beats (60 s lease, 15 s beat),
     and upload_events/complete give the authoritative verdict — but an explicit cancel is honored at once.
     """
+    last = time.monotonic()
     while True:
-        worker.join(timeout=interval)
+        worker.join(timeout=min(interval, PROGRESS_SECONDS) if progress else interval)
         if not worker.is_alive():
             return False
+        now = time.monotonic()
+        moved = progress is not None and progress.changed.is_set() and now - last >= PROGRESS_SECONDS
+        if not (moved or now - last >= interval):
+            continue
+        last = now
+        if progress is not None:
+            progress.changed.clear()
         try:
-            if heartbeat(job["job_id"], token).get("cancel") is True:
+            if heartbeat(job["job_id"], token, progress.snapshot() if progress else None).get("cancel") is True:
                 return True
         except HolaError:
             pass
@@ -202,11 +273,12 @@ def run_job(code, *, on_step=lambda label, info=None: None, ui=bench._quiet, env
                         "suite": suite, "placement": job["placement"]})
 
     box = {}
+    progress = Progress(ui)
 
     def work():
         try:
-            box["result"] = run_eval(config, suite=suite, job_id=job["job_id"], placement=job["placement"], ui=ui,
-                                     env=env, **(eval_options or {}))
+            box["result"] = run_eval(config, suite=suite, job_id=job["job_id"], placement=job["placement"],
+                                     ui=progress, env=env, **(eval_options or {}))
         except BaseException as exc:  # noqa: BLE001 — surfaced to the caller after the thread joins
             box["error"] = exc
 
@@ -215,7 +287,7 @@ def run_job(code, *, on_step=lambda label, info=None: None, ui=bench._quiet, env
     worker.start()
     interval = max(int(job.get("heartbeat_seconds") or 15), 1)
     try:
-        cancelled = _heartbeat_until_done(worker, job, token, interval)
+        cancelled = _heartbeat_until_done(worker, job, token, interval, progress)
     except BaseException:
         abort(job["job_id"], token, "runner_interrupted")
         raise

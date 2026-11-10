@@ -49,6 +49,7 @@ class FakeHub:
         self.completed = []       # (token, record) posted to /complete
         self.aborts = []          # (token, reason)
         self.heartbeats = 0
+        self.heartbeat_bodies = []
         self.beat = threading.Event()      # set when a heartbeat arrives
         self.cancel_on_heartbeat = False   # when True, heartbeat answers {"cancel": true}
         self.claim_status = (200, None)    # override to force a claim error
@@ -86,6 +87,7 @@ class FakeHub:
                 return 401, {"error": "bad job token"}
             if action == "heartbeat":
                 self.heartbeats += 1
+                self.heartbeat_bodies.append(body)
                 self.beat.set()
                 return 200, ({"cancel": True} if self.cancel_on_heartbeat else {"ok": True})
             if action == "events":
@@ -217,6 +219,27 @@ class SubmitTest(unittest.TestCase):
         # during the run rather than only after it.
         submit.run_job("ABCD1234", run_eval=self.stub_eval(sleep_until=self.fake.beat))
         self.assertGreaterEqual(self.fake.heartbeats, 1)
+
+    def test_heartbeats_carry_what_the_run_is_doing(self):
+        def run_eval(config, *, suite, job_id, placement, ui=None, env=None):
+            ui("pull", {"status": "pulling", "digest": "sha256:a", "total": 100, "completed": 40})
+            ui("event", {"type": "task_done", "kind": "speed", "task": "speed@0", "decode_tps": 313.44})
+            ui("event", {"type": "task_start", "kind": "task", "task": "code-intervals", "category": "code",
+                         "samples": 3})
+            ui("event", {"type": "sample_done", "task": "code-intervals", "sample": 0, "passed": True})
+            ui("event", {"type": "sample_done", "task": "code-intervals", "sample": 1, "passed": False})
+            self.fake.beat.clear()
+            self.fake.beat.wait(timeout=5)
+            return self.stub_eval()(config, suite=suite, job_id=job_id, placement=placement, ui=ui, env=env)
+        submit.run_job("ABCD1234", run_eval=run_eval)
+        sent = [b["progress"] for b in self.fake.heartbeat_bodies if b and b.get("progress")]
+        self.assertTrue(sent)
+        self.assertEqual(sent[-1], {
+            "phase": "tasks",
+            "pull": {"done": 40, "total": 100},
+            "speed": [313.4],
+            "tasks": [{"task": "code-intervals", "category": "code", "samples": [True, False], "total": 3}],
+        })
 
     def test_a_server_cancel_on_heartbeat_stops_the_run_and_aborts(self):
         self.fake.cancel_on_heartbeat = True
