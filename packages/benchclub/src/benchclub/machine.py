@@ -82,6 +82,43 @@ def measure_cpu_busy(window_s=None, times=cpu_times, sleep=time.sleep):
     return js_round((after[0] - before[0]) / total * 100) if total > 0 else None
 
 
+APP_BUNDLE = re.compile(r"([^/]+)\.app/")
+
+
+def program_name(command):
+    """`Google Chrome` for a helper inside Google Chrome.app, else the executable's name."""
+    match = APP_BUNDLE.search(command)
+    return match.group(1) if match else os.path.basename(command.rstrip("/")) or command
+
+
+def busiest_programs(limit=3, run=subprocess.run, cpus=None, platform=sys.platform):
+    """The programs using the most CPU now, as [(name, % of the whole machine)], helpers summed per app; [] when unknown."""
+    if platform == "darwin":
+        command = ["ps", "-Ao", "pcpu=,comm="]
+    elif platform.startswith("linux"):
+        command = ["ps", "-eo", "pcpu=,comm="]
+    else:
+        return []
+    try:
+        out = run(command, capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    cpus = cpus or os.cpu_count() or 1
+    totals = {}
+    for line in out.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2:
+            continue
+        try:
+            pct = float(parts[0])
+        except ValueError:
+            continue
+        name = program_name(parts[1])
+        totals[name] = totals.get(name, 0.0) + pct
+    ranked = sorted(((name, round(pct / cpus)) for name, pct in totals.items() if name != "ps"), key=lambda r: -r[1])
+    return [row for row in ranked if row[1] >= 1][:limit]
+
+
 def gpu_memory_gb(gpus):
     """Total memory of "<name>, <MiB> MiB" GPU entries, in GB."""
     mib = sum(int(m.group(1)) for gpu in gpus or [] if (m := re.search(r",\s*(\d+)\s*MiB$", gpu)))
@@ -130,7 +167,7 @@ def free_memory_gb():
 
 
 def summary(hw):
-    """The machine as people say it, as the desktop and HolaHub label it: "Apple M5 Pro · 48 GB" or "RTX 4090 24 GB · 64 GB RAM"."""
+    """The machine as people say it, as the desktop and BenchClub label it: "Apple M5 Pro · 48 GB" or "RTX 4090 24 GB · 64 GB RAM"."""
     gpus = hw.get("gpus") or []
     memory = f"{hw['memory_gb']} GB" if hw.get("memory_gb") else ""
     if gpus:

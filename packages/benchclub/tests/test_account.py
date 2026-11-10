@@ -1,4 +1,4 @@
-"""Signing in with the device flow and publishing, against a fake HolaHub."""
+"""Signing in with the device flow and publishing, against a fake BenchClub."""
 
 import contextlib
 import io
@@ -21,7 +21,7 @@ TOKEN = "hcli_tok"
 
 
 class FakeHub:
-    """The device-flow, session and publish endpoints, answered the way HolaHub answers them."""
+    """The device-flow, session and publish endpoints, answered the way BenchClub answers them."""
 
     def __init__(self):
         self.polls = []  # what each /device/token poll answers, in order

@@ -1,21 +1,106 @@
-"""Submitting a run to the hub: claim a job by its code, run the suite, upload its event log, complete.
+"""Submitting a run to BenchClub: create or claim a job, run the suite, upload its event log, complete.
 
-`benchclub run <code>` is the only way a run reaches the hub. A record without a claimable job_id is
-rejected (trust rule #1), so an offline `benchclub eval` run always stays on this machine. The claim
-uses the signed-in session; every call after it uses the per-job token the claim hands back.
+`benchclub run <model>` asks BenchClub for a job on a registered model and claims it; `benchclub run <code>`
+claims a job made on the web. A record without a claimable job_id is rejected (trust rule #1), so an offline
+`benchclub eval` run always stays on this machine. Creating and claiming use the signed-in session; every call
+after the claim uses the per-job token the claim hands back.
 """
 
 import json
+import os
+import re
 import sys
 import threading
 from pathlib import Path
 
-from benchclub import account, bench, hub, record as record_mod, runs
+from benchclub import account, bench, hub, ollama, pinned, record as record_mod, runs
 from benchclub.errors import HolaError
 
 CHUNK_BYTES = 64 * 1024
 EVENT_CHUNK_SCHEMA = "benchclub.event-chunk/0.1"
-SIGN_IN = "Run `benchclub login`, then run the code again."
+SIGN_IN = "Run `benchclub login`, then run this again."
+CODE_SHAPE = re.compile(r"[A-Z0-9]{4,12}")
+CODE_NOISE = re.compile(r"[\s-]")
+
+# What each not-counted reason means and what to do, in the order they are worth fixing.
+REASONS = {
+    "engine_outside_profile": "BenchClub doesn't count runs on this Ollama version yet. Install a version "
+                              "`benchclub doctor` says counts, then run it again.",
+    "digest_not_registered": "The version this model's tag points to now isn't registered on BenchClub yet. "
+                             "New versions are usually registered within a day; run it again then.",
+    "regrade_mismatch": "BenchClub's regrade of the uploaded log didn't match this run, so it doesn't count. "
+                        "Run `benchclub doctor`, then run it again.",
+    "aborted": "The job stopped or expired before the run finished. Run it again.",
+    "claim_mismatch": "This run doesn't match the job it claimed. Update benchclub, then run it again.",
+    "schema_invalid": "BenchClub couldn't read this run's record. Update benchclub, then run it again.",
+    "suite_hash_mismatch": "This run used a different copy of the suite than BenchClub's. Update benchclub, "
+                           "then run it again.",
+    "suite_not_frozen": "This suite isn't open for counted runs yet.",
+}
+SPEED_VOID = ("Speed isn't counted: other programs used too much CPU while it generated. Close them and "
+              "run it again for a speed number.")
+
+
+def normalize_code(text):
+    return CODE_NOISE.sub("", text).upper()
+
+
+def looks_like_code(text):
+    """A job code as the web shows it: capitals and digits, never a model name someone typed in lowercase."""
+    return bool(CODE_SHAPE.fullmatch(normalize_code(text))) and not any(c.islower() for c in text)
+
+
+def resolve_target(target, env=None):
+    """("model", catalog entry) for a model BenchClub lists, else ("code", code) for a job's claim code."""
+    entries, source = hub.fetch_subjects_index(env)
+    try:
+        entry = hub.resolve(target, entries)
+    except HolaError:
+        if looks_like_code(target):
+            return "code", normalize_code(target)
+        raise
+    if source != "hub":
+        raise HolaError("offline", "Couldn't reach BenchClub to start a counted run.",
+                        "Check your connection, then run this again. `benchclub eval` runs offline but stays local.")
+    return "model", entry
+
+
+def engine_check(env=None, find_binary=ollama.find_binary, version_of=ollama.binary_version):
+    """None when this machine's Ollama counts (or we can't tell); otherwise its version and the versions that do."""
+    env = os.environ if env is None else env
+    binary = find_binary(env=env)
+    if not binary:
+        return None
+    version = version_of(binary)
+    supported = hub.counted_versions(version, hub.runtime_profiles(env))
+    return None if supported is None else {"version": version, "supported": supported}
+
+
+def create_job(entry, suite, session_token):
+    """A local job on the model's registered build; returns its claim code."""
+    suite_id, _, version = suite.partition("@")
+    body = {"subject": entry["id"], "suite": {"id": suite_id, "version": version}, "placement": "local"}
+    if entry.get("build_digest"):
+        body["build_digest"] = entry["build_digest"]
+    status, reply = account._request("POST", "/v1/jobs", body=body, token=session_token)
+    reply = reply if isinstance(reply, dict) else {}
+    if status in (200, 201) and reply.get("claim_code"):
+        return reply["claim_code"]
+    code = reply.get("code")
+    if status == 401:
+        raise HolaError("signed_out", "Your sign-in has expired or was signed out.", SIGN_IN)
+    if code == "handle_required":
+        raise HolaError(code, "Finish signing up on BenchClub first: choose a handle.",
+                        "Sign in on the website, pick your handle, then run this again.")
+    if code == "daily_limit":
+        raise HolaError(code, "You've started the most runs BenchClub takes in a day.", "Run it again tomorrow.")
+    if code in ("subject_not_found", "no_registered_build"):
+        raise HolaError(code, f"BenchClub can't start a counted run of {entry['name']} right now.",
+                        "Pick another model from `benchclub list`.")
+    if code == "suite_not_found":
+        raise HolaError(code, f"BenchClub doesn't take counted runs of {suite} yet.",
+                        f"Leave out --suite to run {pinned.DEFAULT_SUITE}.")
+    raise HolaError("job_failed", f"BenchClub didn't start the run (HTTP {status}).", "Try again in a minute.")
 
 
 def claim(code, session_token):
@@ -28,11 +113,11 @@ def claim(code, session_token):
         raise HolaError("signed_out", "Your sign-in has expired or was signed out.", SIGN_IN)
     if status in (403, 404, 410):
         raise HolaError("bad_code", f"No job is waiting for the code {code}.",
-                        "Check the code on the job page, or create a new job and use its code.")
+                        "Check the code on the job page, or run a model by name: `benchclub list` shows them.")
     if status == 409:
         raise HolaError("code_taken", "That code was already claimed.",
-                        "Create a new job on the web and run its code.")
-    raise HolaError("claim_failed", f"The hub didn't hand out the job (HTTP {status}).", "Try again in a minute.")
+                        "Run the model by name instead, e.g. `benchclub run qwen3.5:2b`.")
+    raise HolaError("claim_failed", f"BenchClub didn't hand out the job (HTTP {status}).", "Try again in a minute.")
 
 
 def heartbeat(job_id, token):
@@ -70,8 +155,8 @@ def upload_events(job_id, token, wire):
             "schema": EVENT_CHUNK_SCHEMA, "job_id": job_id, "seq": seq, "events": events})
         if status not in (200, 201, 202, 204):
             detail = (body or {}).get("error") if isinstance(body, dict) else None
-            raise HolaError("events_failed", f"The hub rejected the event log (HTTP {status}{f': {detail}' if detail else ''}).",
-                            "Run the code again to retry; chunk upload is idempotent.")
+            raise HolaError("events_failed", f"BenchClub rejected the event log (HTTP {status}{f': {detail}' if detail else ''}).",
+                            "Run it again to retry; chunk upload is idempotent.")
 
 
 def complete(job_id, token, record):
@@ -83,7 +168,7 @@ def complete(job_id, token, record):
         return body
     if status == 401:
         raise HolaError("signed_out", "The job token was rejected.", SIGN_IN)
-    raise HolaError("complete_failed", f"The hub couldn't take the run (HTTP {status}).", "Run the code again to retry.")
+    raise HolaError("complete_failed", f"BenchClub couldn't take the run (HTTP {status}).", "Run it again to retry.")
 
 
 def _heartbeat_until_done(worker, job, token, interval):
@@ -104,22 +189,24 @@ def _heartbeat_until_done(worker, job, token, interval):
             pass
 
 
-def run_job(code, *, on_step=lambda label, info=None: None, ui=bench._quiet, env=None, run_eval=bench.run_eval):
+def run_job(code, *, on_step=lambda label, info=None: None, ui=bench._quiet, env=None, run_eval=bench.run_eval,
+            eval_options=None):
     """Claim → run the suite (heartbeating to hold the lease) → upload events → complete. Returns the outcome."""
     session = account.saved_session()
     if session is None:
         raise HolaError("not_signed_in", "You're not signed in.", SIGN_IN)
     job, token = claim(code, session["token"])
-    on_step("claimed", {"job_id": job["job_id"], "subject": job["subject"],
-                        "suite": f"{job['suite']['id']}@{job['suite']['version']}", "placement": job["placement"]})
     config, _source = hub.fetch_subject(job["subject"], env=env)
     suite = f"{job['suite']['id']}@{job['suite']['version']}"
+    on_step("claimed", {"job_id": job["job_id"], "subject": job["subject"], "config": config,
+                        "suite": suite, "placement": job["placement"]})
 
     box = {}
 
     def work():
         try:
-            box["result"] = run_eval(config, suite=suite, job_id=job["job_id"], placement=job["placement"], ui=ui, env=env)
+            box["result"] = run_eval(config, suite=suite, job_id=job["job_id"], placement=job["placement"], ui=ui,
+                                     env=env, **(eval_options or {}))
         except BaseException as exc:  # noqa: BLE001 — surfaced to the caller after the thread joins
             box["error"] = exc
 
@@ -134,8 +221,8 @@ def run_job(code, *, on_step=lambda label, info=None: None, ui=bench._quiet, env
         raise
     if cancelled:
         abort(job["job_id"], token, "cancelled_by_server")
-        raise HolaError("job_cancelled", "The hub cancelled this job while it was running, so nothing was submitted.",
-                        "Create a new job on the web and run its code.")
+        raise HolaError("job_cancelled", "BenchClub cancelled this job while it was running, so nothing was submitted.",
+                        "Run it again.")
     if "error" in box:
         abort(job["job_id"], token, "run_failed")
         raise box["error"]
@@ -145,7 +232,7 @@ def run_job(code, *, on_step=lambda label, info=None: None, ui=bench._quiet, env
     record = runs.read_record(run_dir)
     if record is None:
         raise HolaError("not_found", "The run finished but its record could not be read.",
-                        "Run the code again; if it keeps happening, `benchclub doctor` checks your setup.")
+                        "Run it again; if it keeps happening, `benchclub doctor` checks your setup.")
     native = [json.loads(line) for line in (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
     wire = record_mod.wire_events(native)
     on_step("uploading", {"events": len(wire), "chunks": len(chunks(wire))})
@@ -159,51 +246,96 @@ def _emit(value):
 
 
 def cmd_run(args, out):
+    from benchclub import cli  # cli imports this module, so only once both are loaded
+
+    if account.saved_session() is None:
+        raise HolaError("not_signed_in", "You're not signed in.", SIGN_IN)
+    kind, target = resolve_target(args.target)
+    interactive = not args.json and sys.stdin.isatty()
     progress = type(out)(sys.stderr) if args.json else out
+    code = target
+    if kind == "model":
+        engine = engine_check()
+        if engine:
+            message = (f"This run won't count: BenchClub counts runs on Ollama {engine['supported']}, "
+                       f"and this machine has {engine['version']}.")
+            if not (getattr(args, "yes", False) or (interactive and cli.ask(
+                    progress, "Run it anyway? It will be saved but not counted. [y/N] ", False, message))):
+                raise HolaError("engine_not_counted", message,
+                                f"Install Ollama {engine['supported']}, or pass --yes to run it anyway.", engine)
+        code = create_job(target, getattr(args, "suite", None) or pinned.DEFAULT_SUITE,
+                          account.saved_session()["token"])
+
+    view = cli.EvalView({"name": "", "quant": ""}, progress.stream)
 
     def on_step(label, info=None):
         info = info or {}
         if args.json:
             return
         if label == "claimed":
-            progress.line(f"Claimed {info['subject']} · {info['suite']} ({info['placement']}).")
-        elif label == "running":
-            progress.line(f"Running {info['suite']}{progress.ell} (this is the real benchmark; it takes a little while)")
+            view.subject = info["config"]
+            view.speed_suite = info["suite"] not in cli.CODING_SUITES
+            progress.line(f"{info['config'].get('name')} {info['config'].get('quant')} {progress.sep} {info['suite']} "
+                          f"{progress.sep} job {info['job_id'][-8:]}")
         elif label == "uploading":
-            progress.line(f"Uploading the event log ({info['events']} events, {info['chunks']} chunk(s)){progress.ell}")
+            view.end_pending()
+            progress.line(f"Uploading the event log ({info['events']} events){progress.ell}")
 
-    outcome = run_job(args.code, on_step=on_step)["outcome"]
+    options = {"unload": True if getattr(args, "unload", False) else None,
+               "keep_model": getattr(args, "keep_model", False),
+               "confirm": cli.unload_prompt(view, interactive),
+               "confirm_busy": cli.busy_prompt(view, interactive)}
+    try:
+        done = run_job(code, on_step=on_step, ui=(lambda kind, data: None) if args.json else view,
+                       eval_options=options)
+    finally:
+        view.end_pending()
+    outcome = done["outcome"]
     if args.json:
         _emit({"ok": True, "status": outcome.get("status"), "run_id": outcome.get("run_id"),
                "counted": outcome.get("counted"), "not_counted_reason": outcome.get("not_counted_reason"),
                "url": outcome.get("url")})
     else:
-        _report(out, outcome)
+        report(out, outcome, done.get("result"))
     return 0
 
 
-def _report(out, outcome):
-    status = outcome.get("status")
+def report(out, outcome, result=None):
+    """The result lines, then whether it counts and why not, in words, then the link."""
+    from benchclub import cli
+
+    if result and result.get("summary") and result.get("suite") not in cli.CODING_SUITES:
+        out.line()
+        for line in cli.summary_lines(result, out):
+            out.line(line, indent=4)
+        out.line()
     url = outcome.get("url")
-    if status == "pending":
-        out.line("Submitted. The hub is still finalizing this run; it will appear in My runs shortly.")
+    if outcome.get("status") == "pending":
+        out.line("Submitted. BenchClub is still checking this run; it will appear in My runs shortly.")
         if url:
             out.line(url, indent=4)
         return
+    reasons = outcome.get("not_counted_reason") or []
+    reasons = reasons if isinstance(reasons, list) else [str(reasons)]
     if outcome.get("counted") is False:
-        reasons = outcome.get("not_counted_reason") or []
-        why = ", ".join(reasons) if isinstance(reasons, list) else str(reasons)
-        out.good("Submitted.")
-        out.line(f"It is saved but not counted ({why or 'see the run page'}).", indent=4)
+        out.warn("Submitted, but this run doesn't count.")
+        for reason in [r for r in REASONS if r in reasons] + [r for r in reasons if r not in REASONS and r != "machine_busy"]:
+            out.line(REASONS.get(reason, f"Reason: {reason}."), indent=4)
     else:
-        out.good("Submitted and counted.")
+        out.good("Submitted and counted, checked by BenchClub's regrade.")
+    if "machine_busy" in reasons:
+        out.line(SPEED_VOID, indent=4)
     if url:
         out.line(f"See it: {url}", indent=4)
 
 
 def add_commands(sub):
     """Registers `benchclub run` on cli.py's subparsers."""
-    p = sub.add_parser("run", help="claim a job by its code, run the suite, and submit the result to the hub")
-    p.add_argument("code", help="the claim code shown on the job page on the web")
+    p = sub.add_parser("run", help="run a model (or a job's code) and submit the result to BenchClub")
+    p.add_argument("target", help="a model from `benchclub list` (e.g. qwen3.5:2b), or the code on a job page")
+    p.add_argument("--suite", help=f"which suite to run a model on (default {pinned.DEFAULT_SUITE})")
+    p.add_argument("--yes", action="store_true", help="run even if this run won't count")
+    p.add_argument("--unload", action="store_true", help="unload models your own Ollama holds in memory")
+    p.add_argument("--keep-model", action="store_true", help="keep a model this run downloaded")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_run)

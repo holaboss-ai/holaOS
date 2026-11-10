@@ -127,7 +127,7 @@ class RunRecordTest(unittest.TestCase):
         self.assertFalse(build("d2")["subject"]["digest_registered"])
         self.assertFalse(build(None)["subject"]["digest_registered"])
         self.assertEqual(record.publish_blockers(build("d1")), [])
-        self.assertIn("not one HolaHub has registered", record.publish_blockers(build("d2"))[0])
+        self.assertIn("not one BenchClub has registered", record.publish_blockers(build("d2"))[0])
 
     def test_runs_on_someone_elses_server_cannot_be_published(self):
         rr = {"runtime": {"provider": {"managed": False}}, "subject": {"digest_registered": True}}

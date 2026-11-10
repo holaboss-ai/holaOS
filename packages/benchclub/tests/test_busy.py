@@ -4,7 +4,7 @@ import io
 import unittest
 
 import support
-from benchclub import cli, pinned, runs
+from benchclub import cli, machine, pinned, runs
 
 
 class BusyRuleTest(unittest.TestCase):
@@ -22,9 +22,9 @@ class BusyRuleTest(unittest.TestCase):
 
     def test_eval_says_a_busy_card_wont_count_and_stays_quiet_otherwise(self):
         self.assertEqual(cli.busy_note({"cpu_busy_pct": 12, "others_cpu_busy_pct": 46.5}),
-                         "Other programs used 46.5% of the CPU while it generated, so this card won't count in charts.")
+                         "Other programs used 46.5% of the CPU while it generated, so its speed won't count.")
         self.assertEqual(cli.busy_note({"cpu_busy_pct": 52}),
-                         "Other programs used 52% of the CPU when the run started, so this card won't count in charts.")
+                         "Other programs used 52% of the CPU when the run started, so its speed won't count.")
         self.assertIsNone(cli.busy_note({"cpu_busy_pct": 60, "others_cpu_busy_pct": 26.8}))
 
     def test_the_summary_carries_the_note_only_for_a_busy_run(self):
@@ -36,7 +36,18 @@ class BusyRuleTest(unittest.TestCase):
             stream = io.StringIO()
             cli.print_eval_result({**result, "conditions": {"cpu_busy_pct": 27, "others_cpu_busy_pct": others}}, None,
                                   cli.Out(stream))
-            self.assertEqual("won't count in charts" in stream.getvalue(), shown, others)
+            self.assertEqual("its speed won't count" in stream.getvalue(), shown, others)
+
+    def test_the_busiest_programs_sum_helpers_per_app_as_a_share_of_the_machine(self):
+        out = ("  80.0 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper.app/Contents/MacOS/Helper\n"
+               "  40.0 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome\n"
+               "  60.0 /usr/bin/ffmpeg\n"
+               "   0.5 /usr/sbin/cfprefsd\n"
+               "  10.0 ps\n")
+        fake = lambda *args, **kwargs: type("Done", (), {"stdout": out})()
+        self.assertEqual(machine.busiest_programs(run=fake, cpus=4, platform="darwin"),
+                         [("Google Chrome", 30), ("ffmpeg", 15)])
+        self.assertEqual(machine.busiest_programs(run=fake, platform="win32"), [])
 
     def test_doctor_warns_only_above_the_threshold(self):
         self.assertEqual(cli.load_check(40)["status"], "ok")
