@@ -391,26 +391,43 @@ def code_block(text):
     return blocks[-1] if blocks else text
 
 
+SOLUTION_CASE = '''import runpy
+import unittest
+
+
+class Solution(unittest.TestCase):
+    def test_solution(self):
+        runpy.run_path("solution.py", run_name="__main__")
+'''
+
+EXCEPTION_LINE = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt)\b.*$", re.M)
+
+
 def run_python_tests(code, tests, timeout=10):
-    # On a cloud worker the model's code runs as nobody, with no network and none of the worker's environment.
-    confine = linux_confinement() if linux_root() else None
-    with tempfile.TemporaryDirectory(dir="/tmp" if confine else None) as d:
-        path = Path(d) / "solution.py"
-        path.write_text(code + "\n\n" + tests + "\nprint('ALL_PASS')\n")
-        kwargs = {}
-        if confine:
-            os.chmod(d, 0o711)
-            os.chmod(path, 0o644)
-            kwargs = {"env": {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}, "preexec_fn": confine}
-        try:
-            out = subprocess.run([sys.executable, "-I", str(path)], cwd=d, capture_output=True, text=True, timeout=timeout,
-                                 **kwargs)
-        except subprocess.TimeoutExpired:
-            return False, "tests timed out"
-        if out.returncode == 0 and "ALL_PASS" in out.stdout:
-            return True, None
-        err = (out.stderr.strip().splitlines() or ["no output"])[-1]
-        return False, f"tests failed: {err[:160]}"
+    """The model's code and the task's asserts run as one unittest in CodeSandbox, so they get its guard (no
+    network, no processes, no writes outside the copy, Seatbelt on macOS, an unprivileged user on a cloud worker).
+    A pass is the sandbox's result line with a fresh nonce, which code that prints a marker and exits can't fake."""
+    work = tempfile.mkdtemp(prefix="holaeval-tests-")
+    box = None
+    try:
+        # CPU headroom so a busy loop ends as a timeout, not as a killed process with no result.
+        box = CodeSandbox(work, cpu_seconds=timeout + 5)
+        files = {"solution.py": code + "\n\n" + tests + "\n", "tests/__init__.py": "",
+                 "tests/test_solution.py": SOLUTION_CASE}
+        r = box.run(files, verbosity=1, timeout=timeout)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        if box is not None:
+            shutil.rmtree(box.work, ignore_errors=True)
+    res = r["result"]
+    if r["timed_out"]:
+        return False, "tests timed out"
+    if res and res.get("ok") and res.get("run") == 1:
+        return True, None
+    if not res:
+        return False, "tests failed: the test process exited before reporting"
+    found = EXCEPTION_LINE.findall(r["output"])
+    return False, f"tests failed: {(found[-1] if found else 'no output')[:160]}"
 
 
 def check_rules(text, rules):
