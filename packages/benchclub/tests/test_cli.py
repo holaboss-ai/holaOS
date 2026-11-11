@@ -23,13 +23,13 @@ def alive(pid):
     return True
 
 
-@unittest.skipIf(os.name == "nt", "the fake ollama is a shebang script, which Windows cannot exec")
 class ProxyTextTest(unittest.TestCase):
     def test_doctor_masks_a_proxys_credentials(self):
         self.assertEqual(cli.without_credentials("http://user:secret@10.0.0.2:7890"), "http://***@10.0.0.2:7890")
         self.assertEqual(cli.without_credentials("http://10.0.0.2:7890"), "http://10.0.0.2:7890")
 
 
+@unittest.skipIf(os.name == "nt", "the fake ollama is a shebang script, which Windows cannot exec")
 class CliTest(unittest.TestCase):
     def setUp(self):
         self.box = support.Sandbox()
