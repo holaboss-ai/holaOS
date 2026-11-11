@@ -26,6 +26,8 @@ PROGRESS_SECONDS = 3
 
 # What each not-counted reason means and what to do, in the order they are worth fixing.
 REASONS = {
+    "self_reported_endpoint": "It ran through your own endpoint, and BenchClub can't see what answered there, so "
+                              "it's kept as a self-reported run on your profile.",
     "engine_outside_profile": "BenchClub doesn't count runs on this Ollama version yet. Install a version "
                               "`benchclub doctor` says counts, then run it again.",
     "digest_not_registered": "The version this model's tag points to now isn't registered on BenchClub yet. "
@@ -322,6 +324,10 @@ def cmd_run(args, out):
 
     if account.saved_session() is None:
         raise HolaError("not_signed_in", "You're not signed in.", SIGN_IN)
+    if getattr(args, "base_url", None) or getattr(args, "provider", None):
+        from benchclub import remote
+
+        return remote.cmd_run_own_endpoint(args, out)
     kind, target = resolve_target(args.target)
     interactive = not args.json and sys.stdin.isatty()
     progress = type(out)(sys.stderr) if args.json else out
@@ -437,5 +443,8 @@ def add_commands(sub):
     p.add_argument("--yes", action="store_true", help="run even if this run won't count")
     p.add_argument("--unload", action="store_true", help="unload models your own Ollama holds in memory")
     p.add_argument("--keep-model", action="store_true", help="keep a model this run downloaded")
+    from benchclub import remote
+
+    remote.add_endpoint_arguments(p)
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_run)

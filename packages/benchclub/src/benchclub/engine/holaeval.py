@@ -908,7 +908,7 @@ def openai_chat(base, payload, on_text=None, timeout=900):
         resp = api_post(base, api_payload(payload, "max_completion_tokens"), timeout)
     first = last = None
     content, thinking, calls = [], [], {}
-    finish, usage, chunks = None, {}, 0
+    finish, usage, chunks, served, provider = None, {}, 0, None, None
     with resp as r:
         for raw in r:
             line = raw.decode("utf-8", "replace").strip()
@@ -922,6 +922,8 @@ def openai_chat(base, payload, on_text=None, timeout=900):
                 err = evt["error"]
                 raise RuntimeError(err.get("message") if isinstance(err, dict) else str(err))
             usage = evt.get("usage") or usage
+            served = evt.get("model") or served
+            provider = evt.get("provider") or provider
             for choice in evt.get("choices") or []:
                 delta = choice.get("delta") or {}
                 piece = delta.get("content") or ""
@@ -959,6 +961,8 @@ def openai_chat(base, payload, on_text=None, timeout=900):
         "prompt_eval_count": usage.get("prompt_tokens") or 0,
         "prompt_eval_s": 0,
         "load_s": 0,
+        "served_model": served,
+        "served_by": provider,
     }
 
 
@@ -1263,7 +1267,8 @@ def bench_speed(root, model, depth, cfg, base_options, extra, emit, load=None):
     return result
 
 
-def bench_task(root, model, task, samples, base_options, extra, capabilities, emit, send=ollama_chat):
+def bench_task(root, model, task, samples, base_options, extra, capabilities, emit, send=ollama_chat, served=None):
+    served = set() if served is None else served
     emit.task = task["id"]
     emit("task_start", task=task["id"], kind="task", category=task["category"], samples=samples)
     if task.get("tools") and "tools" not in capabilities:
@@ -1294,6 +1299,8 @@ def bench_task(root, model, task, samples, base_options, extra, capabilities, em
             passed, reason = grade(task, resp, {"engine": "ollama", "identity": []})
             rec = {"sample": sample, "passed": bool(passed), "reason": reason, "tokens": r["eval_count"],
                    "seconds": round(r["total_s"], 2), "content": raw, "thinking": r["thinking"], "tool_calls": r["tool_calls"]}
+            if r.get("served_model") or r.get("served_by"):
+                served.add((r.get("served_model"), r.get("served_by")))
         except Exception as exc:
             rec = {"sample": sample, "passed": False, "reason": f"request failed: {exc}", "tokens": 0, "seconds": 0}
         recs.append(rec)
@@ -1408,7 +1415,10 @@ def bench_api(args):
     emit("task_done", task="warmup", kind="warmup", load_ms=0)
 
     only = [s for s in (args.only or "").split(",") if s]
-    results = [bench_task(base, model, task, samples, {}, {}, capabilities, emit, send=send)
+    served = set()
+    if warm.get("served_model") or warm.get("served_by"):
+        served.add((warm.get("served_model"), warm.get("served_by")))
+    results = [bench_task(base, model, task, samples, {}, {}, capabilities, emit, send=send, served=served)
                for task in pack["tasks"] if not only or task["id"] in only]
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -1416,7 +1426,8 @@ def bench_api(args):
         "suite": {"id": pack["id"], "version": pack["version"], "sha256": sha256_file(pack_path)},
         "test_agent": {"executor": f"holaeval@{HOLAEVAL_VERSION}", "judge": f"holaeval@{HOLAEVAL_VERSION}"},
         "engine": "openai_compatible",
-        "api": {"base_url": base},
+        # What actually answered: a router may pin a dated snapshot or switch upstream providers mid-run.
+        "api": {"base_url": base, "served": [{"model": m, "provider": p} for m, p in sorted(served, key=str)]},
         "model": model,
         "capabilities": capabilities,
         "request": {"sampling": "provider default", "samples": samples},
@@ -3723,7 +3734,8 @@ def fake_openai(completion_tokens_only=False):
             finish = "tool_calls" if body.get("tools") else "stop"
             for i, delta in enumerate(deltas):
                 choice = {"index": 0, "delta": delta, "finish_reason": finish if i == len(deltas) - 1 else None}
-                self.wfile.write(b"data: " + json.dumps({"choices": [choice]}).encode() + b"\n\n")
+                chunk = {"model": body["model"] + "-20261101", "provider": "FakeCloud", "choices": [choice]}
+                self.wfile.write(b"data: " + json.dumps(chunk).encode() + b"\n\n")
             usage = {"prompt_tokens": len(prompt) // 4, "completion_tokens": 7 * len(deltas)}
             self.wfile.write(b"data: " + json.dumps({"choices": [], "usage": usage}).encode() + b"\n\ndata: [DONE]\n\n")
 
@@ -3764,6 +3776,7 @@ def selftest_api():
     for tid, r in by_task.items():
         assert (r["passed"], r["samples"]) == (3, 3), (tid, r["reasons"])
     assert record["reference_only"] is True and record["engine"] == "openai_compatible" and "machine" not in record
+    assert record["api"]["served"] == [{"model": "vendor-model-20261101", "provider": "FakeCloud"}], record["api"]
     attempt = by_task["tool-flight"]["attempts"][0]
     assert attempt["thinking"] == "thinking it over. " and attempt["tool_calls"][0]["function"]["name"] == "search_flights"
     assert all(path == "/v1/chat/completions" and auth == "Bearer sk-test" for path, _, auth in requests)

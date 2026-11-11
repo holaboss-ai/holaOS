@@ -236,6 +236,64 @@ def build_run_record(*, run_id, job_id, placement, bench, subject, digest, evide
     }
 
 
+HOSTED_QUANT = "API"
+HOSTED_PROVIDER_VERSION = "1.0"
+
+
+def api_build_digest(engine, model):
+    """A hosted model has no weights to hash, so its build is identified by the route it is served on: sha256 of
+    "<engine>:<model>". The hub registers hosted builds with the same digest."""
+    return hashlib.sha256(f"{engine}:{model}".encode("utf-8")).hexdigest()
+
+
+def build_api_run_record(*, run_id, job_id, placement, bench, subject, engine, base_url, client, events):
+    """A run-record/0.2 for a hosted model behind an API. backend "api": the machine is the provider's, so the
+    record carries what answered (served snapshots and upstream providers) instead of hardware, and no speed."""
+    model = subject["api"]["model"]
+    wire = wire_events(events)
+    served = (bench.get("api") or {}).get("served") or []
+    return {
+        "schema": RUN_RECORD_SCHEMA,
+        "run_id": run_id,
+        "job_id": job_id,
+        "placement": placement,
+        "suite": bench["suite"],
+        "subject": {
+            "type": "model",
+            "id": subject["id"],
+            **({"name": subject["name"]} if subject.get("name") else {}),
+            **({"vendor": subject["vendor"]} if subject.get("vendor") else {}),
+            "version": _sha256_ref(api_build_digest(engine, model)),
+            "quant": HOSTED_QUANT,
+            "tag": model,
+            "digest_registered": bool(subject.get("registered")),
+            "capabilities": bench["capabilities"],
+        },
+        "test_agent": {**bench["test_agent"], "settings": dict(bench["request"])},
+        "runtime": {
+            "backend": "api",
+            "profile": runtime_profile({"engine": engine, "version": HOSTED_PROVIDER_VERSION}),
+            "hardware": {"platform": "hosted", "served": served},
+            "provider": {"engine": engine, "version": HOSTED_PROVIDER_VERSION,
+                         **({"base_url": base_url} if base_url else {})},
+            "client": client,
+            "conditions": {},
+        },
+        "events": events_integrity(events),
+        "results": [_result_0_2(result, wire) for result in bench["results"]],
+        "artifacts": None,
+        "counted": None,
+        "not_counted_reason": None,
+        "verification": None,
+        "provenance": None,
+        "submitter": None,
+        "signature": None,
+        "started_at": bench["started_at"],
+        "finished_at": bench["finished_at"],
+        "wall_seconds": bench["wall_seconds"],
+    }
+
+
 def js_truthy(value):
     """JavaScript's truthiness, where an empty object or list is true."""
     return value is not None and value is not False and value != "" and not (
