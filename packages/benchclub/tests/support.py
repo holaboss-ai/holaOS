@@ -61,7 +61,10 @@ class Sandbox:
         self.binary = fake_binary(self.dir)
         self.port = free_port()
         self.state = self.dir / "fake-state"
-        self.env = {"PATH": os.environ.get("PATH", ""), "HOME": str(self.dir), "BENCHCLUB_HOME": str(self.dir / "benchclub"),
+        # Windows can't open sockets without SYSTEMROOT, and finds the home folder from USERPROFILE, not HOME.
+        system = {k: os.environ[k] for k in ("SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP") if k in os.environ}
+        self.env = {**system, "PATH": os.environ.get("PATH", ""), "HOME": str(self.dir), "USERPROFILE": str(self.dir),
+                    "BENCHCLUB_HOME": str(self.dir / "benchclub"),
                     "BENCHCLUB_OLLAMA_BIN": self.binary, "BENCHCLUB_OLLAMA_PORT": str(self.port),
                     "BENCHCLUB_HUB": "http://127.0.0.1:9", "BENCHCLUB_API": "http://127.0.0.1:9",
                     "OLLAMA_HOST": f"127.0.0.1:{free_port()}", "FAKE_OLLAMA_STATE": str(self.state)}
