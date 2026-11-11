@@ -149,6 +149,26 @@ def login(out, sleep=time.sleep, clock=time.monotonic):
     raise HolaError("login_expired", "The code expired before it was approved.", "Run `benchclub login` again.")
 
 
+def machine_report():
+    """What BenchClub keeps about this machine: chip, memory, GPUs and OS. Never a hostname or username."""
+    import platform
+
+    from benchclub import machine
+
+    hw = machine.machine_info()
+    return {"cpu": hw.get("cpu"), "memory_gb": hw.get("memory_gb"), "gpus": hw.get("gpus") or [],
+            "os": platform.system() or None, "arch": platform.machine() or None}
+
+
+def report_machine(token):
+    """Tells BenchClub which machine this is, so the site can suggest models it holds. A failure changes nothing."""
+    try:
+        status, _ = _request("PUT", "/v1/me/machine", body=machine_report(), token=token)
+    except Exception:  # noqa: BLE001 - signing in must not fail because the machine couldn't be described
+        return False
+    return status == 204
+
+
 def _finish_login(token, out):
     user = whoami(token)
     if user is None:
@@ -158,6 +178,7 @@ def _finish_login(token, out):
     _remember(token, user)
     if previous and previous["token"] != token:
         _revoke(previous["token"])
+    report_machine(token)
     out.good(f"Signed in as {user.get('name') or 'you'}. Run a model with `benchclub run <model>`; `benchclub list` shows them.")
     return user
 

@@ -369,6 +369,8 @@ def cmd_run(args, out):
                "url": outcome.get("url")})
     else:
         report(out, outcome, done.get("result"))
+        if outcome.get("status") != "pending":
+            suggest_next(out, next_models(account.saved_session()["token"]))
     return 0
 
 
@@ -399,6 +401,32 @@ def report(out, outcome, result=None):
         out.line(SPEED_VOID, indent=4)
     if url:
         out.line(f"See it: {url}", indent=4)
+
+
+NEXT_SHOWN = 3
+
+
+def next_models(token, limit=NEXT_SHOWN):
+    """Registered models this machine holds that this account hasn't run, as BenchClub sees it; [] if it can't say."""
+    try:
+        status, body = account._request("GET", f"/v1/me/next-models?limit={limit}", token=token)
+    except HolaError:
+        return []
+    models = body.get("models") if status == 200 and isinstance(body, dict) else None
+    return [m for m in models if isinstance(m, dict) and m.get("tag")] if isinstance(models, list) else []
+
+
+def suggest_next(out, models):
+    """A few commands to run next, so a first run is not the last."""
+    if not models:
+        return
+    out.line()
+    out.line("Next on this machine:")
+    width = max(len(m["tag"]) for m in models)
+    for m in models:
+        size = f" {out.sep} {m['download_bytes'] / 2**30:.1f} GB" if m.get("download_bytes") else ""
+        label = " ".join(part for part in (m.get("name"), m.get("quant")) if part)
+        out.line(f"benchclub run {m['tag']:<{width}}  {label}{size}", indent=4)
 
 
 def add_commands(sub):
