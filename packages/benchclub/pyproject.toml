@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "benchclub"
+dynamic = ["version"]
+description = "Benchmark open models on your own hardware and submit the runs to BenchClub."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Modified Apache 2.0: https://github.com/holaboss-ai/holaOS/blob/main/LICENSE" }
+dependencies = []
+classifiers = [
+  "Environment :: Console",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Source = "https://github.com/holaboss-ai/holaOS/tree/main/packages/benchclub"
+
+[project.scripts]
+benchclub = "benchclub.cli:main"
+
+[tool.hatch.version]
+path = "src/benchclub/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/benchclub"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/benchclub", "tests", "scripts", "README.md"]

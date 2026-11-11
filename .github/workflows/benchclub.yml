@@ -1,0 +1,45 @@
+name: benchclub
+
+on:
+  pull_request:
+    paths:
+      - packages/benchclub/**
+      - .github/workflows/benchclub.yml
+  push:
+    paths:
+      - packages/benchclub/**
+      - .github/workflows/benchclub.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchclub-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      # Packs are pinned by sha256, so Windows must check them out byte for byte.
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Engine manifest is current
+        working-directory: packages/benchclub
+        run: python scripts/sync-engine.py --check
+      - name: Unit tests
+        working-directory: packages/benchclub
+        run: python -m unittest discover -s tests -v

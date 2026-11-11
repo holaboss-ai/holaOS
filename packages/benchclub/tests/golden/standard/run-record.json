@@ -1,0 +1,402 @@
+{
+  "artifacts": null,
+  "counted": null,
+  "events": {
+    "bytes": 1126,
+    "chunks": 0,
+    "last_seq": 12,
+    "sha256": "2690d0fc28c1a371af0bf81f23fe4e98770f2efe8c6f15d48eb31b06a01370ef"
+  },
+  "finished_at": "2026-10-27T05:33:17Z",
+  "job_id": "local:6f1c2a9e-3b7d-4e1a-9c55-0d2f8e7a4b11",
+  "not_counted_reason": null,
+  "placement": "local",
+  "provenance": null,
+  "results": [
+    {
+      "events": {
+        "from_seq": 4,
+        "to_seq": 7
+      },
+      "kind": "speed",
+      "metrics": {
+        "cpu_offload": true,
+        "decode_tps": 129381.2,
+        "decode_tps_sd": 4728.9,
+        "depth": 0,
+        "engine_decode_tps": 100,
+        "engine_decode_tps_sd": 0,
+        "engine_prefill_tps": 1450,
+        "engine_prefill_tps_sd": 0,
+        "model_bytes": 2000,
+        "others_cpu_busy_pct": 3,
+        "others_gpu_busy_pct": 0,
+        "runs": [
+          {
+            "completion_tokens": 256,
+            "decode_tps": 128831.3,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 1450,
+            "load_ms": 1,
+            "others_cpu_busy_pct": 2.5,
+            "others_gpu_busy_pct": 0,
+            "prompt_tokens": 29,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          },
+          {
+            "completion_tokens": 256,
+            "decode_tps": 135428.3,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 1450,
+            "load_ms": 1,
+            "others_cpu_busy_pct": 3,
+            "others_gpu_busy_pct": 1.5,
+            "prompt_tokens": 29,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          },
+          {
+            "completion_tokens": 256,
+            "decode_tps": 123884.1,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 1450,
+            "load_ms": 1,
+            "others_cpu_busy_pct": 4.5,
+            "others_gpu_busy_pct": 0,
+            "prompt_tokens": 29,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 0
+          }
+        ],
+        "ttft_ms": 1,
+        "ttft_ms_sd": 0,
+        "vram_bytes": 1500
+      },
+      "status": "ok",
+      "task": "speed@0",
+      "time": 0,
+      "tokens": 768
+    },
+    {
+      "events": {
+        "from_seq": 8,
+        "to_seq": 9
+      },
+      "kind": "speed",
+      "metrics": {
+        "cpu_offload": true,
+        "decode_tps": 138545,
+        "decode_tps_sd": 9919.4,
+        "depth": 8192,
+        "engine_decode_tps": 100,
+        "engine_decode_tps_sd": 0,
+        "engine_prefill_tps": 431983.3,
+        "engine_prefill_tps_sd": 330,
+        "model_bytes": 2000,
+        "others_cpu_busy_pct": 4.8,
+        "others_gpu_busy_pct": 0,
+        "runs": [
+          {
+            "completion_tokens": 256,
+            "decode_tps": 128138,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 431750,
+            "load_ms": 1,
+            "others_cpu_busy_pct": 3.5,
+            "others_gpu_busy_pct": 2,
+            "prompt_tokens": 8635,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          },
+          {
+            "completion_tokens": 256,
+            "decode_tps": 151894.9,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 432450,
+            "load_ms": 1,
+            "others_cpu_busy_pct": null,
+            "others_gpu_busy_pct": 0,
+            "prompt_tokens": 8649,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          },
+          {
+            "completion_tokens": 256,
+            "decode_tps": 135602.2,
+            "engine_decode_tps": 100,
+            "engine_prefill_tps": 431750,
+            "load_ms": 1,
+            "others_cpu_busy_pct": 6,
+            "others_gpu_busy_pct": 0,
+            "prompt_tokens": 8635,
+            "reloaded": false,
+            "seconds": 0,
+            "ttft_ms": 1
+          }
+        ],
+        "ttft_ms": 1,
+        "ttft_ms_sd": 0,
+        "vram_bytes": 1500
+      },
+      "status": "ok",
+      "task": "speed@8k",
+      "time": 0,
+      "tokens": 768
+    },
+    {
+      "category": "code",
+      "kind": "task",
+      "pass": true,
+      "passed": 3,
+      "reasons": {},
+      "samples": [
+        {
+          "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef merge_intervals(intervals):\n    out = []\n    for s, e in sorted(intervals):\n        if out and s <= out[-1][1]:\n            out[-1][1] = max(out[-1][1], e)\n        else:\n            out.append([s, e])\n    return out\n```",
+          "events": {
+            "from_seq": 10,
+            "to_seq": 10
+          },
+          "passed": true,
+          "reason": null,
+          "sample": 0,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        },
+        {
+          "content": "<think>先写测试：“merge” \t\\ \u0001 — ok</think>```python\ndef m",
+          "events": {
+            "from_seq": 10,
+            "to_seq": 10
+          },
+          "passed": true,
+          "reason": null,
+          "sample": 1,
+          "seconds": 0,
+          "thinking": "按起点排序。",
+          "tokens": 2,
+          "tool_calls": null
+        },
+        {
+          "content": "<think>```python\ndef merge_intervals(x):\n    return x\n```</think>```python\ndef m",
+          "events": {
+            "from_seq": 10,
+            "to_seq": 10
+          },
+          "passed": true,
+          "reason": null,
+          "sample": 2,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        }
+      ],
+      "samples_n": 3,
+      "score": 1,
+      "status": "ok",
+      "task": "code-intervals",
+      "time": 0,
+      "tokens": 6
+    },
+    {
+      "category": "tool",
+      "kind": "task",
+      "pass": false,
+      "passed": 0,
+      "reasons": {
+        "request failed: HTTP 500": 3
+      },
+      "samples": [
+        {
+          "content": "",
+          "events": {
+            "from_seq": 11,
+            "to_seq": 11
+          },
+          "passed": false,
+          "reason": "request failed: HTTP 500",
+          "sample": 0,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 0,
+          "tool_calls": null
+        },
+        {
+          "content": "",
+          "events": {
+            "from_seq": 11,
+            "to_seq": 11
+          },
+          "passed": false,
+          "reason": "request failed: HTTP 500",
+          "sample": 1,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 0,
+          "tool_calls": null
+        },
+        {
+          "content": "",
+          "events": {
+            "from_seq": 11,
+            "to_seq": 11
+          },
+          "passed": false,
+          "reason": "request failed: HTTP 500",
+          "sample": 2,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 0,
+          "tool_calls": null
+        }
+      ],
+      "samples_n": 3,
+      "score": 0,
+      "status": "error",
+      "task": "tool-flight",
+      "time": 0,
+      "tokens": 3
+    },
+    {
+      "category": "long_context",
+      "kind": "task",
+      "pass": true,
+      "passed": 3,
+      "reasons": {},
+      "samples": [
+        {
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "events": {
+            "from_seq": 12,
+            "to_seq": 12
+          },
+          "passed": true,
+          "reason": null,
+          "sample": 0,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        },
+        {
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "events": {
+            "from_seq": 12,
+            "to_seq": 12
+          },
+          "passed": true,
+          "reason": null,
+          "sample": 1,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        },
+        {
+          "content": "<think>maybe 0000-AA</think>7391-QX",
+          "events": {
+            "from_seq": 12,
+            "to_seq": 12
+          },
+          "passed": true,
+          "reason": null,
+          "sample": 2,
+          "seconds": 0,
+          "thinking": "",
+          "tokens": 2,
+          "tool_calls": null
+        }
+      ],
+      "samples_n": 3,
+      "score": 1,
+      "status": "ok",
+      "task": "needle-8k",
+      "time": 0,
+      "tokens": 6
+    }
+  ],
+  "run_id": "6f1c2a9e-3b7d-4e1a-9c55-0d2f8e7a4b11",
+  "runtime": {
+    "backend": "metal",
+    "client": {
+      "app": "benchclub",
+      "version": "0.1.0"
+    },
+    "conditions": {
+      "cpu_busy_pct": 8,
+      "others_cpu_busy_pct": 3.5,
+      "others_gpu_busy_pct": 0
+    },
+    "hardware": {
+      "cpu": "Apple M5 Pro",
+      "machine": "arm64",
+      "memory_gb": 48,
+      "model": "Mac17,8",
+      "platform": "macOS-26.5-arm64-arm-64bit-Mach-O",
+      "power": "AC",
+      "python": "3.13.13"
+    },
+    "profile": "ollama-0.40",
+    "provider": {
+      "engine": "ollama",
+      "env": {
+        "OLLAMA_KV_CACHE_TYPE": "f16",
+        "OLLAMA_MAX_LOADED_MODELS": "1",
+        "OLLAMA_NOPRUNE": "1",
+        "OLLAMA_NUM_PARALLEL": "1"
+      },
+      "flash_attention": "auto",
+      "managed": true,
+      "version": "0.40.10"
+    }
+  },
+  "schema": "benchclub.run-record/0.2",
+  "signature": null,
+  "started_at": "2026-10-27T05:32:05Z",
+  "subject": {
+    "capabilities": [
+      "completion",
+      "tools",
+      "thinking"
+    ],
+    "digest_registered": true,
+    "id": "openbmb-minicpm5-2b",
+    "name": "MiniCPM5-2B",
+    "quant": "Q4_K_M",
+    "tag": "openbmb/minicpm5-2b:q4_K_M",
+    "type": "model",
+    "vendor": "OpenBMB",
+    "version": "sha256:71a44e98400fbd490d66332a0ebba31143479a714987c13f45c82e94025cbfa7"
+  },
+  "submitter": null,
+  "suite": {
+    "id": "suite-standard",
+    "sha256": "4bbdf2da8b959801bb223c2a13d71fe952604138798ef2da0705df45794b6f67",
+    "version": "1.0"
+  },
+  "test_agent": {
+    "executor": "holaeval@1.1.0",
+    "judge": "holaeval@1.1.0",
+    "settings": {
+      "keep_alive": "30m",
+      "num_ctx": 16384,
+      "samples": 3,
+      "sampling": {
+        "min_p": 0,
+        "temperature": 0.7,
+        "top_p": 0.8
+      },
+      "warmup_load_ms": 1
+    }
+  },
+  "verification": null,
+  "wall_seconds": 72.4
+}
