@@ -231,14 +231,21 @@ def _loopback_no_proxy(env):
     return {"NO_PROXY": value, "no_proxy": value}
 
 
-def run_holaeval(run, instance, pack_path, env, ui, command="bench"):
-    """`holaeval.py bench` or `code` with the desktop's arguments; its event lines become this run's events."""
-    args = [sys.executable, "-I", str(pinned.holaeval_path()), command, "--base-url", instance.base_url,
-            "--model", run.subject["ollama"]["tag"], "--pack", str(pack_path), "--subject",
-            str(run.run_dir / "subject.json"), "--out", str(run.run_dir), "--label", BENCH_LABEL]
-    if instance.pid and command == "bench":
+def run_holaeval(run, instance, pack_path, env, ui, command="bench", api=None):
+    """`holaeval.py bench` or `code` with the desktop's arguments; its event lines become this run's events.
+    With `api` ({"base_url", "model"}) it runs `bench --engine openai` against a hosted model instead; the key
+    is in env as HOLAEVAL_API_KEY."""
+    if api is not None:
+        args = [sys.executable, "-I", str(pinned.holaeval_path()), "bench", "--engine", "openai", "--base-url",
+                api["base_url"], "--model", api["model"], "--pack", str(pack_path), "--out", str(run.run_dir),
+                "--label", BENCH_LABEL]
+    else:
+        args = [sys.executable, "-I", str(pinned.holaeval_path()), command, "--base-url", instance.base_url,
+                "--model", run.subject["ollama"]["tag"], "--pack", str(pack_path), "--subject",
+                str(run.run_dir / "subject.json"), "--out", str(run.run_dir), "--label", BENCH_LABEL]
+    if api is None and instance.pid and command == "bench":
         args += ["--ollama-pid", str(instance.pid)]
-    if env.get("BENCHCLUB_CLOUD_WORKER"):
+    if api is None and env.get("BENCHCLUB_CLOUD_WORKER"):
         # Ollama sizes its threads from the host's cores, not the pod's quota, and oversubscribes the pod.
         args += ["--num-thread", str(machine.cpu_allowance())]
     child_env = {**env, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", **_loopback_no_proxy(env)}
