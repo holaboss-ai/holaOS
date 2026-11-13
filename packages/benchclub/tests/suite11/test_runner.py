@@ -168,5 +168,13 @@ class CliTest(unittest.TestCase):
         self.assertTrue(lines[1].endswith("1/1"))
 
 
+class SuiteFamilyTest(unittest.TestCase):
+    def test_a_model_set_up_for_one_minor_version_runs_the_others(self):
+        from benchclub import pinned
+        self.assertEqual(pinned.suite_family("suite-standard@1.1"), pinned.suite_family("suite-standard@1.0"))
+        self.assertNotEqual(pinned.suite_family("suite-standard@1.0"), pinned.suite_family("suite-coding@1.0"))
+        self.assertNotEqual(pinned.suite_family("suite-standard@2.0"), pinned.suite_family("suite-standard@1.0"))
+
+
 if __name__ == "__main__":
     unittest.main()
