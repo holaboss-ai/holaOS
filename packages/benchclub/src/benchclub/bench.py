@@ -64,7 +64,7 @@ def run_eval(subject_raw, *, suite=pinned.DEFAULT_SUITE, job_id=None, placement=
         raise HolaError("unsupported_platform",
                         f"The coding scenario runs on macOS only for now; it needs a sandbox we haven't shipped for {name} yet.",
                         f"Run the standard suite instead: benchclub eval {subject['id']}", {"platforms": list(platforms)})
-    if subject.get("suites") and suite not in subject["suites"]:
+    if subject.get("suites") and pinned.suite_family(suite) not in map(pinned.suite_family, subject["suites"]):
         raise HolaError("unknown_suite", f"{subject['name']} {subject['quant']} isn't set up for {suite}.",
                         "`benchclub list` shows the suites each model has.")
     command = pinned.SUITES[suite]["command"]

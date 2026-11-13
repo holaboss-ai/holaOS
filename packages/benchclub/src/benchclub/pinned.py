@@ -15,6 +15,12 @@ SUPPORTED_SUITES = tuple(SUITES)
 DEFAULT_SUITE = "suite-standard@1.0"
 
 
+def suite_family(suite):
+    """suite-standard@1.1 → suite-standard@1: a minor version changes the items, not what a model needs to run them."""
+    name, _, version = suite.partition("@")
+    return f"{name}@{version.split('.')[0]}"
+
+
 def holaeval_path():
     return ENGINE / "holaeval.py"
 
