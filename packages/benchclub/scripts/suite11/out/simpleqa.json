@@ -1,0 +1,553 @@
+{
+ "bench": "simpleqa",
+ "source": {
+  "name": "SimpleQA Verified",
+  "url": "https://huggingface.co/datasets/google/simpleqa-verified",
+  "revision": "0dc97e0d28d8233463e005cdc4475cc2a13ba2dc",
+  "license": "MIT",
+  "license_url": "https://huggingface.co/datasets/google/simpleqa-verified/blob/0dc97e0d28d8233463e005cdc4475cc2a13ba2dc/README.md"
+ },
+ "selection": "3 per topic (10 topics), seed 20261113, from questions whose gold is a single number (optionally with its acceptable range), date, person or place that rule matching can check, with no time-relative wording and no gold already in the question; prompt is the question alone.",
+ "items": [
+  {
+   "id": "simpleqa/43",
+   "bench": "simpleqa",
+   "category": "Art",
+   "messages": [
+    {
+     "role": "user",
+     "content": "On what day, month, and year was Algerian artist Mohammed Racim born?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "June 24, 1896",
+    "type": "Date"
+   }
+  },
+  {
+   "id": "simpleqa/755",
+   "bench": "simpleqa",
+   "category": "Art",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the name and surname of the photographer who first invented a tool to coat calotype paper called the Buckle Brush?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Samuel Buckle",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/1013",
+   "bench": "simpleqa",
+   "category": "Art",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many children did Swiss painter Johann Caspar Füssli have with his wife, Elisabeth?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "18",
+    "type": "Number"
+   }
+  },
+  {
+   "id": "simpleqa/73",
+   "bench": "simpleqa",
+   "category": "Geography",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the length in meters of Abdullah Bridge in Srinagar including the fly-over and viaduct?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "390 metres (acceptable range: anything between 386 and 394 metres)",
+    "type": "Number"
+   }
+  },
+  {
+   "id": "simpleqa/2116",
+   "bench": "simpleqa",
+   "category": "Geography",
+   "messages": [
+    {
+     "role": "user",
+     "content": "From which university did geographer Wilbur Zelinsky receive his master's degree?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "University of Wisconsin",
+    "type": "Place"
+   }
+  },
+  {
+   "id": "simpleqa/4194",
+   "bench": "simpleqa",
+   "category": "Geography",
+   "messages": [
+    {
+     "role": "user",
+     "content": "At the 2006 National Census, what was the population of Sonqorabad, Alborz, in 337 households?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "1376 (acceptable range: anything between 1362 and 1390)",
+    "type": "Number"
+   }
+  },
+  {
+   "id": "simpleqa/333",
+   "bench": "simpleqa",
+   "category": "History",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What was the name of the man who served as Reeve of North Red Deer, Alberta, between 1924 and 1925?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "A.M. Donnelly.",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/2969",
+   "bench": "simpleqa",
+   "category": "History",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many deaths were caused by an amoebic dysentery outbreak at the Century of Progress World's Fair?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "98 (acceptable range: anything between 97 and 99)",
+    "type": "Number"
+   }
+  },
+  {
+   "id": "simpleqa/3448",
+   "bench": "simpleqa",
+   "category": "History",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Who was the first principal of Mayo College in India?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Colonel Sir Oliver St John",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/337",
+   "bench": "simpleqa",
+   "category": "Music",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Which famous drummer opened a Wahoo's Fish Taco restaurant in Norco, California, in 2004?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Travis Barker",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/804",
+   "bench": "simpleqa",
+   "category": "Music",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the name of the man buried at Paddington Cemetery in London in 1767, with an epitaph that reads, \"Tho' sweet as Orpheus thou couldst bring / Soft pleadings from the trembling string\"?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Matthew Dubourg",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/1049",
+   "bench": "simpleqa",
+   "category": "Music",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What day, month, and year did the original ActRaiser soundtrack come out in Japan?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "January 25, 1991",
+    "type": "Date"
+   }
+  },
+  {
+   "id": "simpleqa/296",
+   "bench": "simpleqa",
+   "category": "Other",
+   "messages": [
+    {
+     "role": "user",
+     "content": "From which university did David Hibbett receive his Bachelor of Arts degree?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "University of Massachusetts Amherst",
+    "type": "Place"
+   }
+  },
+  {
+   "id": "simpleqa/946",
+   "bench": "simpleqa",
+   "category": "Other",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Who set the Guinness World Record by building the largest Nerf gun, measuring 3.81 meters (12 feet 6 inches), on October 15, 2021?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Michael Pick",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/3066",
+   "bench": "simpleqa",
+   "category": "Other",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How much money in dollars did Steven Furtick's church give to its members in 2007?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "40,000 dollars (acceptable range: anything between 38,000 and 42,000 dollars)",
+    "type": "Number"
+   }
+  },
+  {
+   "id": "simpleqa/161",
+   "bench": "simpleqa",
+   "category": "Politics",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Who was the first person to be an American diplomatic minister to Romania and Serbia?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Eugene Schuyler",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/2693",
+   "bench": "simpleqa",
+   "category": "Politics",
+   "messages": [
+    {
+     "role": "user",
+     "content": "On what day, month, and year did Olton Willem van Genderen, a Surinamese civil servant and politician, die?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "November 9, 1990",
+    "type": "Date"
+   }
+  },
+  {
+   "id": "simpleqa/2744",
+   "bench": "simpleqa",
+   "category": "Politics",
+   "messages": [
+    {
+     "role": "user",
+     "content": "From which South American university did Sergio Fajardo Valderrama receive his M.Sc. in Mathematics?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Universidad de los Andes",
+    "type": "Place"
+   }
+  },
+  {
+   "id": "simpleqa/179",
+   "bench": "simpleqa",
+   "category": "Science and technology",
+   "messages": [
+    {
+     "role": "user",
+     "content": "At what zoo did August Scherl demonstrate his gyro-monorail to the public?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Berlin Zoological Gardens",
+    "type": "Place"
+   }
+  },
+  {
+   "id": "simpleqa/3081",
+   "bench": "simpleqa",
+   "category": "Science and technology",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What year did René Laennec claim that tubercles were the cause of pulmonary tuberculosis?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "1819",
+    "type": "Date"
+   }
+  },
+  {
+   "id": "simpleqa/3755",
+   "bench": "simpleqa",
+   "category": "Science and technology",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the half-life of radon-224 in hours?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "1.8 hours (acceptable range: anything between 1.78 and 1.82 hours)",
+    "type": "Number"
+   }
+  },
+  {
+   "id": "simpleqa/2008",
+   "bench": "simpleqa",
+   "category": "Sports",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many innings did Game 5 of the '86 ALCS last?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "11",
+    "type": "Number"
+   }
+  },
+  {
+   "id": "simpleqa/3037",
+   "bench": "simpleqa",
+   "category": "Sports",
+   "messages": [
+    {
+     "role": "user",
+     "content": "On what day, month, and year did Floro Garrido, a Spanish retired footballer, die?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "9 January 2012",
+    "type": "Date"
+   }
+  },
+  {
+   "id": "simpleqa/3549",
+   "bench": "simpleqa",
+   "category": "Sports",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What high school did pitcher Christopher Deane Haney attend?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Orange County High School",
+    "type": "Place"
+   }
+  },
+  {
+   "id": "simpleqa/297",
+   "bench": "simpleqa",
+   "category": "TV shows",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Which one of the 1990 Fly Girls from the series In Living Color stayed for five seasons?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Deidre Lang",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/850",
+   "bench": "simpleqa",
+   "category": "TV shows",
+   "messages": [
+    {
+     "role": "user",
+     "content": "In what year did Welsh broadcaster Louise Elliott join Jamie Owen as host of a weekday morning show on BBC Radio Wales?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "2007",
+    "type": "Date"
+   }
+  },
+  {
+   "id": "simpleqa/2710",
+   "bench": "simpleqa",
+   "category": "TV shows",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What relation is David W. Duclon to Cherie Johnson?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "Maternal uncle.",
+    "type": "Person"
+   }
+  },
+  {
+   "id": "simpleqa/2067",
+   "bench": "simpleqa",
+   "category": "Video games",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many individual plastic Fimir miniatures were included in the original HeroQuest Game System board game (not including expansions) released in North America in 1990?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "3",
+    "type": "Number"
+   }
+  },
+  {
+   "id": "simpleqa/2595",
+   "bench": "simpleqa",
+   "category": "Video games",
+   "messages": [
+    {
+     "role": "user",
+     "content": "On what day, month, and year was Cities: Skylines released for Google Stadia?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "May 17, 2022",
+    "type": "Date"
+   }
+  },
+  {
+   "id": "simpleqa/2686",
+   "bench": "simpleqa",
+   "category": "Video games",
+   "messages": [
+    {
+     "role": "user",
+     "content": "How many new subclasses were introduced in Tasha's Cauldron of Everything (not including reprints from previous books)?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "gold": "22",
+    "type": "Number"
+   }
+  }
+ ]
+}

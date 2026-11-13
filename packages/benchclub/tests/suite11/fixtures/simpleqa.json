@@ -1,0 +1,508 @@
+[
+ {
+  "item_id": "simpleqa/1013",
+  "response": "Johann Caspar Füssli (1742–1805) had **two** children with his wife, Elisabeth.\n\nThey were:\n1.  **Maria Anna Füssli** (1763–1839), who married the Swiss painter Johann Heinrich Füssli in 1787.\n2.  **Johann Caspar Füssli Jr.** (1765–1840), who married the German artist and writer Anna Maria von der Pfordten in 1789.\n\nBoth of his children became notable artists themselves, continuing the family's artistic legacy.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/1013",
+  "response": "Johann Caspar Füssli (1706–1782), the Swiss painter and art historian, had **ten** children with his wife, Elisabeth Waser.\n\nAmong these ten children, three became notably famous:\n1. **Johann Heinrich Füssli** (also known as Henry Fuseli) – The renowned Romantic painter.\n2. **Salomon Füssli** – A painter and engraver.\n3. **Johann Kaspar Füssli** (the younger) – Who followed his father into art history and publishing.\n\nThe other seven children also pursued various artistic or professional paths, though they are less widely known than the three mentioned above.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/1049",
+  "response": "The original *ActRaiser* soundtrack was released on **September 23, 1986**, in Japan.\n\nThis date marks the official launch of the game's Japanese release by Sega, which coincided with the game's initial commercial success and its inclusion in the *Sega Master Collection* box set shortly after. The soundtrack, composed by Nobuo Uematsu, was released on CD by Victor Entertainment (now part of Sony Music) under the catalog number VCS-1023.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/1049",
+  "response": "The original *ActRaiser* soundtrack was released in Japan on **December 16, 1991**.\n\n### Key Details:\n- **Game Release Date**: The game *ActRaiser* itself was released in Japan on December 6, 1991.\n- **Soundtrack Release**: The official Original Soundtrack (OST), composed by **Yuzo Koshiro** and **Manami Matsumae**, was released shortly after the game's launch, specifically on **December 16, 1991**.\n- **Label**: It was released under the label **Naxat Soft** (catalog number: NSCA-0003).\n\nThis date is widely cited in official Square Enix/Naxat Soft records and music databases such as VGMdb.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/161",
+  "response": "The first person to serve as an American diplomatic minister to both **Romania** and **Serbia** was **John H. Johnson**.\n\nHe served in this dual capacity from **1946 to 1950**. During his tenure, he held the position of U.S. Ambassador to Romania (1946–1948) and subsequently became the U.S. Ambassador to Serbia (1948–1950). Johnson was a prominent figure in American foreign policy during the early Cold War era, known for his work in countering Soviet influence in Eastern Europe and fostering relations between the United States and its Eastern European neighbors.\n\n**Answer:** **John H. Johnson**",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/161",
+  "response": "The first person to serve as the United States Minister (the title used before Ambassadors were appointed) to both Romania and Serbia was **John H. Rhea**.\n\nHowever, this requires clarification because the U.S. did not have simultaneous or direct diplomatic missions to both countries at the very beginning of their independence in the late 19th century. The key figure who holds the distinction of being the first U.S. Minister to **Romania** and later to **Serbia** is:\n\n### **John H. Rhea** (for Romania) and **William Henry Trescot** (for Serbia)?  \nActually, let’s look at the historical record more carefully.\n\nThe correct answer is **John H. Rhea** was the first U.S. Minister to **Romania** (appointed in 1880). But he was not Minister to Serbia.\n\nThe first U.S. Minister to **Serbia** was **William Henry Trescot**? No, that’s incorrect. The first U.S. Minister to Serbia was **John H. Rhea**? No.\n\nLet’s trace the diplomatic history:\n\n1.  **Romania**: The United States established diplomatic relations with Romania in 1880. **John H. Rhea** was appointed as the first U.S. Minister to Romania in 1880.\n2.  **Serbia**: The United States established diplomatic relations with Serbia in 1882. The first U.S. Minister to Serbia was **William Henry Trescot**? No, it was **John H. Rhea**? No.\n\nActually, the person who served as the first U.S. Minister to **both** countries (though not simultaneously) is **John H. Rhea**? Let’s check.\n\nWait, there is a more accurate answer: **John H. Rhea** was the first Minister to Romania. The first Minister to Serbia was **William Henry Trescot**? No, it was **John H. Rhea**? No.\n\nLet’s look at **John H. Rhea**’s career: He was Minister to Romania (1880–1882). Then he was Minister to Serbia? No, he was Minister to **Serbia** from 1882–1884? Let’s verify.\n\nAccording to historical records:\n- **John H. Rhea** was appointed U.S. Minister to Romania in 1880.\n- He was also appointed U.S. Minister to Serbia in 1882, serving concurrently or shortly after.\n\nActually, the first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s check **John H. Rhea**’s official title: He was the first U.S. Minister to Romania (1880–1882). Then he was sent to Serbia? No, the first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nThe correct answer is **John H. Rhea** was the first U.S. Minister to Romania. The first U.S. Minister to Serbia was **John H. Rhea**? No.\n\nLet’s look at **John H. Rhea**’s successor or predecessor.\n\nActually, the person who was the first U.S. Minister to **both** Romania and Serbia is **John H. Rhea**. He served as Minister to Romania (1880–1882) and then as Minister to Serbia (1882–1884). Wait, did he serve in both?\n\nNo, the first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s check **John H. Rhea**’s Wikipedia page or official State Department history.\n\nAccording to the U.S. Department of State’s Office of the Historian:\n- The first U.S. Minister to Romania was **John H. Rhea** (1880–1882).\n- The first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nActually, the first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s try **John H. Rhea** again. He was Minister to Romania (1880–1882). Then he was Minister to **Serbia**? No, he was Minister to **Serbia** from 1882–1884? Yes, according to some sources, John H. Rhea served as Minister to Serbia after Romania.\n\nBut wait, there is another candidate: **William Henry Trescot** was Minister to Portugal. Not Serbia.\n\nThe first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s check **John H. Rhea**’s full title. He was the first U.S. Minister to Romania and also the first U.S. Minister to Serbia? No, that seems unlikely for one person to be the *first* in both unless they were appointed consecutively.\n\nActually, the correct answer is **John H. Rhea**. He was appointed as the first U.S. Minister to Romania in 1880 and then as the first U.S. Minister to Serbia in 1882.\n\nWait, let’s double-check. The first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s look at **John H. Rhea**’s career:\n- Minister to Romania: 1880–1882\n- Minister to Serbia: 1882–1884\n\nYes, **John H. Rhea** was the first U.S. Minister to both countries.\n\nHowever, some sources might say **William Henry Trescot** was not involved. Let’s confirm with another source.\n\nAccording to the U.S. State Department’s list of Chiefs of Mission:\n- Romania: First Chief of Mission was **John H. Rhea** (1880).\n- Serbia: First Chief of Mission was **John H. Rhea** (1882)? No, it was **William Henry Trescot**? No.\n\nActually, the first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s try **John H. Rhea** again. He was the first U.S. Minister to Romania and also the first U.S. Minister to Serbia? Yes, he served in both roles consecutively.\n\nBut wait, there is a more famous answer: **John H. Rhea** is not widely known for this. Let’s check if there is another person.\n\nActually, the first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s look at **John H. Rhea**’s Wikipedia page. It says he was the first U.S. Minister to Romania and also the first U.S. Minister to Serbia? No, it says he was Minister to Romania (1880–1882) and then Minister to **Serbia** (1882–1884)? Yes, that is correct.\n\nTherefore, the answer is **John H. Rhea**.\n\nBut wait, let’s check if there is a more accurate answer. Some sources might say **William Henry Trescot** was not involved. Let’s confirm with the U.S. State Department’s Office of the Historian.\n\nAccording to the U.S. State Department:\n- The first U.S. Minister to Romania was **John H. Rhea** (1880–1882).\n- The first U.S. Minister to Serbia was **John H. Rhea** (1882–1884)? No, it was **William Henry Trescot**? No.\n\nActually, the first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s try **John H. Rhea** again. He was the first U.S. Minister to Romania and also the first U.S. Minister to Serbia? Yes.\n\nHowever, there is a possibility that the question refers to **John H. Rhea** being the first to serve in both capacities, even if not simultaneously.\n\nBut wait, let’s check if there is another person who served as Minister to both countries *simultaneously* or was the first to be accredited to both.\n\nActually, the first U.S. Minister to Serbia was **John H. Rhea**? No, it was **William Henry Trescot**? No.\n\nLet’s look at **John H. Rhea**’s career again. He was Minister to Romania (1880–1882) and then Minister to Serbia (1882–1884). So he was the first U.S. Minister to both countries.\n\nTherefore, the answer is **John H. Rhea**.\n\nBut wait, let’s check if there is a more famous answer. Some sources might say **William Henry Trescot** was not involved. Let’s confirm with the U.S. State Department’s Office of the Historian.\n\nAccording to the U.S. State Department:\n- The first U.S. Minister to Romania was **John H. Rhea**",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=length"
+ },
+ {
+  "item_id": "simpleqa/179",
+  "response": "August Scherl demonstrated his gyro-monorail at **Zoo Berlin** (specifically at the Zoo am Tiergarten in Berlin).\n\nIn 1903, Scherl, a German zoologist and inventor, built a unique vehicle that combined a bicycle with a spinning gyroscope. He rode it through the zoo grounds to show off his invention to the public, proving that a person could maintain balance while moving at speed without falling over. This demonstration was a significant early experiment in gyroscopic stability and is often cited as one of the first public demonstrations of this technology.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop; says Zoo Berlin (Zoo am Tiergarten): the same place as the gold, named differently",
+  "known_disagreement": true
+ },
+ {
+  "item_id": "simpleqa/179",
+  "response": "August Scherl demonstrated his gyro-monorail to the public at the **Berlin Zoo** (Zoologischer Garten Berlin).\n\n### Key Details:\n- **Date:** The demonstration took place in **1909**.\n- **Location:** The tracks were laid out within the grounds of the Berlin Zoo.\n- **Significance:** This was one of the first public demonstrations of a gyroscopically stabilized monorail, showcasing Scherl's engineering design that used spinning gyroscopes to keep the single-rail vehicle upright.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop; says Berlin Zoo (Zoologischer Garten Berlin): the same place as the gold, named differently",
+  "known_disagreement": true
+ },
+ {
+  "item_id": "simpleqa/2008",
+  "response": "Game 5 of the 1986 American League Championship Series (ALCS) was played on October 23, 1986, at Fenway Park. The Boston Red Sox defeated the New York Yankees in a decisive game to advance to the World Series.\n\nThe game lasted **7 innings**.\n\nIn the bottom of the first inning, the Yankees' pitcher, Mike Flanagan, struck out three batters (including the game's MVP, Roger Maris) and retired the opposing team. The Red Sox took the lead in the top of the third inning with a single by Jim Bunning. However, the Yankees rallied to tie the game in the bottom of the third. In the bottom of the fifth, the Yankees' pitcher, Mike Flanagan, struck out four batters (including Roger Maris again) and retired the Red Sox team, winning the game 4–3.\n\n**Answer:** 7 innings",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2008",
+  "response": "Game 5 of the 1986 American League Championship Series (ALCS) between the Boston Red Sox and the California Angels lasted **11 innings**.\n\nThe game is famous for being a dramatic comeback by the Red Sox, who were down 3–0 in the series. The Red Sox won Game 5 on a walk-off home run by Dave Henderson in the 11th inning, forcing a decisive Game 6 (which the Angels won) and eventually Game 7 (which the Red Sox won to advance to the World Series).",
+  "official_passed": true,
+  "label": "correct",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop; 11 innings, after restating 1986 from the question"
+ },
+ {
+  "item_id": "simpleqa/2067",
+  "response": "The original *HeroQuest* board game, released by Westwood Studios in North America in 1990, contained **24** individual plastic miniatures.\n\nThese figures were designed to represent the various characters and monsters found in the game's story (such as the Hero, the Dragon, the Goblins, and the Dwarves). While the game included a large number of cards, tokens, and other accessories, the core set of physical pieces consisted of exactly 24 distinct miniatures.\n\n**Answer:** 24",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2067",
+  "response": "The original **HeroQuest** board game, released by Milton Bradley in 1990 (and later by Hasbro), included a specific set of plastic miniatures representing the four playable heroes. These figures were distinct from the monsters and obstacles found in the dungeon tiles or expansion packs.\n\nThe four individual plastic Fimir (hero) miniatures included in the base game are:\n\n1.  **Grenk** (the Dwarf)\n2.  **Thar** (the Elf)\n3.  **Zargon** is *not* a hero; he is the villain and was not included as a playable miniature in the base set (though he appears in later expansions or as a separate figure).\n4.  **Korg** (the Warrior/Human)\n5.  **Sylvaris** (the Wizard/Human)\n\nWait, let me correct that list based on the actual official miniatures:\n\nThe four heroes are:\n1.  **Grenk** (Dwarf)\n2.  **Thar** (Elf)\n3.  **Korg** (Warrior)\n4.  **Sylvaris** (Wizard)\n\nTherefore, there were **4** individual plastic hero miniatures included in the original 1990 North American release of HeroQuest.\n\nNote: The game also included a large plastic figure of **Zargon** (the villain), but he is not considered one of the \"Fimir\" (heroes). The term \"Fimir\" refers to the playable heroes. If the question strictly means the *hero* miniatures, the answer is 4. If it includes Zargon as a \"miniature\" in the box, the total count of plastic figures would be 5. However, standard trivia regarding \"hero miniatures\" or \"Fimir\" specifically refers to the playable characters.\n\nGiven the phrasing \"individual plastic Fimir miniatures,\" and knowing that \"Fimir\" is the term used for the heroes in the game's lore:\n\n**Answer:** 4",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2116",
+  "response": "Geographer **Wilbur Zelinsky** received his master's degree from the **University of California, Berkeley**.\n\nHe earned his master's in geography there in 1947. Prior to this, he had already obtained his bachelor's degree from the University of Chicago and his doctorate (Ph.D.) from the University of Wisconsin–Madison in 1950. Zelinsky is widely recognized as one of the founders of modern human geography and is best known for his work on migration patterns and regional differentiation.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop; names Berkeley for the master's; Wisconsin appears only as the PhD school"
+ },
+ {
+  "item_id": "simpleqa/2116",
+  "response": "Wilbur Zelinsky received his master's degree from the **University of Wisconsin–Madison** in 1948.\n\nHe later earned his Ph.D. from the University of Wisconsin–Madison as well (in 1953), but his master's was also conferred by that institution.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2595",
+  "response": "Cities: Skylines was released on **September 21, 2016**, for the Google Stadia platform.\n\nThis release date marked the launch of the game's mobile version, which was developed by Supergiant Games and published by Focus Home Interactive. It was one of the first major titles to be officially available on the Stadia network, following its initial release on PC in 2015.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2595",
+  "response": "*Cities: Skylines* was released for Google Stadia on **March 17, 2020**.\n\nThis release coincided with the game's launch on the platform alongside other titles as part of Stadia's early library expansion. Note that Google Stadia was shut down on September 29, 2023, so the game is no longer available for purchase or play on that service.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2686",
+  "response": "In *Tasha's Cauldron of Everything*, the author introduces a total of **10** new character classes. These are distinct from any previously published classes in the D&D 3.5 edition, nor do they include reprints or expansions from earlier editions (such as those found in *Dungeons & Dragons: The Complete Guide to the Forgotten Realms* or *Tasha's Cauldron of Everything*).\n\nThe new classes introduced are:\n1.  **Bard**\n2.  **Cleric**\n3.  **Druid**\n4.  **Fighter**\n5.  **Monk**\n6.  **Rogue**\n7.  **Sorcerer**\n8.  **Warlock**\n9.  **Wizard**\n10. **Bard** (Note: While the Bard is listed twice in some summaries due to its dual role as both a class and an archetype, it is counted once as a new *class* introduction).\n\nTherefore, there are exactly **10** new character classes introduced in this book.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2686",
+  "response": "*Tasha's Cauldron of Everything* introduced **10** new subclasses.\n\nThese subclasses are spread across various classes and include:\n\n1.  **Artificer**: Armorer, Battle Smith\n2.  **Barbarian**: Beast, Zealot\n3.  **Bard**: Glamour, Lore (reprint of the College of Lore from PHB is not counted; however, *Tasha's* does not introduce a new Bard subclass in the same way as others, but wait—let me double-check. Actually, *Tasha's* introduces the **College of Glamour** and **College of Lore** is a reprint? No, College of Lore is from PHB. Let me list them carefully.)\n\nLet's list them accurately by class:\n\n1.  **Artificer**: Armorer\n2.  **Artificer**: Battle Smith\n3.  **Barbarian**: Beast\n4.  **Barbarian**: Zealot\n5.  **Bard**: Glamour\n6.  **Cleric**: Grave\n7.  **Cleric**: Twilight\n8.  **Druid**: Circle of Spores\n9.  **Fighter**: Psi Warrior\n10. **Fighter**: Ravenian (Wait, no. Let me verify the Fighter subclasses in Tasha's.)\n\nActually, let's go through the book systematically:\n\n*   **Artificer**: Armorer, Battle Smith (2)\n*   **Barbarian**: Beast, Zealot (2)\n*   **Bard**: Glamour (1)\n*   **Cleric**: Grave, Twilight (2)\n*   **Druid**: Circle of Spores (1)\n*   **Fighter**: Psi Warrior (1)\n*   **Monk**: Way of the Astral Self (1)\n*   **Ranger**: Fey Wanderer (1)\n*   **Sorcerer**: Aberrant Mind (1)\n*   **Warlock**: The Fathomless (1)\n\nWait, that's 13. Let me re-verify. I might be confusing some with other books or counting incorrectly.\n\nLet's check the official list of subclasses in *Tasha's Cauldron of Everything*:\n\n1.  **Artificer**: Armorer\n2.  **Artificer**: Battle Smith\n3.  **Barbarian**: Beast\n4.  **Barbarian**: Zealot\n5.  **Bard**: Glamour\n6.  **Cleric**: Grave\n7.  **Cleric**: Twilight\n8.  **Druid**: Circle of Spores\n9.  **Fighter**: Psi Warrior\n10. **Monk**: Way of the Astral Self\n11. **Ranger**: Fey Wanderer\n12. **Sorcerer**: Aberrant Mind\n13. **Warlock**: The Fathomless\n\nThat is indeed **13** new subclasses.\n\nHowever, I must be careful. Did *Tasha's* introduce any others? Or did I miscount?\n\nLet's cross-reference with reliable sources (Wizards of the Coast official content or major D&D wikis).\n\nAccording to the table of contents and class sections in *Tasha's Cauldron of Everything*:\n\n*   **Artificer**: Armorer, Battle Smith\n*   **Barbarian**: Beast, Zealot\n*   **Bard**: Glamour\n*   **Cleric**: Grave, Twilight\n*   **Druid**: Circle of Spores\n*   **Fighter**: Psi Warrior\n*   **Monk**: Way of the Astral Self\n*   **Ranger**: Fey Wanderer\n*   **Sorcerer**: Aberrant Mind\n*   **Warlock**: The Fathomless\n\nTotal: 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 = **13**.\n\nWait, I recall some sources saying 10. Let me check if any of these were reprints or errata. No, these are all new subclasses introduced in *Tasha's*.\n\nLet me double-check the Fighter subclass. Is it Psi Warrior? Yes.\nLet me double-check the Monk subclass. Is it Way of the Astral Self? Yes.\nLet me double-check the Ranger subclass. Is it Fey Wanderer? Yes.\nLet me double-check the Sorcerer subclass. Is it Aberrant Mind? Yes.\nLet me double-check the Warlock subclass. Is it The Fathomless? Yes.\n\nSo, the count is 13.\n\nHowever, sometimes people confuse *Tasha's* with other books. Let's ensure no subclasses were reprinted from previous books as \"new\" in this context. The question asks for new subclasses introduced in *Tasha's*, not reprints.\n\nLet me verify if I missed any or added any incorrectly.\n\nList from the book:\n1.  Armorer (Artificer)\n2.  Battle Smith (Artificer)\n3.  Beast (Barbarian)\n4.  Zealot (Barbarian)\n5.  Glamour (Bard)\n6.  Grave (Cleric)\n7.  Twilight (Cleric)\n8.  Circle of Spores (Druid)\n9.  Psi Warrior (Fighter)\n10. Way of the Astral Self (Monk)\n11. Fey Wanderer (Ranger)\n12. Aberrant Mind (Sorcerer)\n13. The Fathomless (Warlock)\n\nThere are exactly **13** new subclasses in *Tasha's Cauldron of Everything*.\n\nSome online discussions might mistakenly say 10 because they forget one or two, or confuse it with the number of classes affected (which is 10 classes: Artificer, Barbarian, Bard, Cleric, Druid, Fighter, Monk, Ranger, Sorcerer, Warlock). But the number of subclasses is 13.\n\nLet me re-read the question: \"How many new subclasses were introduced in Tasha's Cauldron of Everything (not including reprints from previous books)?\"\n\nThe answer is 13.\n\nWait, let me check if any of these are actually reprints.\n- Armorer: New\n- Battle Smith: New\n- Beast: New\n- Zealot: New\n- Glamour: New\n- Grave: New\n- Twilight: New\n- Circle of Spores: New\n- Psi Warrior: New\n- Way of the Astral Self: New\n- Fey Wanderer: New\n- Aberrant Mind: New\n- The Fathomless: New\n\nAll are new.\n\nTherefore, the number is 13.\n\nHowever, I have seen some sources claim 10. Let me investigate why.\nPerhaps they are counting only certain classes? Or maybe I am misremembering one of them being from another book?\n- *Xanathar's* introduced: Ancestral Guardian, Battle Master, Champion (reprint), College of Swords, College of Whispers, Circle of the Moon (reprint), Circle of the Shepherd, Hexblade, Swashbuckler, Way of the Kensei, Way of the Open Hand (reprint), etc.\n- *Fizban's* introduced: Order Domain, Twilight Domain (wait, Twilight is in Tasha's?), no, Twilight is in Tasha's. Fizban's introduced: Aberrant Mind? No, Aberrant Mind is in Tasha's. Fizban's introduced: The Celestial? No.\n\nLet me check *Fizban's Platinum Box of Dragons*:\n- Sorcerer: Draconic Soul (reprint)\n- Warlock: Undying? No.\n- Actually, *Fizban's* introduced very few subclasses. It mostly expanded on existing ones.\n\nLet me check *Tasha's* again.\nThe book contains 13 new subclasses.\n\nI will stick with 13.\n\nBut wait, let me look at the official D&D Beyond or Wizards of the Coast page for Tasha's Cauldron of Everything.\nThe \"Subclasses\" section lists:\n- Artificer: Armorer, Battle Smith\n- Barbarian: Beast, Zealot\n- Bard: Glamour\n- Cleric: Grave, Twilight\n- Druid: Circle of Spores\n- Fighter: Psi Warrior\n- Monk: Way of the Astral Self\n- Ranger: Fey Wanderer\n- Sorcerer: Aberrant Mind\n- Warlock: The Fathomless\n\nThat is 13.\n\nIs it possible the question implies \"how many *classes* got new subclasses?\" No, it asks for \"how many new subclasses\".\n\nI will provide the answer as 13.\n\nHowever, I recall that some people might count the \"Homebrew\" or \"Optional\" rules differently, but these are official subclasses.\n\nLet me double-check if any of these were actually in *Xanathar's* or *Fizban's*.\n- Zealot Barbarian is from PHB. **Wait!**\n  - The **Zealot** subclass for the Barbarian was introduced in the **Player's Handbook**.\n  - Therefore, it is a reprint/errata update, not a new subclass introduced in *Tasha's*.\n\nLet me re-evaluate.\n\n1.  **Artificer**: Armorer (New)\n2.  **Artificer**: Battle",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=length"
+ },
+ {
+  "item_id": "simpleqa/2693",
+  "response": "Olton Willem van Genderen (1923–2014) died on **February 17, 2014**.\n\nHe was a prominent figure in Suriname, serving as the Minister of Finance from 1985 to 1990 and later as a member of the House of Representatives. He passed away at his home in Paramaribo following complications related to heart disease.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2693",
+  "response": "Olton Willem van Genderen died on **July 29, 1990**.\n\n### Key Details:\n- **Name:** Olton Willem van Genderen\n- **Role:** Former Vice President of Suriname (served from 1980–1982 and 1986–1987) and a prominent civil servant/politician.\n- **Date of Death:** July 29, 1990",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2710",
+  "response": "David W. Duclon and Cherie Johnson are **spouses**.\n\nThey were married to each other from 1987 until their divorce in 2006. Duclon was a prominent American television producer, best known for his work on the sitcom *The Golden Girls* (where he played the character of Mr. Goldstein) and for producing shows like *The Nanny*, *The Bold and the Beautiful*, and *One Tree Hill*. Johnson was an actress who gained fame for her role as Dr. Elizabeth \"Bee\" Beecher in the TV series *The Good Wife*.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2710",
+  "response": "David W. Duclon is **Cherie Johnson's stepfather**.\n\n### Explanation:\n- **Cherie Johnson** is an American actress, best known for her role as Punky Brewster's best friend, Penelope \"Punky\" Parker, on the sitcom *Punky Brewster* (1984–1988).\n- **David W. Duclon** was a television producer and writer, notably known for creating the sitcom *Punky Brewster*.\n- Cherie Johnson's mother, **Sandra Johnson**, married David W. Duclon. Therefore, Duclon became Johnson's stepfather during her childhood and early career.\n\nThis familial connection is often cited in interviews and biographical sources regarding Johnson's early life and entry into the entertainment industry.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2744",
+  "response": "Sergio Fajardo Valderrama received his M.Sc. in Mathematics from the **University of Chile** (Universidad de Chile). He completed this degree while he was a student at the University of Chile, where he later earned his Ph.D. as well.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2744",
+  "response": "Sergio Fajardo Valderrama received his M.Sc. in Mathematics from the **University of Wisconsin–Madison**.\n\nHowever, please note that the University of Wisconsin–Madison is located in the **United States**, not South America.\n\nIf you are specifically looking for a **South American** university associated with his early education:\n*   He received his undergraduate degree (Licenciature in Mathematics) from the **University of Antioquia** (*Universidad de Antioquia*) in Medellín, Colombia.\n\nHe later earned his Ph.D. in Mathematics from the University of Wisconsin–Madison in 1984.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/296",
+  "response": "David Hibbett received his Bachelor of Arts (B.A.) degree from the **University of California, Berkeley**. He graduated in 1987 with a B.S. in Biology and later earned his Ph.D. in Ecology and Evolutionary Biology from the University of Michigan in 1993.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/296",
+  "response": "David Hibbett received his Bachelor of Arts (B.A.) degree from **Dartmouth College** in Hanover, New Hampshire. He graduated with a B.A. in Biology in 1987.\n\nHe later earned his Ph.D. in Botany from Duke University in 1994.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2969",
+  "response": "The **Century of Progress World's Fair** in Chicago, held from 1933 to 1934, is widely recognized as a major public health disaster due to the lack of proper sanitation and water treatment systems. The outbreak was caused by *Entamoeba histolytica*, an amoeba that causes dysentery (often referred to historically as \"American Dysentery\").\n\nAccording to historical records and reports from the time, specifically those from the U.S. Public Health Service and the Chicago Department of Health, approximately **100 people** died directly from this outbreak. The disease spread rapidly through contaminated water supplies and poor sewage disposal, leading to a significant loss of life in the fairgrounds and surrounding areas.\n\n**Answer:** Approximately **100 deaths**.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/2969",
+  "response": "There were **no deaths** caused by an amoebic dysentery outbreak at the Century of Progress World's Fair (held in Chicago in 1933–1934).\n\n### Historical Context and Clarification:\n\n1.  **No Major Outbreak Recorded**: While public health was a significant concern at large gatherings like World’s Fairs, there is no historical record of a fatal amoebic dysentery outbreak at the Century of Progress Exposition.\n2.  **Confusion with Other Events**: This question may stem from confusion with other historical events:\n    *   **1933 Chicago World's Fair (Century of Progress)**: The fair was notable for its modern architecture and technological exhibits. Public health measures were strict, and no major epidemic of amoebic dysentery or other waterborne diseases was reported that resulted in fatalities.\n    *   **Other Dysentery Outbreaks**: Amoebic dysentery (caused by *Entamoeba histolytica*) has caused outbreaks in various settings throughout history, including military camps and institutions, but not at this specific World's Fair.\n    *   **1904 St. Louis World's Fair**: There were rumors and some reports of typhoid fever cases linked to contaminated water at the 1904 Louisiana Purchase Exposition, but even then, deaths directly attributed to a single dysentery outbreak are not prominently documented in major historical accounts as a defining feature of that fair.\n3.  **Public Health Success**: The Century of Progress Fair is often cited in public health history as a success story because it implemented rigorous sanitation and water purification protocols to prevent exactly such outbreaks, given the large crowds (over 48 million visitors over two years).\n\n### Conclusion:\nThe number of deaths caused by an amoebic dysentery outbreak at the Century of Progress World's Fair is **0**.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/297",
+  "response": "The **Fly Girls** from *In Living Color* were a group of six female characters who appeared in various sketches throughout the show's run. While they all had their own short-lived storylines, only one of them remained on the show for the full duration of its five seasons (1990–1995).\n\nThe **Fly Girls** included:\n*   **Bubbles** (played by Lisa Bonet)\n*   **Daisy** (played by Lisa Ann Walter)\n*   **Gloria** (played by Lisa Marie)\n*   **Lulu** (played by Lisa Marie)\n*   **Maggie** (played by Lisa Marie)\n*   **Penny** (played by Lisa Marie)\n\nAmong these, **Bubbles** is the only one who stayed for all five seasons. She was a recurring character in many sketches, appearing in episodes like \"The Fly Girls,\" \"The Big Bang,\" and \"The Last Flight.\" The other four girls (Daisy, Gloria, Lulu, and Maggie) were introduced later in the series' run or had very brief appearances before being replaced by new characters.\n\n**Answer:** **Bubbles**",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/297",
+  "response": "The Fly Girl who stayed for all five seasons of *In Living Color* is **Kimberly \"Blaze\" Wyatt**'s predecessor, **Lisa Marie Todd**.\n\nWait, let me correct that. The most famous and longest-serving Fly Girl was **Jennifer Lopez**? No, JLo only stayed for two seasons (seasons 3 and 4).\n\nLet's look at the core group:\n*   **Kimberly \"Blaze\" Wyatt** joined in season 5.\n*   **Lisa Marie Todd** was a Fly Girl but did not stay for all five seasons as a main cast member in the same way.\n*   **Sanaa Lathan** was a Fly Girl for one season (season 2).\n*   **Dawnn Lewis** was not a Fly Girl; she was a cast member.\n\nActually, the correct answer is **Kimberly \"Blaze\" Wyatt**? No, she only did season 5.\n\nLet's re-evaluate the most prominent long-term Fly Girls:\n1.  **Jennifer Lopez**: Seasons 3–4 (2 seasons).\n2.  **Sanaa Lathan**: Season 2 (1 season).\n3.  **Kimberly \"Blaze\" Wyatt**: Season 5 (1 season).\n4.  **Lisa Marie Todd**: Seasons 1–2? No, she was there for a while but not all five.\n\nWait, there is one dancer who is widely recognized for staying the entire run: **Kimberly \"Blaze\" Wyatt** is incorrect.\n\nLet's look at **Dawnn Lewis**? No.\n\nThe correct answer is **Kimberly \"Blaze\" Wyatt**? No.\n\nActually, the Fly Girl who stayed for all five seasons is **Lisa Marie Todd**? No.\n\nLet's check **Jennifer Lopez** again. She was there for 2 seasons.\n\nWho was there for 5?\n*   **Season 1**: Lisa Marie Todd, Sanaa Lathan (joined later?), etc.\n*   **Season 2**: Sanaa Lathan, Lisa Marie Todd, etc.\n*   **Season 3**: Jennifer Lopez joins.\n*   **Season 4**: Jennifer Lopez leaves.\n*   **Season 5**: Kimberly \"Blaze\" Wyatt joins.\n\nThere is a dancer named **Kimberly \"Blaze\" Wyatt**? No.\n\nThe correct answer is **Lisa Marie Todd**? No, she left after season 2 or 3.\n\nActually, the Fly Girl who stayed for all five seasons is **Kimberly \"Blaze\" Wyatt**? No.\n\nLet's look at **Dawnn Lewis**? No.\n\nI need to be precise. The most notable long-term Fly Girl is **Jennifer Lopez** (2 seasons). But the question asks who stayed for **five** seasons.\n\nThe answer is **Lisa Marie Todd**? No.\n\nWait, **Kimberly \"Blaze\" Wyatt** was only season 5.\n\nLet's look at **Sanaa Lathan**. She was there for one season.\n\nIs it possible the question refers to **Jennifer Lopez**? No, she didn't stay five seasons.\n\nActually, the Fly Girl who stayed for all five seasons is **Kimberly \"Blaze\" Wyatt**? No.\n\nLet's check **Dawnn Lewis**. She was a cast member, not a Fly Girl.\n\nThe correct answer is **Lisa Marie Todd**? No.\n\nI recall that **Jennifer Lopez** is often associated with the show, but she didn't stay five seasons.\n\nWho stayed five seasons?\n*   **Kimberly \"Blaze\" Wyatt**: Season 5 only.\n*   **Sanaa Lathan**: Season 2 only.\n*   **Lisa Marie Todd**: Seasons 1-2?\n*   **Jennifer Lopez**: Seasons 3-4.\n\nThere is a dancer named **Kimberly \"Blaze\" Wyatt**? No.\n\nActually, the Fly Girl who stayed for all five seasons is **Lisa Marie Todd**? No.\n\nLet's look at **Dawnn Lewis**. No.\n\nI think I am missing someone. Let's check **Kimberly \"Blaze\" Wyatt** again. No.\n\nThe correct answer is **Jennifer Lopez**? No.\n\nWait, **Sanaa Lathan** was there for one season.\n\nIs it possible the question is a trick? Or am I misremembering?\n\nLet's look at **Lisa Marie Todd**. She was a Fly Girl in seasons 1 and 2.\n\nWhat about **Kimberly \"Blaze\" Wyatt**? She was in season 5.\n\nWho was there for all five?\nActually, **Jennifer Lopez** is the most famous, but she didn't stay five seasons.\n\nThe answer is **Lisa Marie Todd**? No.\n\nI found it: **Kimberly \"Blaze\" Wyatt** is incorrect.\n\nThe Fly Girl who stayed for all five seasons is **Lisa Marie Todd**? No.\n\nWait, **Sanaa Lathan** was there for one season.\n\nLet's check **Dawnn Lewis**. No.\n\nActually, the correct answer is **Jennifer Lopez**? No.\n\nI will double-check my facts.\n*   Jennifer Lopez: Seasons 3-4.\n*   Sanaa Lathan: Season 2.\n*   Lisa Marie Todd: Seasons 1-2.\n*   Kimberly \"Blaze\" Wyatt: Season 5.\n\nWho stayed five seasons?\nActually, **Kimberly \"Blaze\" Wyatt** is not the one.\n\nThe answer is **Lisa Marie Todd**? No.\n\nWait, there is a dancer named **Kimberly \"Blaze\" Wyatt**? No.\n\nI think the answer might be **Jennifer Lopez** if the question is flawed, but strictly speaking, no Fly Girl stayed for five seasons?\n\nNo, that's not right. Let's look at **Dawnn Lewis**. She was a cast member.\n\nActually, **Kimberly \"Blaze\" Wyatt** joined in season 5.\n\nLet's look at **Lisa Marie Todd**. She left after season 2.\n\nIs it possible the question refers to **Jennifer Lopez**? No.\n\nI recall that **Sanaa Lathan** was there for one season.\n\nWait, **Kimberly \"Blaze\" Wyatt** is not the answer.\n\nThe correct answer is **Lisa Marie Todd**? No.\n\nActually, the Fly Girl who stayed for all five seasons is **Jennifer Lopez**? No.\n\nI am confused. Let me search my internal knowledge base again.\n\nAh, I remember now. **Jennifer Lopez** was a Fly Girl for two seasons. **Sanaa Lathan** was there for one season. **Lisa Marie Todd** was there for two seasons. **Kimberly \"Blaze\" Wyatt** was there for one season.\n\nWho stayed five seasons?\nActually, **Dawnn Lewis** was not a Fly Girl.\n\nWait, **Kimberly \"Blaze\" Wyatt** is not the answer.\n\nI think the answer is **Lisa Marie Todd**? No.\n\nLet's look at **Sanaa Lathan**. No.\n\nIs it possible the question is referring to **Jennifer Lopez** and the user is mistaken? Or is there someone else?\n\nActually, **Kimberly \"Blaze\" Wyatt** is not the answer.\n\nI found a source that says **Lisa Marie Todd** was a Fly Girl for seasons 1-2.\n\nWho stayed five seasons?\nActually, **Jennifer Lopez** is the most famous, but she didn't stay five seasons.\n\nWait, **Sanaa Lathan** was there for one season.\n\nI think the answer is **Kimberly \"Blaze\" Wyatt**? No.\n\nLet's try **Dawnn Lewis**. No.\n\nActually, the Fly Girl who stayed for all five seasons is **Lisa Marie Todd**? No.\n\nI give up on guessing. Let me think logically. If no one stayed five seasons, the question might be flawed. But usually, these questions have a specific answer.\n\nWait, **Jennifer Lopez** was there for 2 seasons.\n\nIs it possible the answer is **Sanaa Lathan**? No.\n\nActually, **Kimberly \"Blaze\" Wyatt** is not the answer.\n\nI recall that **Lisa Marie Todd** was a Fly Girl for seasons 1-2.\n\nWho stayed five seasons?\nActually, **Dawnn Lewis** was not a Fly Girl.\n\nWait, **Jennifer Lopez** is the most famous.\n\nI think the answer is **Jennifer Lopez** if the question is wrong, but strictly speaking, no one stayed five seasons.\n\nHowever, some sources might claim **Lisa Marie Todd** stayed longer? No.\n\nActually, **Kimberly \"Blaze\" Wyatt** is not the answer.\n\nLet's look at **Sanaa Lathan**. No.\n\nI think the correct answer is **Jennifer Lopez** is often mistakenly thought to have stayed longer, but she didn't.\n\nWait, there is a dancer named **Kimberly \"Blaze\" Wyatt**? No.\n\nActually, the Fly Girl who stayed for all five seasons is **Lisa Marie Todd**? No.\n\nI found it: **Jennifer Lopez** was a Fly Girl for two seasons.\n\nWho stayed five seasons?\nActually, **Dawnn Lewis** was not a Fly Girl.\n\nWait, **Sanaa Lathan** was there for one season.\n\nI think the answer is **Kimberly \"Blaze\" Wyatt**? No.\n\nLet's try **Lisa Marie Todd**. No.\n\nActually, the correct answer is **Jennifer Lopez**",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=length"
+ },
+ {
+  "item_id": "simpleqa/3037",
+  "response": "Floro Garrido, the Spanish retired footballer who played as a defender for clubs such as Real Madrid, Sevilla, and Valencia, died on **February 13, 2024**. He passed away at the age of 78 in Madrid, Spain.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3037",
+  "response": "Floro Garrido, the Spanish retired footballer, died on **March 28, 2012**.\n\nHe passed away at the age of 59 due to complications from diabetes.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3066",
+  "response": "There is no public record or verified data indicating that Steven Furtick's church, **The Pinnacle Church** (formerly known as The First Baptist Church of Atlanta), gave money specifically \"to its members\" in the year 2007.\n\nAs an AI, I do not have access to internal financial records of private religious organizations, nor do I have information about specific donation amounts attributed to individual congregations or their leaders for that particular year. Financial details regarding church operations are often confidential and not disclosed in public databases.\n\nIf you are looking for this information, it would likely be found in:\n1.  **Church financial reports** (if the church releases them publicly).\n2.  **News articles** from 2007 that specifically mentioned a donation to The Pinnacle Church.\n3.  **Internal records**, which are not accessible to the general public.\n\nWithout specific sources confirming such an event, it is impossible to provide a dollar amount.",
+  "official_passed": false,
+  "label": "abstained",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop; says there is no public record and it cannot give an amount"
+ },
+ {
+  "item_id": "simpleqa/3066",
+  "response": "In 2007, Elevation Church (pastored by Steven Furtick) gave **$0** to its members.\n\n### Explanation:\n1.  **Nature of Church Finances**: Churches are non-profit religious organizations. They do not distribute profits or money directly to their members as a standard practice. Donations made by members are used for operational costs, ministry activities, charitable giving, and staff salaries.\n2.  **No Record of Direct Payouts**: There is no public record, tax filing (Form 990), or credible news report indicating that Elevation Church distributed money directly to its congregation members in 2007 or any other year.\n3.  **Misconception Clarification**: Sometimes, questions like this may stem from confusion about:\n    *   **Charitable Giving by the Church**: The church itself gave millions to charities and missions (e.g., Elevation Church has given over $100 million total to various causes since its founding).\n    *   **Staff Salaries**: Pastors and staff receive salaries, but these are payments for employment, not distributions to \"members.\"\n    *   **Rumors or Satire**: There have been no credible reports of Elevation Church giving cash directly to members.\n\nTherefore, the amount given to members is **$0**.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop; answers $0, a definite wrong answer"
+ },
+ {
+  "item_id": "simpleqa/3081",
+  "response": "René Laennec, a French physician and anatomist, is credited with identifying the **tubercle** (a small, hard lump) as the specific pathological lesion responsible for causing pulmonary tuberculosis. While he did not discover the disease itself or its initial symptoms in 1796, his work on the anatomy of the lung and his observations during a post-mortem examination of a patient with severe respiratory distress led him to conclude that these lumps were the direct cause of the disease.\n\nLaennec published his findings in **1813** in his seminal work *Traité d'Anatomie Pathologique* (Treatise on Pathological Anatomy). In this book, he described the tubercle and argued that it was the fundamental unit of the disease, distinguishing it from other forms of lung disease.\n\n**Answer:** **1813**",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3081",
+  "response": "René Laennec claimed that tubercles were the cause of pulmonary tuberculosis in **1819**.\n\n### Context and Explanation:\n- **Publication**: Laennec published his seminal work, *De l'auscultation médiate* (On Mediate Auscultation), in 1819. In this book, he not only invented the stethoscope but also provided a detailed pathological description of tuberculosis.\n- **Key Insight**: He was the first to clearly distinguish between different types of lung lesions and identified \"tubercles\" (small nodules) as the characteristic lesion of pulmonary tuberculosis. He argued that these tubercles were the primary cause of the disease, rather than just a symptom or secondary effect.\n- **Historical Significance**: This was a major advancement in pathology, shifting the understanding of tuberculosis from a vague \"consumption\" to a specific disease with identifiable pathological features.\n\nThus, the year is **1819**.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/333",
+  "response": "The man who served as **Reeve of North Red Deer** in Alberta between 1924 and 1925 was **John A. Macdonald**.\n\nHe was a prominent Canadian politician, best known for serving as the Prime Minister of Canada from 1920 to 1921. Before his time in federal office, he held various local positions in Alberta, including being Reeve (a term often used interchangeably with Mayor or Town Clerk) of North Red Deer during that specific period.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/333",
+  "response": "The man who served as Reeve of North Red Deer, Alberta, between 1924 and 1925 was **William Henry \"Bill\" McCallum**.\n\n### Context:\n- **North Red Deer** was a separate village municipality located just north of the City of Red Deer. It existed from 1913 until it was amalgamated into the City of Red Deer in 1948.\n- **William H. McCallum** was elected Reeve in 1924 and served during that term. He was a prominent local figure and businessman in the area during that era.\n\nNote: Municipal records from this period can sometimes be sparse or conflicting in secondary sources, but historical accounts of North Red Deer's mayors/reeves consistently list McCallum for the 1924–1925 term.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/337",
+  "response": "The famous drummer who opened a **Wahoo's Fish Taco** restaurant in Norco, California, in 2004 is **Kenny Loggins**.\n\nLoggins, best known as the drummer for the rock band **Rush**, was a long-time fan of Wahoo's and decided to open his own location after hearing about the success of their chain. He opened the restaurant on the grounds of the former Los Angeles Police Department (LAPD) station in Norco, which he had previously served as a security guard for. The restaurant quickly became a local landmark and is still operating today.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/337",
+  "response": "The famous drummer who opened a Wahoo's Fish Taco restaurant in Norco, California, in 2004 is **Travis Barker**.\n\n### Key Details:\n- **Travis Barker** is best known as the drummer for the rock band **Blink-182** and has also played with +44, Transplants, and others.\n- He partnered with the founders of Wahoo's Fish Taco (the Lee brothers) to open a location in Norco, California, which was one of the brand's early expansions beyond its Southern California roots.\n- Barker is a well-known fan of the chain and has been involved in promoting it through his personal connections and social media.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3448",
+  "response": "The first Principal of Mayo College in India was **Sir William Henry Huxley**.\n\nHe served as the Principal from 1875 until his death in 1902. Huxley, a renowned British naturalist and biologist, was known for his scientific contributions and his close association with the college's founder, Sir John Montagu. His tenure marked a significant period of academic and administrative development for the institution, which is one of the oldest and most prestigious co-educational schools in India.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3448",
+  "response": "The first principal of Mayo College in Ajmer, India, was **Sir Henry Edward Moore Burne** (often referred to as **H. E. M. Burne**).\n\n### Key Details:\n- **Appointment**: Mayo College was founded in 1875 by Lord Lytton, the Viceroy of India, with the aim of providing a modern education to the sons of Indian princes and nobles.\n- **First Principal**: Sir Henry Edward Moore Burne served as the inaugural principal from **1875 to 1883**.\n- **Background**: He was a British civil servant and educator who played a crucial role in shaping the early academic and administrative framework of the institution.\n\nBurne established the college's initial ethos, blending traditional Indian values with Western-style education, which became the hallmark of Mayo College's identity.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3549",
+  "response": "Pitcher **Christopher Deane Haney** attended **St. Paul's School** in New York City.\n\nHaney, who is a former Major League Baseball player (known for his time with the Chicago White Sox and later the Los Angeles Dodgers), was a standout pitcher at St. Paul's before being drafted by the White Sox in 2013. He played college baseball at the University of Michigan as well.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3549",
+  "response": "Christopher Deane Haney attended **Bishop Miege High School** in Roeland Park, Kansas.\n\nHe was a standout two-sport athlete there, playing both baseball and basketball before being drafted by the Montreal Expos in the 1990 MLB Draft (first round, 23rd overall).",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3755",
+  "response": "To determine the half-life of radon-224 ($^{224}\\text{Rn}$), we look at its position in the uranium decay series. Radon-224 is a radioactive isotope produced by the decay of Radium-224, which itself comes from the decay chain starting with Uranium-238.\n\nThe specific half-life for $^{224}\\text{Rn}$ is approximately **3.638 days**.\n\nTo convert this value into hours:\n1.  There are 24 hours in one day.\n2.  Calculation: $3.638 \\text{ days} \\times 24 \\text{ hours/day}$.\n3.  $3.638 \\times 24 = 87.312$ hours.\n\nDepending on the precision required for the source material, this is often rounded to **87.3 hours** or sometimes approximated to **87 hours**.\n\n**Answer:** The half-life of radon-224 is approximately **87.3 hours** (or 3.638 days).",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3755",
+  "response": "### Logical Deduction\n\nTo determine the half-life of Radon-224 ($^{224}\\text{Rn}$) in hours, we must look at its established nuclear decay data and perform a unit conversion.\n\n1.  **Identify the Standard Half-Life**:\n    According to standard nuclear data tables (such as those provided by the National Nuclear Data Center), Radon-224 is an alpha-emitting isotope with a half-life ($t_{1/2}$) of approximately **$0.8235$ seconds**.\n\n2.  **Convert Seconds to Hours**:\n    To convert the time from seconds to hours, we use the following relationship:\n    $$1 \\text{ hour} = 60 \\text{ minutes} \\times 60 \\text{ seconds/minute} = 3600 \\text{ seconds}$$\n\n    The calculation is as follows:\n    $$t_{\\text{hours}} = \\frac{t_{\\text{seconds}}}{3600}$$\n\n    Substituting the value for Radon-224:\n    $$t_{\\text{hours}} = \\frac{0.8235}{3600}$$\n\n3.  **Perform the Calculation**:\n    $$t_{\\text{hours}} \\approx 0.00022875$$\n\n### Conclusion\n\nThe half-life of radon-224 is approximately **$0.000229$ hours** (or $2.29 \\times 10^{-4}$ hours).",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/4194",
+  "response": "Based on the data from the **2006 National Census** (Iranian census), the village of **Sonqorabad** in the **Alborz Province** had a population of **1,458** people living in **337 households**.\n\nThis figure is derived from the official statistics released by the Iranian Statistical Center for that specific year.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/4194",
+  "response": "Based on the data from the 2006 National Census of Iran, the population of **Sonqorabad** (located in the Central District of Qazvin County, which is now part of Alborz Province due to administrative divisions, though historically and geographically often associated with Qazvin/Alborz border regions) was recorded as follows:\n\nIn 2006, Sonqorabad had a population of **1,358** people living in **337 households**.\n\n### Key Details:\n- **Location**: Sonqorabad is a village in the Central District of Qazvin County, Qazvin Province. (Note: While you mentioned Alborz, Sonqorabad is administratively under Qazvin Province, not Alborz Province. However, it is geographically close to the border and sometimes confused due to proximity to Tehran/Alborz region).\n- **Census Year**: 2006\n- **Households**: 337\n- **Population**: 1,358\n\nIf you were referring to a different village named Sonqorabad specifically within Alborz Province (such as in Karaj or Savojbolagh counties), please note that the most prominent and commonly cited \"Sonqorabad\" with exactly 337 households in census records is the one in Qazvin County. If there is a smaller locality in Alborz with the same name, it would likely have been part of a different rural district or merged into another administrative unit by 2006. However, based on standard Iranian census data matching the household count provided:\n\n**Answer:** The population was **1,358**.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/43",
+  "response": "Mohammed Racim was born on **July 23, 1908**.\n\nHe was a renowned Algerian painter who played a significant role in the development of modern art in Algeria. His birthplace was Algiers, and he is often celebrated for his contributions to the \"Modernist\" movement in North Africa during the early 20th century.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/43",
+  "response": "Mohammed Racim, the renowned Algerian painter often credited with reviving the tradition of miniature painting in North Africa, was born on **March 24, 1896**.\n\n**Key Details:**\n*   **Day:** 24\n*   **Month:** March\n*   **Year:** 1896\n\nHe was born in Algiers, Algeria, and passed away on March 30, 1975.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/73",
+  "response": "The Abdullah Bridge (also known as the Shahrah-e-Abdullah Bridge) in Srinagar spans the Jhelum River. While its main span over the river is approximately **1,050 meters** (3,442 feet), the total length of the structure—including the viaduct and the fly-over section—extends significantly further.\n\nThe bridge consists of two distinct sections:\n1.  The **viaduct**: This is the main span crossing the river, measuring about **1,050 meters**.\n2.  The **fly-over**: This connects to the existing road network on both sides of the river and extends outward.\n\nAccording to engineering records and official descriptions, the total length of the Abdullah Bridge structure (combining the viaduct and the fly-over) is approximately **1,650 meters** (or roughly 1.65 km). This makes it one of the longest bridges in Kashmir, surpassing the famous Gulab Bagh Bridge.\n\n**Answer:** The total length of the Abdullah Bridge including the fly-over and viaduct is approximately **1,650 meters**.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/73",
+  "response": "The Abdullah Bridge in Srinagar, which includes the approach roads, fly-over, and viaduct sections, has a total length of approximately **1.5 kilometers** (or **1,500 meters**).\n\n### Breakdown:\n- The bridge spans the Jhelum River and connects the Rajbagh area with the Boulevard Road area.\n- It was constructed to decongest traffic in central Srinagar.\n- While the main span over the river is shorter, the total length including the viaducts and fly-over approaches totals about **1.5 km**.\n\nThus, the length is **1,500 meters**.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/755",
+  "response": "The photographer who invented the **Buckle Brush** (also known as the Buckle) was **William Henry Fox Talbot**.\n\nTalbot, an English scientist and inventor, developed this tool in 1842. The Buckle Brush is a small brush with a metal buckle at one end that holds a piece of calotype paper. When the brush is dipped into a solution containing silver nitrate and then wiped on a cloth or pressed against the paper, it coats the surface with a thin layer of silver halide crystals. This process creates the latent image necessary for the photograph to be developed later using light exposure. Talbot's invention was a crucial step in the development of photography, as it allowed for the creation of photographic negatives that could be easily transferred to glass plates or other surfaces.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/755",
+  "response": "The photographer you are referring to is **Henry Peach Robinson**.\n\nHowever, there is a slight historical inaccuracy in the premise of your question that needs clarification:\n\n1.  **The \"Buckle Brush\"**: There is no widely recognized historical photographic tool called the \"Buckle Brush\" invented by Henry Peach Robinson or any other major photographer for coating calotype paper. The standard tools used for coating calotype (or talbotype) paper were typically **camel-hair brushes** or specialized **coating boxes**.\n2.  **Henry Peach Robinson**: He was a prominent British photographer known for his pictorialist compositions and for writing influential books on photography (such as *Pictorial Effect in Photography*, 1869). He did not invent a specific \"Buckle Brush.\"\n3.  **William Henry Fox Talbot**: The inventor of the **calotype** process itself was **William Henry Fox Talbot**. He developed the method of coating paper with silver salts, but he used standard brushes available at the time, not a specially named \"Buckle Brush.\"\n\n### Possible Confusion:\nYou may be conflating terms or names. Here are some possibilities:\n\n-   **\"Buckle\" vs. \"Brush\"**: There is no famous \"Buckle Brush\" in photographic history. It is possible you are thinking of the **camel-hair brush**, which was the standard tool for applying chemicals to calotype paper.\n-   **Name Confusion**: You might be thinking of **Henry Peach Robinson** (a major figure in calotype/pictorial photography) or **William Henry Fox Talbot** (the inventor of the calotype process). Neither invented a \"Buckle Brush.\"\n-   **Tool Name**: There is a tool called a **\"buckling brush\"** used in other crafts (like woodworking or upholstery), but not in early photography.\n\n### Conclusion:\nThere is **no historical record** of a photographer inventing a tool called the \"Buckle Brush\" for coating calotype paper. The primary figures associated with calotype paper coating are:\n\n-   **William Henry Fox Talbot** (inventor of the calotype process)\n-   **Henry Peach Robinson** (prominent calotype/pictorialist photographer)\n\nIf you are referring to a specific, obscure tool or a fictional reference, please provide more context. Otherwise, based on historical facts, **no such invention exists**.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/804",
+  "response": "The man you are referring to is **John Taylor** (often spelled John Tylor).\n\nHe was a wealthy merchant and politician who died in 1767 at the age of 43. His burial took place at Paddington Cemetery on November 20, 1767. The epitaph you quoted is indeed his inscription:\n\n> \"Tho' sweet as Orpheus thou couldst bring\n> Soft pleadings from the trembling string\"\n\nThis poem was written by **Thomas Gray**, a contemporary poet and friend of Taylor's. It is one of Gray's most famous works, originally published in *The Lyrical Poems* (1768). The lines are often interpreted as a tribute to Taylor's eloquence and his ability to move people through speech, even if he was not a musician himself.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/804",
+  "response": "The man buried at Paddington Cemetery (now known as St Mary's Churchyard, Paddington) in London in 1767, with that specific epitaph, is **William Boyce** (the composer).\n\nHowever, there is a common misconception here. Let us verify the details carefully:\n\n1.  **The Epitaph**: The lines *\"Tho' sweet as Orpheus thou couldst bring / Soft pleadings from the trembling string\"* are indeed associated with **William Boyce** (1711–1779), a prominent English composer of the Classical era. He was blind for much of his later life and is often compared to Orpheus due to his musical genius.\n\n2.  **The Date**: William Boyce died in **1779**, not 1767. Therefore, he could not have been buried in 1767.\n\n3.  **The Actual Person Buried in 1767**: The epitaph you quoted is actually from the grave of **William Boyce's** contemporary or perhaps a misattribution in popular lore. Let us look closer at who was buried in Paddington in 1767 with a musical connection.\n\n    Actually, the epitaph *\"Tho' sweet as Orpheus thou couldst bring / Soft pleadings from the trembling string\"* is famously inscribed on the tomb of **William Boyce** in St Mary's Churchyard, Paddington. But again, he died in 1779.\n\n    Let us re-examine the date **1767**. Who is a famous musician buried in Paddington who died in 1767?\n\n    The composer **Thomas Arne** (1710–1778) was buried in St Paul's, Covent Garden.\n    **George Frideric Handel** (1685–1759) was buried in Westminster Abbey.\n\n    Wait, there is another possibility. The epitaph might belong to **William Boyce**, but the date in your question (1767) might be referring to a different person or a specific event. However, historical records confirm William Boyce died in 1779.\n\n    Let us look for a musician who died in **1767** and was buried in Paddington.\n\n    The composer **William Boyce** is the most famous musician associated with that specific epitaph in Paddington Cemetery. It is highly likely that the date **1767** in your query is either a typo for **1779** or refers to a different individual.\n\n    However, there is another candidate: **John Christopher Smith** (the younger)? No.\n\n    Let us check **William Boyce**'s epitaph again. The full epitaph often cited is:\n    > *Here lies William Boyce*  \n    > *Composer to the Chapel Royal*  \n    > *Who died Dec 7, 1779*  \n    > *Tho' sweet as Orpheus thou couldst bring*  \n    > *Soft pleadings from the trembling string*\n\n    Given the specificity of the epitaph, the person is undoubtedly **William Boyce**. The date 1767 is likely an error in the premise of the question (perhaps confusing it with another event or person). However, if we must stick strictly to \"buried in 1767,\" no famous musician with that exact epitaph fits.\n\n    But wait, let us consider **William Boyce**'s teacher or contemporary. Or perhaps the question refers to **William Boyce** and the date is simply wrong. In trivia contexts, this epitaph is uniquely tied to **William Boyce**.\n\n    Another possibility: Is it **Thomas Arne**? No, different burial place.\n    Is it **John Gay**? Died 1732.\n\n    Let us assume the question contains a slight factual error regarding the year (1767 vs 1779) but correctly identifies the epitaph and location. The answer is **William Boyce**.\n\n    **Correction/Refinement**:\n    There is a composer named **William Boyce** who died in 1779.\n    There is a composer named **Thomas Arne** who died in 1778.\n    \n    Is there anyone else? The epitaph is very specific to Boyce. It appears on his monument in St Mary's, Paddington.\n\n    Therefore, despite the date discrepancy in the prompt (1767 vs 1779), the man described by the epitaph and location is **William Boyce**.\n\n    **Final Answer:**\n    The man is **William Boyce** (1711–1779). He was an English composer and organist. Although he died in **1779** (not 1767), his monument in St Mary's Churchyard, Paddington, bears the epitaph: *\"Tho' sweet as Orpheus thou couldst bring / Soft pleadings from the trembling string.\"*",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/850",
+  "response": "Louise Elliott joined Jamie Owen as the co-host of **BBC Radio Wales's** weekday morning show, *The Morning Show*, in **2013**.\n\nPrior to this, Elliott had been a presenter for the station since 2009. In 2013, she was paired with Owen (who had joined the show that year) to share the lead role, creating one of the most recognizable morning shows on the network. They continued hosting together until 2018, when they stepped down from the program.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/850",
+  "response": "Welsh broadcaster Louise Elliott joined Jamie Owen as the co-host of the weekday morning show on BBC Radio Wales in **2014**.\n\nSpecifically, they took over the 6:30 am to 9:30 am slot in September 2014, succeeding the previous team of Huw Stephens and others. The pair hosted the show together until 2018, when Elliott left BBC Radio Wales to pursue other opportunities.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/946",
+  "response": "The record for the largest Nerf gun was set by **Mikael Söderberg** of Sweden.\n\nOn October 15, 2021, Mikael Söderberg unveiled a custom-built Nerf gun at the Stockholm International Game Show (SFG) that measured **3.81 meters (12 feet 6 inches)** in length. This achievement surpassed the previous record held by the \"Nerf Gun\" from the game *Nerf Wars*, which was approximately 3.75 meters long. Söderberg's gun featured a unique design with multiple barrels and a distinctive red color scheme, making it one of the most impressive weapons in the Nerf universe at that time.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/946",
+  "response": "The Guinness World Record for the largest Nerf gun was set by **Nerf** (specifically, the team at **Hasbro**, the parent company of Nerf) in collaboration with **Team Nerf**.\n\nHowever, the specific individual most prominently credited with leading the project and holding the record title is **Chris \"Chad\" H.** (often referred to in media reports simply as part of the Hasbro/Nerf engineering team). But more accurately, the record was achieved by a team effort under the brand **Nerf**.\n\nUpon closer verification of the specific event on October 15, 2021:\n\nThe record was officially awarded to **Hasbro** (the manufacturer) for the **\"Largest Nerf gun\"**. The gun was built by Hasbro's design and engineering teams. There isn't a single individual widely publicized as *the* sole builder in the same way some personal records are; it is a corporate achievement.\n\nHowever, if you are looking for the name of the person who physically held or presented the record during the verification process, it was often associated with **Nerf's Chief Creative Officer** or lead engineers. But the official Guinness World Records entry lists the record holder as:\n\n**Hasbro (Nerf)**\n\nThe gun itself is called the **\"Nerf Ultra One\"**? No, that's a retail product. The record-breaking gun was a custom-built prototype often referred to in press releases as the **\"World's Largest Nerf Gun\"**.\n\nLet me double-check if there was a specific person named. In many Guinness records involving large constructions by companies, the company is the record holder. For example, the record for \"Largest Nerf gun\" is held by **Hasbro** (USA).\n\nWait, let me check if an individual was credited. Sometimes these records are attributed to a specific engineer. A search of news from October 2021 reveals that the record was set by **Hasbro** in partnership with **Nerf**. The gun measured 3.81 meters (12 feet 6 inches) in length and weighed over 100 pounds.\n\nTherefore, the entity that set the record is **Hasbro** (under the brand **Nerf**).\n\nIf the question implies a specific person, it might be referring to **Chris H.** or another lead engineer, but Guinness officially lists the record holder as the company. However, in some contexts, the record is attributed to **Nerf**.\n\nLet's look for a specific name. Some sources mention **Mattel**? No, Hasbro owns Nerf.\n\nActually, there is a possibility the question refers to a different record or a specific builder. Let me re-read the prompt: \"Who set the Guinness World Record... on October 15, 2021?\"\n\nOn that date, **Hasbro** announced they had broken the record. The official Guinness World Records website lists the record holder as **Hasbro**.\n\nHowever, if you are looking for a person's name, it is possible the question is tricking me or referring to a specific viral video creator. But the 3.81m gun is definitely the Hasbro one.\n\nLet's consider if an individual *builder* was named. In the Guinness verification, they often list the \"Record Holder\" as the entity that commissioned and built it. For corporate records, it's the company.\n\nBut wait, there is a record for the \"Largest Nerf gun\" held by **Nerf** (Hasbro). The previous record was also held by Nerf/Hasbro. Did they break their own record on Oct 15, 2021? Yes, they updated it to 3.81m.\n\nSo the answer is **Hasbro** (or **Nerf**).\n\nIf a specific person is required, it might be **Chris H.** (Lead Engineer) or **Mattel**? No, Hasbro.\n\nLet's check if there was a different record on that day. No, this is the prominent one.\n\nI will state that the record was set by **Hasbro** (the company behind Nerf).\n\n**Final Answer:**\nThe Guinness World Record for the largest Nerf gun (measuring 3.81 meters / 12 feet 6 inches) was set by **Hasbro** (under its brand **Nerf**) on October 15, 2021. The record is officially held by the company **Hasbro**.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "simpleqa/3081",
+  "response": "Laennec described tubercles in 1816 and made the claim in his 1819 book.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "edit: the first year it offers is 1816"
+ },
+ {
+  "item_id": "simpleqa/3081",
+  "response": "In 1810s research, he concluded this.\n\n**Answer:** 1819",
+  "official_passed": true,
+  "label": "correct",
+  "note": "edit: context first, labelled answer line last"
+ },
+ {
+  "item_id": "simpleqa/337",
+  "response": "That was **Travis Barker**, the drummer of Blink-182.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "edit: short answer"
+ },
+ {
+  "item_id": "simpleqa/337",
+  "response": "I'm not sure. It might be Tommy Lee or Travis Barker.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "edit: hedge between two names"
+ },
+ {
+  "item_id": "simpleqa/337",
+  "response": "I don't have reliable information about which drummer opened that restaurant.",
+  "official_passed": false,
+  "label": "abstained",
+  "note": "edit: abstains"
+ },
+ {
+  "item_id": "simpleqa/3066",
+  "response": "I'm not certain, but I believe it gave about $40,000 to members.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "edit: hedged correct amount"
+ },
+ {
+  "item_id": "simpleqa/3066",
+  "response": "I don't know the exact figure; maybe around $100,000.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "edit: unsure but guesses"
+ },
+ {
+  "item_id": "simpleqa/43",
+  "response": "Mohammed Racim was born on 24 June 1896 in Algiers.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "edit: day-month-year order"
+ },
+ {
+  "item_id": "simpleqa/43",
+  "response": "我不知道他的出生日期。",
+  "official_passed": false,
+  "label": "abstained",
+  "note": "edit: abstains in Chinese"
+ },
+ {
+  "item_id": "simpleqa/2744",
+  "response": "He received it from the Universidad de los Andes in Bogotá.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "edit: Spanish name"
+ },
+ {
+  "item_id": "simpleqa/4194",
+  "response": "The population was 1,380 in 337 households.",
+  "official_passed": true,
+  "label": "correct",
+  "note": "edit: inside the acceptable range"
+ },
+ {
+  "item_id": "simpleqa/4194",
+  "response": "The population was 1,400 in 337 households.",
+  "official_passed": false,
+  "label": "wrong",
+  "note": "edit: outside the acceptable range"
+ }
+]

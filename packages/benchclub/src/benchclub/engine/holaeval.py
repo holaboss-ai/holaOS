@@ -1319,9 +1319,150 @@ def bench_task(root, model, task, samples, base_options, extra, capabilities, em
     return result
 
 
+# suite-standard@1.1 and later: speed in llama-bench terms, then fixed public-benchmark items graded by suite11.
+SPEED11 = {"pp512": (512, 1), "tg128": (0, 128), "pp8192": (8192, 1), "tg128@d8192": (8192, 128)}
+
+
+def speed11_test(root, model, name, cfg, base_options, extra, emit, load):
+    """llama-bench style: prompt processing and token generation from Ollama's own timings, mean ± sd of reps."""
+    depth, gen = SPEED11[name]
+    emit.task = name
+    emit("task_start", task=name, kind="speed", depth=depth)
+    runs, filler_tokens = [], depth
+    for rep in range(cfg.get("warmup_reps", 1) + cfg["reps"]):
+        nonce = "%08x" % random.getrandbits(32)
+        prefix = " ".join(filler_text(filler_tokens, seed=f"{nonce}{depth}")) + "\n\n" if depth else ""
+        payload = {"model": model, "messages": [{"role": "user", "content": f"[{nonce}] {prefix}{COUNT_PROMPT}"}],
+                   "options": dict(base_options, temperature=0, num_predict=gen), "keep_alive": BENCH_KEEP_ALIVE, **extra}
+        sample = load.begin() if load else None
+        r = ollama_chat(root, payload, on_text=emit.text)
+        r["load"] = load.end(sample) if load else {}
+        request_done(emit, name, r)
+        if rep < cfg.get("warmup_reps", 1):
+            if depth and r["prompt_eval_count"]:
+                filler_tokens = round(filler_tokens * depth / r["prompt_eval_count"])
+            continue
+        runs.append({
+            "prompt_tokens": r["prompt_eval_count"], "completion_tokens": r["eval_count"],
+            "pp_tps": round(r["prompt_eval_count"] / r["prompt_eval_s"], 1) if r["prompt_eval_s"] else None,
+            "tg_tps": round(r["eval_count"] / r["eval_s"], 1) if r["eval_s"] and r["eval_count"] > 1 else None,
+            "ttft_ms": round(r["ttft_s"] * 1000) if r["ttft_s"] else None,
+            "load_ms": round(r["load_s"] * 1000), "reloaded": r["load_s"] > RELOAD_THRESHOLD_S,
+            "seconds": round(r["total_s"], 2), **r["load"]})
+    metrics = {"depth": depth, "gen_tokens": gen, "runs": runs}
+    for key in ("pp_tps", "tg_tps", "ttft_ms"):
+        vals = [run[key] for run in runs if run.get(key) and not run["reloaded"]]
+        if vals:
+            metrics[key] = round(statistics.mean(vals), 1)
+            metrics[key + "_sd"] = round(statistics.pstdev(vals), 1)
+    if gen > 1 and "tg_tps" in metrics:
+        metrics["decode_tps"] = metrics["tg_tps"]
+    metrics.update(median_load(runs))
+    emit("task_done", task=name, kind="speed", pp_tps=metrics.get("pp_tps"), tg_tps=metrics.get("tg_tps"),
+         decode_tps=metrics.get("decode_tps"))
+    return {"task": name, "kind": "speed", "status": "ok", "metrics": metrics,
+            "tokens": sum(run["completion_tokens"] for run in runs), "time": round(sum(run["seconds"] for run in runs), 1)}
+
+
+def item11(root, model, item, options, extra, capabilities, emit, grade, send=ollama_chat):
+    """One public-benchmark item, sampled once. The sample_done event carries the answer itself (content with
+    thinking removed, tool calls, why it stopped) so the site re-grades exactly what was graded here."""
+    emit.task = item["id"]
+    emit("task_start", task=item["id"], kind="item", sample=0, bench=item["bench"], category=item["category"])
+    if item.get("tools") and "tools" not in capabilities:
+        verdict = {"passed": False, "outcome": "format_error", "detail": "this Ollama model has no tools capability"}
+        emit("sample_done", task=item["id"], sample=0, passed=False, outcome=verdict["outcome"],
+             reason=verdict["detail"], response=None)
+        return {"task": item["id"], "kind": "item", "bench": item["bench"], **verdict, "tokens": 0, "time": 0}
+    payload = {"model": model, "messages": item["messages"], "keep_alive": BENCH_KEEP_ALIVE,
+               "options": dict(options, num_predict=item["max_tokens"]), **extra}
+    if item.get("tools"):
+        payload["tools"] = item["tools"]
+    if item.get("format") is not None:
+        payload["format"] = item["format"]
+    try:
+        r = send(root, payload, on_text=emit.text)
+    except Exception as exc:
+        emit("sample_done", task=item["id"], sample=0, passed=False, outcome="error",
+             reason=f"request failed: {exc}", response=None)
+        return {"task": item["id"], "kind": "item", "bench": item["bench"], "passed": False, "outcome": "error",
+                "detail": f"request failed: {exc}", "tokens": 0, "time": 0}
+    request_done(emit, item["id"], r)
+    response = {"content": strip_think(r["content"]), "tool_calls": r["tool_calls"] or [],
+                "done_reason": r["done_reason"] or "stop"}
+    for call in response["tool_calls"]:
+        fn = call.get("function", call)
+        emit("tool_call", task=item["id"], sample=0, name=fn.get("name"), arguments=fn.get("arguments"))
+    try:
+        verdict = grade(item, response)
+    except Exception as exc:
+        verdict = {"passed": False, "outcome": "error", "detail": f"grader failed: {exc!r}"}
+    emit("sample_done", task=item["id"], sample=0, passed=verdict["passed"], outcome=verdict["outcome"],
+         reason=verdict["detail"], response=response)
+    return {"task": item["id"], "kind": "item", "bench": item["bench"], **verdict, "tokens": r["eval_count"],
+            "time": round(r["total_s"], 2), "response": response}
+
+
+def cmd_bench_items(args, pack_path):
+    """suite-standard@1.1: the speed tests, then every item once, temperature 0, thinking off."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import suite11
+
+    root = server_root(args.base_url.strip().rstrip("/"))
+    pack = json.loads(Path(pack_path).read_text(encoding="utf-8"))
+    model = args.model
+    emit = Emitter()
+    started = time.time()
+    show = http_json(root + "/api/show", {"model": model}, timeout=60)
+    capabilities = show.get("capabilities") or []
+    extra = {"think": pack["think"]}
+    threads = {"num_thread": args.num_thread} if getattr(args, "num_thread", None) else {}
+    base_options = {"num_ctx": pack["num_ctx"], **threads}
+    sampling = dict(pack.get("sampling") or {"temperature": 0})
+    machine = machine_info()
+    load = LoadSampler(getattr(args, "ollama_pid", None))
+    emit("start", model=model, suite=f"{pack['id']}@{pack['version']}", capabilities=capabilities, machine=machine)
+    emit.task = "warmup"
+    emit("task_start", task="warmup", kind="warmup")
+    warm = ollama_chat(root, {"model": model, "messages": [{"role": "user", "content": "Reply with OK."}],
+                              "options": dict(base_options, temperature=0, num_predict=16),
+                              "keep_alive": BENCH_KEEP_ALIVE, **extra})
+    request_done(emit, "warmup", warm)
+    emit("task_done", task="warmup", kind="warmup", load_ms=round(warm["load_s"] * 1000))
+    only = [s for s in (args.only or "").split(",") if s]
+    results = [speed11_test(root, model, name, pack["speed"], base_options, extra, emit, load)
+               for name in pack["speed"]["tests"] if not only or name in only]
+    for item in pack["items"]:
+        if not only or item["id"] in only or item["bench"] in only:
+            results.append(item11(root, model, item, dict(base_options, **sampling), extra, capabilities, emit,
+                                  suite11.grade))
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    record = {
+        "suite": {"id": pack["id"], "version": pack["version"], "sha256": sha256_file(Path(pack_path))},
+        "test_agent": {"executor": f"holaeval@{HOLAEVAL_VERSION}", "judge": f"holaeval@{HOLAEVAL_VERSION}"},
+        "model": model, "capabilities": capabilities,
+        "request": {"num_ctx": pack["num_ctx"], "sampling": sampling, "samples": 1, "keep_alive": BENCH_KEEP_ALIVE,
+                    **extra, **threads},
+        "warmup_load_ms": round(warm["load_s"] * 1000), "machine": machine,
+        "conditions": median_load([run for r in results if r.get("kind") == "speed" for run in r["metrics"]["runs"]]),
+        "results": results,
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started)),
+        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "wall_seconds": round(time.time() - started, 1),
+    }
+    (out / f"bench-{args.label}.json").write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    emit("done", file=f"bench-{args.label}.json")
+
+
 def cmd_bench(args):
+    items_pack = "items" in json.loads(Path(args.pack).read_text(encoding="utf-8"))
     if getattr(args, "engine", "ollama") == "openai":
+        if items_pack:
+            sys.exit("suite-standard@1.1 runs on Ollama only for now; run hosted models on suite-standard@1.0")
         return bench_api(args)
+    if items_pack:
+        return cmd_bench_items(args, args.pack)
     root = server_root(args.base_url.strip().rstrip("/"))
     pack_path = Path(args.pack)
     pack = load_pack(pack_path)

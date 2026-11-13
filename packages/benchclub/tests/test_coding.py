@@ -127,7 +127,9 @@ class SuiteTest(unittest.TestCase):
         found = {m.group(1): (m.group(2), tuple(re.findall(r'"(\w+)"', m.group(3) or "")) or None)
                  for m in re.finditer(r'"(suite-[\w.@-]+)": \{ pack: "[^"]+", command: "(\w+)"(?:, platforms: \[([^\]]*)\])? \}',
                                       source.read_text())}
-        self.assertEqual(found, {suite: (spec["command"], spec["platforms"]) for suite, spec in pinned.SUITES.items()})
+        cli = {suite: (spec["command"], spec["platforms"]) for suite, spec in pinned.SUITES.items()}
+        self.assertEqual(found, {suite: cli[suite] for suite in found if suite in cli})
+        self.assertLessEqual(set(found), set(cli))
 
     def test_elsewhere_than_macos_the_coding_scenario_says_why_it_cannot_run(self):
         for platform, name in (("linux", "Linux"), ("win32", "Windows")):

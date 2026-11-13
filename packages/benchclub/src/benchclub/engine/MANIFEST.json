@@ -1,7 +1,7 @@
 {
   "files": {
     "bench-conditions.json": "b87f07ee51badb2fa1f9669a053ccb0e952ee2f42a507e72def3378032b5a69a",
-    "holaeval.py": "4a36c84e943681dd93ad1b4a02ad1db07056708fbbe51bf0c6ef7efa44b9045f",
+    "holaeval.py": "704bbd26a030817ae24c16710c1061223c05bae75fce375ddf74c67c3a0bf703",
     "packs/agent-v1.json": "d3c4ca7010457bb8080bcc1690505a92b288f7ddc9dc995f29af687096ae22f4",
     "packs/agent-v1/system-full.md": "1a4190fd56a8af7495c75221a6661e29c9b128b111c18d5d94632dca722a3bae",
     "packs/agent-v1/system-lean.md": "b44a03182ce04939d4e55b8a46564236040a69f63e362df89626dd6f611eee91",
@@ -56,6 +56,29 @@
     "packs/suite-coding-1.0/system.md": "f394f12af9438e9ebeec52abdb73b7ac04fd6555cfeb899d28b6b088b4751b6d",
     "packs/suite-coding-1.0/tools.json": "f8b319cf638b61592e5942b05ca0ceb0e84686ea0229c78bdc055495a661c77b",
     "packs/suite-standard-1.0.json": "4bbdf2da8b959801bb223c2a13d71fe952604138798ef2da0705df45794b6f67",
-    "subjects.json": "234b29b48377e15db0392b5810be4e50bd7a633c79aa9efdbe2fc150b3fb12fd"
+    "packs/suite-standard-1.1.json": "ecb794c6e80cfc00c18a880c4d02688282f752ea7979f3c1d13e1ccdbff2abe9",
+    "packs/suite-standard-1.1/licenses/bfcl/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "packs/suite-standard-1.1/licenses/ifbench/DATASET_CARD_LICENSE.md": "755b04b27a08c7f1e0b77aa1ff607c10823582fd30eaeb11a2b8d84154c3762e",
+    "packs/suite-standard-1.1/licenses/ifbench/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "packs/suite-standard-1.1/licenses/ifeval/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "packs/suite-standard-1.1/licenses/jsonschema/DATASET_CARD.md": "779af13cbd6341e43711cb5bd328492741c0b5685397db5e8b3f42b1f67d1bf2",
+    "packs/suite-standard-1.1/licenses/jsonschema/LICENSE.json-schema-corpus": "7009d8b6460dc20a8d66f624a4fb1c76b5de69bfa98c4c067e463898bb55c2f4",
+    "packs/suite-standard-1.1/licenses/jsonschema/LICENSE.kubernetes-json-schema": "f2e21617fe8a27fe1097ff47f7c6f50912f8088dc594d21c2df87762e9120b12",
+    "packs/suite-standard-1.1/licenses/jsonschema/LICENSE.lm-evaluation-harness.md": "a806e42547620dffbc2ec0333322c8b3523b4af11e059be14ef81aa5b1ae021f",
+    "packs/suite-standard-1.1/licenses/jsonschema/LICENSE.schemastore": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "packs/suite-standard-1.1/licenses/reasoning/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "packs/suite-standard-1.1/licenses/simpleqa/DATASET_CARD.md": "5855a8b4581cb616f3cea8cadb305b5c2a5dd5943f60b4a919f994d092263c46",
+    "packs/suite-standard-1.1/licenses/simpleqa/LICENSE.simple-evals": "d831db55645e47ca8e491c5a0e37f1ee744d7b10bf5aa8d50146c795ac0176c0",
+    "packs/suite-standard-1.1/licenses/when2call/LICENSE": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411",
+    "subjects.json": "234b29b48377e15db0392b5810be4e50bd7a633c79aa9efdbe2fc150b3fb12fd",
+    "suite11/__init__.py": "59902a8a48f71931b5e76af16946d5d0f73bc3c408e3d6bdc43f61cef43eaf64",
+    "suite11/bfcl.py": "e37afc2d314ce1226930fc5fbf402ceab22f34ec865a985d2723626a0a790316",
+    "suite11/common.py": "ad8de2d4fbf97dd883c90067d2e7a5774bc90d3cfd4a4906646f57b3558aff0b",
+    "suite11/ifbench.py": "0542f54efe427abc4903ffcb60e1e83c3815c762fd716027a0ba5d875fe16d3c",
+    "suite11/ifeval.py": "41adf0a3fb1d91709464f835e56924b43eee1aa7d9ca75aef405f4076cdd7d96",
+    "suite11/jsonschema.py": "a9afc87c795ffcafca111f060b708ef9aa42345cb716c462c282a729801aa418",
+    "suite11/reasoning.py": "9313fa9c51b44cc0171c21e1225564395e5db578d8c72263dcb3789ab26abcd4",
+    "suite11/simpleqa.py": "943626a0d537a1a752310e6f8d208098273f9eef7b83d5ed9f3b0c2462037bd7",
+    "suite11/when2call.py": "3270e30004b7b6baa999a3a009d2e04aec0d5812905f357d44d8ce897017e782"
   }
 }

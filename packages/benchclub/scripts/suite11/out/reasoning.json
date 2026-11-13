@@ -1,0 +1,868 @@
+{
+ "bench": "reasoning",
+ "source": {
+  "name": "Reasoning Gym",
+  "url": "https://github.com/open-thought/reasoning-gym",
+  "revision": "reasoning-gym==0.1.25, tag v0.1.25 (21e6d2a9a581b3e11aafe711abfd37402f8482d5)",
+  "license": "Apache-2.0",
+  "license_url": "https://github.com/open-thought/reasoning-gym/blob/v0.1.25/LICENSE"
+ },
+ "selection": "Generated with reasoning-gym 0.1.25, seed 20261113, first N indices per task: gsm_symbolic x4, knights_knaves x3, shortest_path x3, number_sequence x3, zebra_puzzles x4, mini_sudoku x3; upstream eval wrapper applied (system prompt SYSTEM_PROMPTS['default']); partial-credit scores count as a pass only at 1.0.",
+ "provenance": [
+  {
+   "id": "reasoning/gsm_symbolic/20261113/0",
+   "generator": "gsm_symbolic",
+   "config": {
+    "difficulty": 1.0
+   },
+   "seed": 20261113,
+   "index": 0
+  },
+  {
+   "id": "reasoning/gsm_symbolic/20261113/1",
+   "generator": "gsm_symbolic",
+   "config": {
+    "difficulty": 1.0
+   },
+   "seed": 20261113,
+   "index": 1
+  },
+  {
+   "id": "reasoning/gsm_symbolic/20261113/2",
+   "generator": "gsm_symbolic",
+   "config": {
+    "difficulty": 1.0
+   },
+   "seed": 20261113,
+   "index": 2
+  },
+  {
+   "id": "reasoning/gsm_symbolic/20261113/3",
+   "generator": "gsm_symbolic",
+   "config": {
+    "difficulty": 1.0
+   },
+   "seed": 20261113,
+   "index": 3
+  },
+  {
+   "id": "reasoning/knights_knaves/20261113/0",
+   "generator": "knights_knaves",
+   "config": {
+    "n_people": 3,
+    "depth_constraint": 2,
+    "width_constraint": 2
+   },
+   "seed": 20261113,
+   "index": 0
+  },
+  {
+   "id": "reasoning/knights_knaves/20261113/1",
+   "generator": "knights_knaves",
+   "config": {
+    "n_people": 3,
+    "depth_constraint": 2,
+    "width_constraint": 2
+   },
+   "seed": 20261113,
+   "index": 1
+  },
+  {
+   "id": "reasoning/knights_knaves/20261113/2",
+   "generator": "knights_knaves",
+   "config": {
+    "n_people": 3,
+    "depth_constraint": 2,
+    "width_constraint": 2
+   },
+   "seed": 20261113,
+   "index": 2
+  },
+  {
+   "id": "reasoning/shortest_path/20261113/0",
+   "generator": "shortest_path",
+   "config": {
+    "min_rows": 5,
+    "max_rows": 6,
+    "min_cols": 5,
+    "max_cols": 6,
+    "p_blocked": 0.4
+   },
+   "seed": 20261113,
+   "index": 0
+  },
+  {
+   "id": "reasoning/shortest_path/20261113/1",
+   "generator": "shortest_path",
+   "config": {
+    "min_rows": 5,
+    "max_rows": 6,
+    "min_cols": 5,
+    "max_cols": 6,
+    "p_blocked": 0.4
+   },
+   "seed": 20261113,
+   "index": 1
+  },
+  {
+   "id": "reasoning/shortest_path/20261113/2",
+   "generator": "shortest_path",
+   "config": {
+    "min_rows": 5,
+    "max_rows": 6,
+    "min_cols": 5,
+    "max_cols": 6,
+    "p_blocked": 0.4
+   },
+   "seed": 20261113,
+   "index": 2
+  },
+  {
+   "id": "reasoning/number_sequence/20261113/0",
+   "generator": "number_sequence",
+   "config": {
+    "min_terms": 4,
+    "max_terms": 8,
+    "min_value": -100,
+    "max_value": 100,
+    "max_complexity": 3
+   },
+   "seed": 20261113,
+   "index": 0
+  },
+  {
+   "id": "reasoning/number_sequence/20261113/1",
+   "generator": "number_sequence",
+   "config": {
+    "min_terms": 4,
+    "max_terms": 8,
+    "min_value": -100,
+    "max_value": 100,
+    "max_complexity": 3
+   },
+   "seed": 20261113,
+   "index": 1
+  },
+  {
+   "id": "reasoning/number_sequence/20261113/2",
+   "generator": "number_sequence",
+   "config": {
+    "min_terms": 4,
+    "max_terms": 8,
+    "min_value": -100,
+    "max_value": 100,
+    "max_complexity": 3
+   },
+   "seed": 20261113,
+   "index": 2
+  },
+  {
+   "id": "reasoning/zebra_puzzles/20261113/0",
+   "generator": "zebra_puzzles",
+   "config": {
+    "num_people": 4,
+    "num_characteristics": 4
+   },
+   "seed": 20261113,
+   "index": 0
+  },
+  {
+   "id": "reasoning/zebra_puzzles/20261113/1",
+   "generator": "zebra_puzzles",
+   "config": {
+    "num_people": 4,
+    "num_characteristics": 4
+   },
+   "seed": 20261113,
+   "index": 1
+  },
+  {
+   "id": "reasoning/zebra_puzzles/20261113/2",
+   "generator": "zebra_puzzles",
+   "config": {
+    "num_people": 4,
+    "num_characteristics": 4
+   },
+   "seed": 20261113,
+   "index": 2
+  },
+  {
+   "id": "reasoning/zebra_puzzles/20261113/3",
+   "generator": "zebra_puzzles",
+   "config": {
+    "num_people": 4,
+    "num_characteristics": 4
+   },
+   "seed": 20261113,
+   "index": 3
+  },
+  {
+   "id": "reasoning/mini_sudoku/20261113/0",
+   "generator": "mini_sudoku",
+   "config": {
+    "min_empty": 10,
+    "max_empty": 12
+   },
+   "seed": 20261113,
+   "index": 0
+  },
+  {
+   "id": "reasoning/mini_sudoku/20261113/1",
+   "generator": "mini_sudoku",
+   "config": {
+    "min_empty": 10,
+    "max_empty": 12
+   },
+   "seed": 20261113,
+   "index": 1
+  },
+  {
+   "id": "reasoning/mini_sudoku/20261113/2",
+   "generator": "mini_sudoku",
+   "config": {
+    "min_empty": 10,
+    "max_empty": 12
+   },
+   "seed": 20261113,
+   "index": 2
+  }
+ ],
+ "items": [
+  {
+   "id": "reasoning/gsm_symbolic/20261113/0",
+   "bench": "reasoning",
+   "category": "gsm_symbolic",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "Ava qualified for a spot on the swimming team, so she went shopping for some athletic gear. She bought a t-shirt for €10, a pair of swimming leggings for €11 more than the t-shirt cost, and a pair of athletic shoes that were originally €32 but were on sale for half price. She had a coupon for €1 off the package of €7 athletic socks that she also bought. How much did she spend on athletic gear? Give the result as your final answer. Do not include units."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "gsm_symbolic",
+    "oracle": "53"
+   }
+  },
+  {
+   "id": "reasoning/gsm_symbolic/20261113/1",
+   "bench": "reasoning",
+   "category": "gsm_symbolic",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "Sarah has 33 light red spools of thread, 75 dark red spools of thread, 52 light purple spools of thread, and 110 dark purple spools of thread. What percent of her spools are red? Give the result as your final answer. Do not include units."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "gsm_symbolic",
+    "oracle": "40"
+   }
+  },
+  {
+   "id": "reasoning/gsm_symbolic/20261113/2",
+   "bench": "reasoning",
+   "category": "gsm_symbolic",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "A class of 61 students has various hobbies. 7 like to dance, 7 like to play basketball, and the rest like to either play video games or bake. How many like to play video games if the number that like to bake is twice the number that prefer playing basketball? Give the result as your final answer. Do not include units."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "gsm_symbolic",
+    "oracle": "33"
+   }
+  },
+  {
+   "id": "reasoning/gsm_symbolic/20261113/3",
+   "bench": "reasoning",
+   "category": "gsm_symbolic",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "There are 16 students playing badminton and twice that number playing volleyball. There are 20 boys and 26 girls playing table tennis. If each student only participates in one group, how many students are there in total? Give the result as your final answer. Do not include units."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "gsm_symbolic",
+    "oracle": "94"
+   }
+  },
+  {
+   "id": "reasoning/knights_knaves/20261113/0",
+   "bench": "reasoning",
+   "category": "knights_knaves",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "A very special island is inhabited only by knights and knaves. Knights always tell the truth, and knaves always lie. You meet 3 inhabitants: Riley, Grace, and Ava. As Riley put it, \"Grace is a knave and Ava is a knave\". In Grace's words: \"Ava is a knave and Riley is a knight\". \"if Ava is a knight then Grace is a knave,\" Ava declared. So who is a knight and who is a knave? (Format your answer like: \"Riley is a knight/knave, Grace is a knight/knave, and Ava is a knight/knave\")"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "knights_knaves",
+    "oracle": "Riley is a knave, Grace is a knave, and Ava is a knight."
+   }
+  },
+  {
+   "id": "reasoning/knights_knaves/20261113/1",
+   "bench": "reasoning",
+   "category": "knights_knaves",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "A very special island is inhabited only by knights and knaves. Knights always tell the truth, and knaves always lie. You meet 3 inhabitants: Ethan, Lucas, and Jackson. Ethan was heard saying, \"Lucas is a knave or Jackson is a knight\". \"Lucas is a knight or Jackson is a knave\" - Lucas. Jackson was heard saying, \"Ethan is a knave or Lucas is a knave\". So who is a knight and who is a knave? (Format your answer like: \"Ethan is a knight/knave, Lucas is a knight/knave, and Jackson is a knight/knave\")"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "knights_knaves",
+    "oracle": "Ethan is a knight, Lucas is a knave, and Jackson is a knight."
+   }
+  },
+  {
+   "id": "reasoning/knights_knaves/20261113/2",
+   "bench": "reasoning",
+   "category": "knights_knaves",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "A very special island is inhabited only by knights and knaves. Knights always tell the truth, and knaves always lie. You meet 3 inhabitants: Olivia, Charlotte, and Daniel. Olivia noted, \"Daniel is a knave\". According to Charlotte, \"Olivia is a knight or Daniel is a knight\". Daniel expressed that Charlotte is a knight. So who is a knight and who is a knave? (Format your answer like: \"Olivia is a knight/knave, Charlotte is a knight/knave, and Daniel is a knight/knave\")"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "knights_knaves",
+    "oracle": "Olivia is a knave, Charlotte is a knight, and Daniel is a knight."
+   }
+  },
+  {
+   "id": "reasoning/shortest_path/20261113/0",
+   "bench": "reasoning",
+   "category": "shortest_path",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "Your task is to find the shortest path from the start to the destination point in a grid.\n\nThe grid is represented as a matrix with the following types of cells:\n- *: your starting point\n- #: your destination point\n- O: an open cell\n- X: a blocked cell\n\nTherefore, you need to find the shortest path from * to #, moving only through open cells.\n\nYou may only move in four directions: up, down, left, and right.\n\nIf there is no path from * to #, simply write \"infeasible\" (without quotes).\n\nYour output should be a sequence of directions that leads from * to #, e.g. right right down down up left\n\nNow, find the shortest path from * to # in the following grid:\nO X * X X\nX X X X X\nX O O O O\nO O O # O\nO X O X X\n"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "shortest_path",
+    "oracle": "infeasible",
+    "matrix": [
+     [
+      "O",
+      "X",
+      "*",
+      "X",
+      "X"
+     ],
+     [
+      "X",
+      "X",
+      "X",
+      "X",
+      "X"
+     ],
+     [
+      "X",
+      "O",
+      "O",
+      "O",
+      "O"
+     ],
+     [
+      "O",
+      "O",
+      "O",
+      "#",
+      "O"
+     ],
+     [
+      "O",
+      "X",
+      "O",
+      "X",
+      "X"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "reasoning/shortest_path/20261113/1",
+   "bench": "reasoning",
+   "category": "shortest_path",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "Your task is to find the shortest path from the start to the destination point in a grid.\n\nThe grid is represented as a matrix with the following types of cells:\n- *: your starting point\n- #: your destination point\n- O: an open cell\n- X: a blocked cell\n\nTherefore, you need to find the shortest path from * to #, moving only through open cells.\n\nYou may only move in four directions: up, down, left, and right.\n\nIf there is no path from * to #, simply write \"infeasible\" (without quotes).\n\nYour output should be a sequence of directions that leads from * to #, e.g. right right down down up left\n\nNow, find the shortest path from * to # in the following grid:\nO * O X X\nO X O X O\nO O O X X\nX X O O O\nO O # O O\n"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "shortest_path",
+    "oracle": "right down down down down",
+    "matrix": [
+     [
+      "O",
+      "*",
+      "O",
+      "X",
+      "X"
+     ],
+     [
+      "O",
+      "X",
+      "O",
+      "X",
+      "O"
+     ],
+     [
+      "O",
+      "O",
+      "O",
+      "X",
+      "X"
+     ],
+     [
+      "X",
+      "X",
+      "O",
+      "O",
+      "O"
+     ],
+     [
+      "O",
+      "O",
+      "#",
+      "O",
+      "O"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "reasoning/shortest_path/20261113/2",
+   "bench": "reasoning",
+   "category": "shortest_path",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "Your task is to find the shortest path from the start to the destination point in a grid.\n\nThe grid is represented as a matrix with the following types of cells:\n- *: your starting point\n- #: your destination point\n- O: an open cell\n- X: a blocked cell\n\nTherefore, you need to find the shortest path from * to #, moving only through open cells.\n\nYou may only move in four directions: up, down, left, and right.\n\nIf there is no path from * to #, simply write \"infeasible\" (without quotes).\n\nYour output should be a sequence of directions that leads from * to #, e.g. right right down down up left\n\nNow, find the shortest path from * to # in the following grid:\nO O O O X\nO O O X O\nO O * O X\nO O O O O\nX O # X X\nO O O X O\n"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "shortest_path",
+    "oracle": "down down",
+    "matrix": [
+     [
+      "O",
+      "O",
+      "O",
+      "O",
+      "X"
+     ],
+     [
+      "O",
+      "O",
+      "O",
+      "X",
+      "O"
+     ],
+     [
+      "O",
+      "O",
+      "*",
+      "O",
+      "X"
+     ],
+     [
+      "O",
+      "O",
+      "O",
+      "O",
+      "O"
+     ],
+     [
+      "X",
+      "O",
+      "#",
+      "X",
+      "X"
+     ],
+     [
+      "O",
+      "O",
+      "O",
+      "X",
+      "O"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "reasoning/number_sequence/20261113/0",
+   "bench": "reasoning",
+   "category": "number_sequence",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "3, 6, 8, 9, 9, 9, 9, 9, ?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "number_sequence",
+    "oracle": "9"
+   }
+  },
+  {
+   "id": "reasoning/number_sequence/20261113/1",
+   "bench": "reasoning",
+   "category": "number_sequence",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "-6, -4, 0, 8, 24, 56, 120, ?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "number_sequence",
+    "oracle": "248"
+   }
+  },
+  {
+   "id": "reasoning/number_sequence/20261113/2",
+   "bench": "reasoning",
+   "category": "number_sequence",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "1, 0, 1, 0, 1, 0, 1, 0, ?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "number_sequence",
+    "oracle": "1"
+   }
+  },
+  {
+   "id": "reasoning/zebra_puzzles/20261113/0",
+   "bench": "reasoning",
+   "category": "zebra_puzzles",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "This is a logic puzzle. There are 4 houses (numbered 1 on the left, 4 on the right), from the perspective of someone standing across the street from them. Each has a different person in them. They have different characteristics:\n - Each person has a unique name: carol, alice, arnold, bob\n - The people are of nationalities: dane, brit, chinese, german\n - They all have a different favorite flower: iris, carnations, daffodils, lilies\n - Everyone has a different favorite cigar: dunhill, blue master, prince, pall mall\n\n1. The person partial to Pall Mall is the German.\n2. The person partial to Pall Mall is directly left of the person who smokes Blue Master.\n3. The Chinese is Carol.\n4. Alice is the person partial to Pall Mall.\n5. Bob is in the fourth house.\n6. The person partial to Pall Mall is the person who loves a bouquet of daffodils.\n7. Bob is the person who loves the boquet of lilies.\n8. The person who smokes Blue Master is the Dane.\n9. Carol is the Prince smoker.\n10. The Dunhill smoker and the person partial to Pall Mall are next to each other.\n11. The person who loves a carnations arrangement is the Chinese.\n\nWhat is Name of the person who lives in House 1?? Provide only the name of the person as your final answer."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "zebra_puzzles",
+    "oracle": "carol"
+   }
+  },
+  {
+   "id": "reasoning/zebra_puzzles/20261113/1",
+   "bench": "reasoning",
+   "category": "zebra_puzzles",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "This is a logic puzzle. There are 4 houses (numbered 1 on the left, 4 on the right), from the perspective of someone standing across the street from them. Each has a different person in them. They have different characteristics:\n - Each person has a unique name: carol, arnold, bob, alice\n - The people keep different animals: dog, bird, fish, cat\n - They all have a different favorite flower: daffodils, lilies, iris, carnations\n - Everyone has something different for lunch: soup, pizza, stir fry, grilled cheese\n\n1. The person who loves the boquet of iris is the person who is a pizza lover.\n2. The person who loves a bouquet of daffodils is the bird keeper.\n3. Alice is directly left of the person who loves the soup.\n4. The person who loves a carnations arrangement and the bird keeper are next to each other.\n5. Arnold is the dog owner.\n6. Bob is the person who loves a carnations arrangement.\n7. The person who loves the boquet of lilies and the person who loves a carnations arrangement are next to each other.\n8. The person who loves eating grilled cheese is the person who loves the boquet of lilies.\n9. The dog owner is directly left of Alice.\n10. Alice is the fish enthusiast.\n\nWhat is Name of the person who lives in House 1?? Provide only the name of the person as your final answer."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "zebra_puzzles",
+    "oracle": "arnold"
+   }
+  },
+  {
+   "id": "reasoning/zebra_puzzles/20261113/2",
+   "bench": "reasoning",
+   "category": "zebra_puzzles",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "This is a logic puzzle. There are 4 houses (numbered 1 on the left, 4 on the right), from the perspective of someone standing across the street from them. Each has a different person in them. They have different characteristics:\n - Each person has a unique name: alice, arnold, bob, carol\n - The people keep different animals: cat, dog, bird, fish\n - Each mother is accompanied by their child: bella, billy, timothy, alice\n - Each person has a favorite drink: milk, water, boba tea, coffee\n\n1. Carol is the person who is the mother of Timothy.\n2. The bird keeper is Arnold.\n3. The boba tea drinker is the person's child is named Alice.\n4. The person who is the mother of Timothy is the dog owner.\n5. The one who only drinks water is Alice.\n6. Alice and the person who likes milk are next to each other.\n7. The cat lover is the person who likes milk.\n8. The boba tea drinker and the one who only drinks water are next to each other.\n9. The person's child is named Bella is directly left of the coffee drinker.\n\nWhat is Name of the person who lives in House 1?? Provide only the name of the person as your final answer."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "zebra_puzzles",
+    "oracle": "arnold"
+   }
+  },
+  {
+   "id": "reasoning/zebra_puzzles/20261113/3",
+   "bench": "reasoning",
+   "category": "zebra_puzzles",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "This is a logic puzzle. There are 4 houses (numbered 1 on the left, 4 on the right), from the perspective of someone standing across the street from them. Each has a different person in them. They have different characteristics:\n - Each person has a unique name: alice, arnold, carol, bob\n - The people are of nationalities: dane, chinese, german, brit\n - Each person has a favorite color: white, purple, brown, blue\n - Each mother is accompanied by their child: bella, alice, billy, timothy\n\n1. The person who is the mother of Timothy is the British person.\n2. The Chinese is Alice.\n3. The person who loves blue is the person who is the mother of Timothy.\n4. The person who loves blue is directly left of Carol.\n5. The person's child is named Alice is the person who loves white.\n6. The person who is the mother of Billy is the Chinese.\n7. The person who loves purple and the person who loves white are next to each other.\n8. The person's child is named Alice is in the third house.\n9. The person who loves brown is in the fourth house.\n10. Bob is the German.\n\nWhat is Name of the person who lives in House 1?? Provide only the name of the person as your final answer."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "zebra_puzzles",
+    "oracle": "arnold"
+   }
+  },
+  {
+   "id": "reasoning/mini_sudoku/20261113/0",
+   "bench": "reasoning",
+   "category": "mini_sudoku",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "In 4x4 Mini Sudoku:\n- Each row must contain each number from 1-4 exactly once\n- Each column must contain each number 1-4 exactly once\n- Each 2x2 subgrid must contain each number 1-4 exactly once\nSolve this 4x4 Mini Sudoku puzzle:\n_ 3 1 _\n_ _ _ _\n3 _ _ _\n2 _ _ 3\nFormat your response as the puzzle above, with spaces separating each number within a row, and newlines separating rows.\n"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "mini_sudoku",
+    "oracle": "4 3 1 2\n1 2 3 4\n3 4 2 1\n2 1 4 3",
+    "solution": [
+     [
+      4,
+      3,
+      1,
+      2
+     ],
+     [
+      1,
+      2,
+      3,
+      4
+     ],
+     [
+      3,
+      4,
+      2,
+      1
+     ],
+     [
+      2,
+      1,
+      4,
+      3
+     ]
+    ]
+   }
+  },
+  {
+   "id": "reasoning/mini_sudoku/20261113/1",
+   "bench": "reasoning",
+   "category": "mini_sudoku",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "In 4x4 Mini Sudoku:\n- Each row must contain each number from 1-4 exactly once\n- Each column must contain each number 1-4 exactly once\n- Each 2x2 subgrid must contain each number 1-4 exactly once\nSolve this 4x4 Mini Sudoku puzzle:\n3 _ _ _\n_ _ 2 3\n_ _ _ 1\n_ _ 4 _\nFormat your response as the puzzle above, with spaces separating each number within a row, and newlines separating rows.\n"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "mini_sudoku",
+    "oracle": "3 2 1 4\n4 1 2 3\n2 4 3 1\n1 3 4 2",
+    "solution": [
+     [
+      3,
+      2,
+      1,
+      4
+     ],
+     [
+      4,
+      1,
+      2,
+      3
+     ],
+     [
+      2,
+      4,
+      3,
+      1
+     ],
+     [
+      1,
+      3,
+      4,
+      2
+     ]
+    ]
+   }
+  },
+  {
+   "id": "reasoning/mini_sudoku/20261113/2",
+   "bench": "reasoning",
+   "category": "mini_sudoku",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Given a problem, your task is to answer the question by thinking step-by-step in a clear and specific manner.\nOnce you have thought about the reasoning process, provide the answer in the following format:\n<answer>answer here</answer>\nDo not explain your reasoning inside the answer tags, provide only the final answer. When an example is provided, you should strictly follow the format of the output/answer in that example.\n"
+    },
+    {
+     "role": "user",
+     "content": "In 4x4 Mini Sudoku:\n- Each row must contain each number from 1-4 exactly once\n- Each column must contain each number 1-4 exactly once\n- Each 2x2 subgrid must contain each number 1-4 exactly once\nSolve this 4x4 Mini Sudoku puzzle:\n_ 2 _ _\n_ _ _ _\n_ _ 3 _\n_ 1 4 _\nFormat your response as the puzzle above, with spaces separating each number within a row, and newlines separating rows.\n"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "task": "mini_sudoku",
+    "oracle": "4 2 1 3\n1 3 2 4\n2 4 3 1\n3 1 4 2",
+    "solution": [
+     [
+      4,
+      2,
+      1,
+      3
+     ],
+     [
+      1,
+      3,
+      2,
+      4
+     ],
+     [
+      2,
+      4,
+      3,
+      1
+     ],
+     [
+      3,
+      1,
+      4,
+      2
+     ]
+    ]
+   }
+  }
+ ]
+}

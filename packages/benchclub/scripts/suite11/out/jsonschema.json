@@ -1,0 +1,2080 @@
+{
+ "bench": "jsonschema",
+ "source": {
+  "name": "JSONSchemaBench",
+  "url": "https://huggingface.co/datasets/epfl-dlab/JSONSchemaBench",
+  "revision": "5bd0f4640badc6f3f02df796421d21cb0ca0b141",
+  "license": "MIT",
+  "license_url": "https://huggingface.co/datasets/epfl-dlab/JSONSchemaBench/blob/5bd0f4640badc6f3f02df796421d21cb0ca0b141/README.md",
+  "prompt": "https://github.com/EleutherAI/lm-evaluation-harness/blob/d6de81643928d653435c431bae19945d41d32520/lm_eval/tasks/jsonschema_bench",
+  "subsets": {
+   "Kubernetes": "instrumenta/kubernetes-json-schema (Apache-2.0), generated from the Kubernetes OpenAPI spec",
+   "JsonSchemaStore": "SchemaStore/schemastore (Apache-2.0)",
+   "Github_medium": "sdbs-uni-p/json-schema-corpus (Apache-2.0 collection of schemas from public GitHub repos)",
+   "Github_hard": "sdbs-uni-p/json-schema-corpus (Apache-2.0 collection of schemas from public GitHub repos)"
+  },
+  "keywords": [
+   "$defs",
+   "$ref",
+   "additionalProperties",
+   "anyOf",
+   "const",
+   "definitions",
+   "enum",
+   "items",
+   "maxItems",
+   "minItems",
+   "minLength",
+   "oneOf",
+   "pattern",
+   "patternProperties",
+   "properties",
+   "required",
+   "type",
+   "uniqueItems"
+  ]
+ },
+ "selection": "Test split; per subset (Kubernetes 4, JsonSchemaStore 4, Github_medium 4, Github_hard 3) a seeded sample (seed 20261113) of schemas that pass Draft 2020-12 check_schema, have a top-level `required`, are at most 6000 characters, use only local $refs and only keywords our validator implements (no `format`); prompt is lm-evaluation-harness jsonschema_bench verbatim (description as system, 2 few-shot turns, doc_to_text with its literal \\n), graded with Draft 2020-12.",
+ "items": [
+  {
+   "id": "jsonschema/Kubernetes/kb_180_Normalized",
+   "bench": "jsonschema",
+   "category": "Kubernetes",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"definitions\": {\n        \"https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference\": {\n            \"description\": \"SecretReference represents a Secret Reference. It has enough information to retrieve secret in any namespace\",\n            \"properties\": {\n                \"name\": {\n                    \"description\": \"Name is unique within a namespace to reference a secret resource.\",\n                    \"type\": \"string\"\n                },\n                \"namespace\": {\n                    \"description\": \"Namespace defines the space within which the secret name must be unique.\",\n                    \"type\": \"string\"\n                }\n            },\n            \"type\": \"object\"\n        }\n    },\n    \"description\": \"Represents storage that is managed by an external CSI volume driver (Beta feature)\",\n    \"properties\": {\n        \"controllerExpandSecretRef\": {\n            \"$ref\": \"#/definitions/https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference\",\n            \"description\": \"ControllerExpandSecretRef is a reference to the secret object containing sensitive information to pass to the CSI driver to complete the CSI ControllerExpandVolume call. This is an alpha field and requires enabling ExpandCSIVolumes feature gate. This field is optional, and may be empty if no secret is required. If the secret object contains more than one secret, all secrets are passed.\"\n        },\n        \"controllerPublishSecretRef\": {\n            \"$ref\": \"#/definitions/https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference\",\n            \"description\": \"ControllerPublishSecretRef is a reference to the secret object containing sensitive information to pass to the CSI driver to complete the CSI ControllerPublishVolume and ControllerUnpublishVolume calls. This field is optional, and may be empty if no secret is required. If the secret object contains more than one secret, all secrets are passed.\"\n        },\n        \"driver\": {\n            \"description\": \"Driver is the name of the driver to use for this volume. Required.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        },\n        \"fsType\": {\n            \"description\": \"Filesystem type to mount. Must be a filesystem type supported by the host operating system. Ex. \\\"ext4\\\", \\\"xfs\\\", \\\"ntfs\\\".\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        },\n        \"nodePublishSecretRef\": {\n            \"$ref\": \"#/definitions/https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference\",\n            \"description\": \"NodePublishSecretRef is a reference to the secret object containing sensitive information to pass to the CSI driver to complete the CSI NodePublishVolume and NodeUnpublishVolume calls. This field is optional, and may be empty if no secret is required. If the secret object contains more than one secret, all secrets are passed.\"\n        },\n        \"nodeStageSecretRef\": {\n            \"$ref\": \"#/definitions/https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference\",\n            \"description\": \"NodeStageSecretRef is a reference to the secret object containing sensitive information to pass to the CSI driver to complete the CSI NodeStageVolume and NodeStageVolume and NodeUnstageVolume calls. This field is optional, and may be empty if no secret is required. If the secret object contains more than one secret, all secrets are passed.\"\n        },\n        \"readOnly\": {\n            \"description\": \"Optional: The value to pass to ControllerPublishVolumeRequest. Defaults to false (read/write).\",\n            \"type\": [\n                \"boolean\",\n                \"null\"\n            ]\n        },\n        \"volumeAttributes\": {\n            \"additionalProperties\": {\n                \"type\": [\n                    \"string\",\n                    \"null\"\n                ]\n            },\n            \"description\": \"Attributes of the volume to publish.\",\n            \"type\": [\n                \"object\",\n                \"null\"\n            ]\n        },\n        \"volumeHandle\": {\n            \"description\": \"VolumeHandle is the unique volume name returned by the CSI volume plugin\\u2019s CreateVolume to refer to the volume on all subsequent calls. Required.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        }\n    },\n    \"required\": [\n        \"driver\",\n        \"volumeHandle\"\n    ],\n    \"type\": \"object\"\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "definitions": {
+      "https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference": {
+       "description": "SecretReference represents a Secret Reference. It has enough information to retrieve secret in any namespace",
+       "properties": {
+        "name": {
+         "description": "Name is unique within a namespace to reference a secret resource.",
+         "type": "string"
+        },
+        "namespace": {
+         "description": "Namespace defines the space within which the secret name must be unique.",
+         "type": "string"
+        }
+       },
+       "type": "object"
+      }
+     },
+     "description": "Represents storage that is managed by an external CSI volume driver (Beta feature)",
+     "properties": {
+      "controllerExpandSecretRef": {
+       "$ref": "#/definitions/https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference",
+       "description": "ControllerExpandSecretRef is a reference to the secret object containing sensitive information to pass to the CSI driver to complete the CSI ControllerExpandVolume call. This is an alpha field and requires enabling ExpandCSIVolumes feature gate. This field is optional, and may be empty if no secret is required. If the secret object contains more than one secret, all secrets are passed."
+      },
+      "controllerPublishSecretRef": {
+       "$ref": "#/definitions/https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference",
+       "description": "ControllerPublishSecretRef is a reference to the secret object containing sensitive information to pass to the CSI driver to complete the CSI ControllerPublishVolume and ControllerUnpublishVolume calls. This field is optional, and may be empty if no secret is required. If the secret object contains more than one secret, all secrets are passed."
+      },
+      "driver": {
+       "description": "Driver is the name of the driver to use for this volume. Required.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "fsType": {
+       "description": "Filesystem type to mount. Must be a filesystem type supported by the host operating system. Ex. \"ext4\", \"xfs\", \"ntfs\".",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "nodePublishSecretRef": {
+       "$ref": "#/definitions/https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference",
+       "description": "NodePublishSecretRef is a reference to the secret object containing sensitive information to pass to the CSI driver to complete the CSI NodePublishVolume and NodeUnpublishVolume calls. This field is optional, and may be empty if no secret is required. If the secret object contains more than one secret, all secrets are passed."
+      },
+      "nodeStageSecretRef": {
+       "$ref": "#/definitions/https:__kubernetesjsonschema_dev_master__defs_json_defs_io_k8s_api_core_v1_SecretReference",
+       "description": "NodeStageSecretRef is a reference to the secret object containing sensitive information to pass to the CSI driver to complete the CSI NodeStageVolume and NodeStageVolume and NodeUnstageVolume calls. This field is optional, and may be empty if no secret is required. If the secret object contains more than one secret, all secrets are passed."
+      },
+      "readOnly": {
+       "description": "Optional: The value to pass to ControllerPublishVolumeRequest. Defaults to false (read/write).",
+       "type": [
+        "boolean",
+        "null"
+       ]
+      },
+      "volumeAttributes": {
+       "additionalProperties": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "description": "Attributes of the volume to publish.",
+       "type": [
+        "object",
+        "null"
+       ]
+      },
+      "volumeHandle": {
+       "description": "VolumeHandle is the unique volume name returned by the CSI volume plugin’s CreateVolume to refer to the volume on all subsequent calls. Required.",
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "driver",
+      "volumeHandle"
+     ],
+     "type": "object"
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Kubernetes/kb_1037_Normalized",
+   "bench": "jsonschema",
+   "category": "Kubernetes",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"description\": \"Subject contains a reference to the object or user identities a role binding applies to.  This can either hold a direct API object reference, or a value for non-objects such as user and group names.\",\n    \"properties\": {\n        \"apiGroup\": {\n            \"description\": \"APIGroup holds the API group of the referenced subject. Defaults to \\\"\\\" for ServiceAccount subjects. Defaults to \\\"rbac.authorization.k8s.io\\\" for User and Group subjects.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        },\n        \"kind\": {\n            \"description\": \"Kind of object being referenced. Values defined by this API group are \\\"User\\\", \\\"Group\\\", and \\\"ServiceAccount\\\". If the Authorizer does not recognized the kind value, the Authorizer should report an error.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        },\n        \"name\": {\n            \"description\": \"Name of the object being referenced.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        },\n        \"namespace\": {\n            \"description\": \"Namespace of the referenced object.  If the object kind is non-namespace, such as \\\"User\\\" or \\\"Group\\\", and this value is not empty the Authorizer should report an error.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        }\n    },\n    \"required\": [\n        \"kind\",\n        \"name\"\n    ],\n    \"type\": \"object\"\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "description": "Subject contains a reference to the object or user identities a role binding applies to.  This can either hold a direct API object reference, or a value for non-objects such as user and group names.",
+     "properties": {
+      "apiGroup": {
+       "description": "APIGroup holds the API group of the referenced subject. Defaults to \"\" for ServiceAccount subjects. Defaults to \"rbac.authorization.k8s.io\" for User and Group subjects.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "kind": {
+       "description": "Kind of object being referenced. Values defined by this API group are \"User\", \"Group\", and \"ServiceAccount\". If the Authorizer does not recognized the kind value, the Authorizer should report an error.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "name": {
+       "description": "Name of the object being referenced.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "namespace": {
+       "description": "Namespace of the referenced object.  If the object kind is non-namespace, such as \"User\" or \"Group\", and this value is not empty the Authorizer should report an error.",
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "kind",
+      "name"
+     ],
+     "type": "object"
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Kubernetes/kb_1125_Normalized",
+   "bench": "jsonschema",
+   "category": "Kubernetes",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"description\": \"volumeDevice describes a mapping of a raw block device within a container.\",\n    \"properties\": {\n        \"devicePath\": {\n            \"description\": \"devicePath is the path inside of the container that the device will be mapped to.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        },\n        \"name\": {\n            \"description\": \"name must match the name of a persistentVolumeClaim in the pod\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        }\n    },\n    \"required\": [\n        \"name\",\n        \"devicePath\"\n    ],\n    \"type\": \"object\"\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "description": "volumeDevice describes a mapping of a raw block device within a container.",
+     "properties": {
+      "devicePath": {
+       "description": "devicePath is the path inside of the container that the device will be mapped to.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "name": {
+       "description": "name must match the name of a persistentVolumeClaim in the pod",
+       "type": [
+        "string",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "name",
+      "devicePath"
+     ],
+     "type": "object"
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Kubernetes/kb_510_Normalized",
+   "bench": "jsonschema",
+   "category": "Kubernetes",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"description\": \"A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.\",\n    \"properties\": {\n        \"key\": {\n            \"description\": \"key is the label key that the selector applies to.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ],\n            \"x-kubernetes-patch-merge-key\": \"key\",\n            \"x-kubernetes-patch-strategy\": \"merge\"\n        },\n        \"operator\": {\n            \"description\": \"operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.\",\n            \"type\": [\n                \"string\",\n                \"null\"\n            ]\n        },\n        \"values\": {\n            \"description\": \"values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.\",\n            \"items\": {\n                \"type\": [\n                    \"string\",\n                    \"null\"\n                ]\n            },\n            \"type\": [\n                \"array\",\n                \"null\"\n            ]\n        }\n    },\n    \"required\": [\n        \"key\",\n        \"operator\"\n    ],\n    \"type\": \"object\"\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "description": "A label selector requirement is a selector that contains values, a key, and an operator that relates the key and values.",
+     "properties": {
+      "key": {
+       "description": "key is the label key that the selector applies to.",
+       "type": [
+        "string",
+        "null"
+       ],
+       "x-kubernetes-patch-merge-key": "key",
+       "x-kubernetes-patch-strategy": "merge"
+      },
+      "operator": {
+       "description": "operator represents a key's relationship to a set of values. Valid operators are In, NotIn, Exists and DoesNotExist.",
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "values": {
+       "description": "values is an array of string values. If the operator is In or NotIn, the values array must be non-empty. If the operator is Exists or DoesNotExist, the values array must be empty. This array is replaced during a strategic merge patch.",
+       "items": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "type": [
+        "array",
+        "null"
+       ]
+      }
+     },
+     "required": [
+      "key",
+      "operator"
+     ],
+     "type": "object"
+    }
+   }
+  },
+  {
+   "id": "jsonschema/JsonSchemaStore/samtrc",
+   "bench": "jsonschema",
+   "category": "JsonSchemaStore",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n  \"$id\": \"https://json.schemastore.org/samtrc.json\",\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"additionalProperties\": false,\n  \"definitions\": {\n    \"level_type\": {\n      \"enum\": [\"error\", \"warn\", \"info\", \"off\"]\n    },\n    \"naming_type\": {\n      \"enum\": [\n        \"PascalCase\",\n        \"camelCase\",\n        \"kebab-case\",\n        \"snake_case\",\n        \"SCREAMING_SNAKE_CASE\"\n      ]\n    }\n  },\n  \"properties\": {\n    \"extends\": {\n      \"description\": \"The name of the configuration file to extend from, used to determine the default rules to apply\",\n      \"anyOf\": [\n        {\n          \"type\": \"string\"\n        },\n        {\n          \"enum\": [\"recommended\", \"strict\"]\n        }\n      ]\n    },\n    \"rules\": {\n      \"description\": \"Configuration for linter rules for the current project\",\n      \"type\": \"array\",\n      \"items\": {\n        \"oneOf\": [\n          {\n            \"description\": \"Configure whether model types (e.g. record and service) must be in a separate file from their providers and consumers\",\n            \"type\": \"object\",\n            \"required\": [\"type\"],\n            \"properties\": {\n              \"type\": {\n                \"const\": \"split-model-and-providers\"\n              },\n              \"level\": {\n                \"$ref\": \"#/definitions/level_type\"\n              }\n            },\n            \"additionalProperties\": false\n          },\n          {\n            \"description\": \"Configure naming rules which apply to all types in the project\",\n            \"type\": \"object\",\n            \"required\": [\"type\"],\n            \"properties\": {\n              \"type\": {\n                \"const\": \"naming-conventions\"\n              },\n              \"level\": {\n                \"$ref\": \"#/definitions/level_type\"\n              },\n              \"record\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"recordField\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"enum\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"enumValue\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"typeAlias\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"service\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"serviceOperation\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"serviceOperationParameter\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"provider\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"package\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              },\n              \"fileName\": {\n                \"$ref\": \"#/definitions/naming_type\"\n              }\n            },\n            \"additionalProperties\": false\n          }\n        ]\n      }\n    }\n  },\n  \"required\": [\"extends\"],\n  \"type\": \"object\"\n}\n\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "$id": "https://json.schemastore.org/samtrc.json",
+     "$schema": "http://json-schema.org/draft-07/schema#",
+     "additionalProperties": false,
+     "definitions": {
+      "level_type": {
+       "enum": [
+        "error",
+        "warn",
+        "info",
+        "off"
+       ]
+      },
+      "naming_type": {
+       "enum": [
+        "PascalCase",
+        "camelCase",
+        "kebab-case",
+        "snake_case",
+        "SCREAMING_SNAKE_CASE"
+       ]
+      }
+     },
+     "properties": {
+      "extends": {
+       "description": "The name of the configuration file to extend from, used to determine the default rules to apply",
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "enum": [
+          "recommended",
+          "strict"
+         ]
+        }
+       ]
+      },
+      "rules": {
+       "description": "Configuration for linter rules for the current project",
+       "type": "array",
+       "items": {
+        "oneOf": [
+         {
+          "description": "Configure whether model types (e.g. record and service) must be in a separate file from their providers and consumers",
+          "type": "object",
+          "required": [
+           "type"
+          ],
+          "properties": {
+           "type": {
+            "const": "split-model-and-providers"
+           },
+           "level": {
+            "$ref": "#/definitions/level_type"
+           }
+          },
+          "additionalProperties": false
+         },
+         {
+          "description": "Configure naming rules which apply to all types in the project",
+          "type": "object",
+          "required": [
+           "type"
+          ],
+          "properties": {
+           "type": {
+            "const": "naming-conventions"
+           },
+           "level": {
+            "$ref": "#/definitions/level_type"
+           },
+           "record": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "recordField": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "enum": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "enumValue": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "typeAlias": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "service": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "serviceOperation": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "serviceOperationParameter": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "provider": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "package": {
+            "$ref": "#/definitions/naming_type"
+           },
+           "fileName": {
+            "$ref": "#/definitions/naming_type"
+           }
+          },
+          "additionalProperties": false
+         }
+        ]
+       }
+      }
+     },
+     "required": [
+      "extends"
+     ],
+     "type": "object"
+    }
+   }
+  },
+  {
+   "id": "jsonschema/JsonSchemaStore/adonisrc",
+   "bench": "jsonschema",
+   "category": "JsonSchemaStore",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"typescript\": {\n      \"description\": \"Is project written in Typescript or not\",\n      \"type\": \"boolean\"\n    },\n    \"exceptionHandlerNamespace\": {\n      \"description\": \"Http server exception handler namespace\",\n      \"type\": \"string\"\n    },\n    \"assetsDriver\": {\n      \"description\": \"The driver to use for assets bundling\",\n      \"type\": \"string\",\n      \"enum\": [\"encore\", \"vite\", \"fake\"]\n    },\n    \"preloads\": {\n      \"type\": \"array\",\n      \"uniqueItems\": true,\n      \"items\": {\n        \"oneOf\": [\n          {\n            \"type\": \"string\"\n          },\n          {\n            \"type\": \"object\",\n            \"properties\": {\n              \"file\": { \"type\": \"string\" },\n              \"environment\": {\n                \"type\": \"array\",\n                \"items\": {\n                  \"type\": \"string\",\n                  \"enum\": [\"web\", \"console\", \"test\", \"repl\"]\n                }\n              },\n              \"optional\": {\n                \"type\": \"boolean\"\n              }\n            },\n            \"required\": [\"file\"],\n            \"additionalProperties\": false\n          }\n        ]\n      }\n    },\n    \"metaFiles\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"uniqueItems\": true,\n        \"oneOf\": [\n          {\n            \"type\": \"string\"\n          },\n          {\n            \"type\": \"object\",\n            \"properties\": {\n              \"pattern\": { \"type\": \"string\" },\n              \"reloadServer\": { \"type\": \"boolean\" }\n            },\n            \"required\": [\"pattern\"]\n          }\n        ]\n      }\n    },\n    \"commands\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"providers\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"uniqueItems\": true\n    },\n    \"aceProviders\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"uniqueItems\": true\n    },\n    \"testProviders\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"uniqueItems\": true\n    },\n    \"directories\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"config\": {\n          \"type\": \"string\"\n        },\n        \"public\": {\n          \"type\": \"string\"\n        },\n        \"contracts\": {\n          \"type\": \"string\"\n        },\n        \"providers\": {\n          \"type\": \"string\"\n        },\n        \"database\": {\n          \"type\": \"string\"\n        },\n        \"migrations\": {\n          \"type\": \"string\"\n        },\n        \"seeds\": {\n          \"type\": \"string\"\n        },\n        \"resources\": {\n          \"type\": \"string\"\n        },\n        \"views\": {\n          \"type\": \"string\"\n        },\n        \"start\": {\n          \"type\": \"string\"\n        },\n        \"tmp\": {\n          \"type\": \"string\"\n        },\n        \"tests\": {\n          \"type\": \"string\"\n        }\n      },\n      \"additionalProperties\": {\n        \"type\": \"string\"\n      }\n    },\n    \"commandsAliases\": {\n      \"type\": \"object\",\n      \"patternProperties\": {\n        \"^.*$\": {\n          \"type\": \"string\"\n        }\n      }\n    },\n    \"aliases\": {\n      \"type\": \"object\",\n      \"patternProperties\": {\n        \"^.*$\": {\n          \"type\": \"string\"\n        }\n      }\n    },\n    \"namespaces\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"models\": {\n          \"type\": \"string\"\n        },\n        \"exceptions\": {\n          \"type\": \"string\"\n        },\n        \"middleware\": {\n          \"type\": \"string\"\n        },\n        \"httpControllers\": {\n          \"type\": \"string\"\n        },\n        \"eventListeners\": {\n          \"type\": \"string\"\n        },\n        \"redisListeners\": {\n          \"type\": \"string\"\n        },\n        \"validators\": {\n          \"type\": \"string\"\n        }\n      },\n      \"additionalProperties\": {\n        \"type\": \"string\"\n      }\n    },\n    \"tests\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"suites\": {\n          \"type\": \"array\",\n          \"items\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"name\": { \"type\": \"string\" },\n              \"files\": {\n                \"oneOf\": [\n                  {\n                    \"type\": \"string\"\n                  },\n                  {\n                    \"type\": \"array\",\n                    \"items\": {\n                      \"type\": \"string\"\n                    }\n                  }\n                ]\n              },\n              \"timeout\": {\n                \"type\": \"number\"\n              }\n            },\n            \"required\": [\"name\", \"files\"]\n          }\n        },\n        \"timeout\": {\n          \"type\": \"number\"\n        },\n        \"forceExit\": {\n          \"type\": \"boolean\"\n        }\n      },\n      \"required\": [\"suites\"]\n    }\n  },\n  \"required\": [\"typescript\", \"providers\"]\n}\n\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "$schema": "http://json-schema.org/draft-07/schema#",
+     "type": "object",
+     "properties": {
+      "typescript": {
+       "description": "Is project written in Typescript or not",
+       "type": "boolean"
+      },
+      "exceptionHandlerNamespace": {
+       "description": "Http server exception handler namespace",
+       "type": "string"
+      },
+      "assetsDriver": {
+       "description": "The driver to use for assets bundling",
+       "type": "string",
+       "enum": [
+        "encore",
+        "vite",
+        "fake"
+       ]
+      },
+      "preloads": {
+       "type": "array",
+       "uniqueItems": true,
+       "items": {
+        "oneOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "object",
+          "properties": {
+           "file": {
+            "type": "string"
+           },
+           "environment": {
+            "type": "array",
+            "items": {
+             "type": "string",
+             "enum": [
+              "web",
+              "console",
+              "test",
+              "repl"
+             ]
+            }
+           },
+           "optional": {
+            "type": "boolean"
+           }
+          },
+          "required": [
+           "file"
+          ],
+          "additionalProperties": false
+         }
+        ]
+       }
+      },
+      "metaFiles": {
+       "type": "array",
+       "items": {
+        "uniqueItems": true,
+        "oneOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "object",
+          "properties": {
+           "pattern": {
+            "type": "string"
+           },
+           "reloadServer": {
+            "type": "boolean"
+           }
+          },
+          "required": [
+           "pattern"
+          ]
+         }
+        ]
+       }
+      },
+      "commands": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "providers": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "uniqueItems": true
+      },
+      "aceProviders": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "uniqueItems": true
+      },
+      "testProviders": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "uniqueItems": true
+      },
+      "directories": {
+       "type": "object",
+       "properties": {
+        "config": {
+         "type": "string"
+        },
+        "public": {
+         "type": "string"
+        },
+        "contracts": {
+         "type": "string"
+        },
+        "providers": {
+         "type": "string"
+        },
+        "database": {
+         "type": "string"
+        },
+        "migrations": {
+         "type": "string"
+        },
+        "seeds": {
+         "type": "string"
+        },
+        "resources": {
+         "type": "string"
+        },
+        "views": {
+         "type": "string"
+        },
+        "start": {
+         "type": "string"
+        },
+        "tmp": {
+         "type": "string"
+        },
+        "tests": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": {
+        "type": "string"
+       }
+      },
+      "commandsAliases": {
+       "type": "object",
+       "patternProperties": {
+        "^.*$": {
+         "type": "string"
+        }
+       }
+      },
+      "aliases": {
+       "type": "object",
+       "patternProperties": {
+        "^.*$": {
+         "type": "string"
+        }
+       }
+      },
+      "namespaces": {
+       "type": "object",
+       "properties": {
+        "models": {
+         "type": "string"
+        },
+        "exceptions": {
+         "type": "string"
+        },
+        "middleware": {
+         "type": "string"
+        },
+        "httpControllers": {
+         "type": "string"
+        },
+        "eventListeners": {
+         "type": "string"
+        },
+        "redisListeners": {
+         "type": "string"
+        },
+        "validators": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": {
+        "type": "string"
+       }
+      },
+      "tests": {
+       "type": "object",
+       "properties": {
+        "suites": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "name": {
+            "type": "string"
+           },
+           "files": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "array",
+              "items": {
+               "type": "string"
+              }
+             }
+            ]
+           },
+           "timeout": {
+            "type": "number"
+           }
+          },
+          "required": [
+           "name",
+           "files"
+          ]
+         }
+        },
+        "timeout": {
+         "type": "number"
+        },
+        "forceExit": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "suites"
+       ]
+      }
+     },
+     "required": [
+      "typescript",
+      "providers"
+     ]
+    }
+   }
+  },
+  {
+   "id": "jsonschema/JsonSchemaStore/lego",
+   "bench": "jsonschema",
+   "category": "JsonSchemaStore",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n  \"$defs\": {\n    \"file\": {\n      \"oneOf\": [\n        {\n          \"description\": \"This object or string represents the file format\",\n          \"type\": \"string\"\n        },\n        {\n          \"description\": \"This object or string represents the file format\",\n          \"type\": \"null\"\n        },\n        {\n          \"$ref\": \"#/$defs/fileFormat\",\n          \"description\": \"This object or string represents the file format\"\n        }\n      ]\n    },\n    \"fileFormat\": {\n      \"description\": \"This object represents a file format\",\n      \"type\": \"object\",\n      \"properties\": {\n        \"name\": {\n          \"description\": \"Name of block file\",\n          \"type\": \"string\"\n        },\n        \"template\": {\n          \"description\": \"Path to file template\",\n          \"type\": \"string\"\n        }\n      },\n      \"required\": [\"name\"]\n    }\n  },\n  \"$schema\": \"http://json-schema.org/draft-04/schema#\",\n  \"id\": \"https://json.schemastore.org/lego.json\",\n  \"properties\": {\n    \"blocks\": {\n      \"description\": \"An array of your app's blocks.\",\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"type\": {\n            \"description\": \"The name of the block type\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Path relative to root where the block will be stored\",\n            \"type\": \"string\"\n          },\n          \"isFile\": {\n            \"description\": \"Is this a file? or a folder? False by default.\",\n            \"type\": \"boolean\"\n          },\n          \"files\": {\n            \"description\": \"Files making up the block\",\n            \"type\": \"array\",\n            \"items\": {\n              \"$ref\": \"#/$defs/file\"\n            }\n          },\n          \"file\": {\n            \"$ref\": \"#/$defs/file\"\n          }\n        },\n        \"required\": [\"type\", \"path\"]\n      }\n    },\n    \"fileFormats\": {\n      \"description\": \"An object mapping file objects to strings\",\n      \"type\": \"object\",\n      \"patternProperties\": {\n        \".*\": {\n          \"$ref\": \"#/$defs/fileFormat\"\n        }\n      }\n    }\n  },\n  \"required\": [\"blocks\"],\n  \"type\": \"object\"\n}\n\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "$defs": {
+      "file": {
+       "oneOf": [
+        {
+         "description": "This object or string represents the file format",
+         "type": "string"
+        },
+        {
+         "description": "This object or string represents the file format",
+         "type": "null"
+        },
+        {
+         "$ref": "#/$defs/fileFormat",
+         "description": "This object or string represents the file format"
+        }
+       ]
+      },
+      "fileFormat": {
+       "description": "This object represents a file format",
+       "type": "object",
+       "properties": {
+        "name": {
+         "description": "Name of block file",
+         "type": "string"
+        },
+        "template": {
+         "description": "Path to file template",
+         "type": "string"
+        }
+       },
+       "required": [
+        "name"
+       ]
+      }
+     },
+     "$schema": "http://json-schema.org/draft-04/schema#",
+     "id": "https://json.schemastore.org/lego.json",
+     "properties": {
+      "blocks": {
+       "description": "An array of your app's blocks.",
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "type": {
+          "description": "The name of the block type",
+          "type": "string"
+         },
+         "path": {
+          "description": "Path relative to root where the block will be stored",
+          "type": "string"
+         },
+         "isFile": {
+          "description": "Is this a file? or a folder? False by default.",
+          "type": "boolean"
+         },
+         "files": {
+          "description": "Files making up the block",
+          "type": "array",
+          "items": {
+           "$ref": "#/$defs/file"
+          }
+         },
+         "file": {
+          "$ref": "#/$defs/file"
+         }
+        },
+        "required": [
+         "type",
+         "path"
+        ]
+       }
+      },
+      "fileFormats": {
+       "description": "An object mapping file objects to strings",
+       "type": "object",
+       "patternProperties": {
+        ".*": {
+         "$ref": "#/$defs/fileFormat"
+        }
+       }
+      }
+     },
+     "required": [
+      "blocks"
+     ],
+     "type": "object"
+    }
+   }
+  },
+  {
+   "id": "jsonschema/JsonSchemaStore/asmdef",
+   "bench": "jsonschema",
+   "category": "JsonSchemaStore",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n  \"$id\": \"https://json.schemastore.org/asmdef.json\",\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"anyOf\": [\n    {\n      \"properties\": {\n        \"includePlatforms\": {\n          \"minItems\": 1\n        },\n        \"excludePlatforms\": {\n          \"maxItems\": 0\n        }\n      }\n    },\n    {\n      \"properties\": {\n        \"includePlatforms\": {\n          \"maxItems\": 0\n        },\n        \"excludePlatforms\": {\n          \"minItems\": 1\n        }\n      }\n    },\n    {\n      \"properties\": {\n        \"includePlatforms\": {\n          \"maxItems\": 0\n        },\n        \"excludePlatforms\": {\n          \"maxItems\": 0\n        }\n      }\n    }\n  ],\n  \"definitions\": {\n    \"platformValues\": {\n      \"type\": \"array\",\n      \"uniqueItems\": true,\n      \"items\": {\n        \"enum\": [\n          \"Android\",\n          \"Editor\",\n          \"iOS\",\n          \"LinuxStandalone32\",\n          \"LinuxStandalone64\",\n          \"LinuxStandaloneUniversal\",\n          \"Lumin\",\n          \"macOSStandalone\",\n          \"Nintendo3DS\",\n          \"PS4\",\n          \"PSVita\",\n          \"Stadia\",\n          \"Switch\",\n          \"tvOS\",\n          \"WSA\",\n          \"WebGL\",\n          \"WindowsStandalone32\",\n          \"WindowsStandalone64\",\n          \"XboxOne\"\n        ]\n      }\n    }\n  },\n  \"description\": \"Defines an assembly in the Unity compilation pipeline\",\n  \"properties\": {\n    \"name\": {\n      \"description\": \"The name of the assembly being defined\",\n      \"type\": \"string\",\n      \"minLength\": 1\n    },\n    \"rootNamespace\": {\n      \"description\": \"The root namespace of the assembly. Requires Unity 2020.2\",\n      \"type\": \"string\",\n      \"minLength\": 1\n    },\n    \"references\": {\n      \"description\": \"A list of assembly names or assembly asset GUIDs to reference\",\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\",\n        \"minLength\": 1\n      },\n      \"uniqueItems\": true\n    },\n    \"includePlatforms\": {\n      \"description\": \"Platforms to target\",\n      \"$ref\": \"#/definitions/platformValues\"\n    },\n    \"excludePlatforms\": {\n      \"description\": \"Platforms that are explicitly not targeted\",\n      \"$ref\": \"#/definitions/platformValues\"\n    },\n    \"allowUnsafeCode\": {\n      \"description\": \"Allow unsafe code\",\n      \"type\": \"boolean\",\n      \"default\": false\n    },\n    \"autoReferenced\": {\n      \"description\": \"When true, this assembly definition is automatically referenced by predefined assemblies (Assembly-CSharp, Assembly-CSharp-firstpass, etc.)\",\n      \"type\": \"boolean\",\n      \"default\": true\n    },\n    \"noEngineReferences\": {\n      \"description\": \"When true, no references to UnityEngine or UnityEditor will be added to this assembly project\",\n      \"type\": \"boolean\",\n      \"default\": false\n    },\n    \"overrideReferences\": {\n      \"description\": \"When true, any references to precompiled assembly assets are manually chosen. When false, all precompiled assembly assets are automatically referenced\",\n      \"type\": \"boolean\",\n      \"default\": \"false\"\n    },\n    \"precompiledReferences\": {\n      \"description\": \"A list of precompiled assembly assets that will be referenced. Only valid when overrideReferences is true\",\n      \"type\": \"array\",\n      \"uniqueItems\": true\n    },\n    \"defineConstraints\": {\n      \"description\": \"A list of the C# compiler define symbols that must evaluate to true in order for the assembly to be compiled or referenced. Absence of a symbol can be checked with a bang symbol (!DEFINE)\",\n      \"type\": \"array\",\n      \"uniqueItems\": true\n    },\n    \"optionalUnityReferences\": {\n      \"description\": \"Additional optional Unity features to reference\",\n      \"type\": \"array\",\n      \"items\": {\n        \"enum\": [\"TestAssemblies\"]\n      },\n      \"uniqueItems\": true\n    },\n    \"versionDefines\": {\n      \"description\": \"A set of expressions that will define a symbol in the C# project if a package or module version matches the given expression\",\n      \"type\": \"array\",\n      \"uniqueItems\": true,\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"name\": {\n            \"description\": \"The package or module that will provide the version to be checked in the expression\",\n            \"type\": \"string\"\n          },\n          \"expression\": {\n            \"description\": \"The semantic version range of the chosen package or module\",\n            \"type\": \"string\"\n          },\n          \"define\": {\n            \"description\": \"The name of the define that is added to the project file when expression evaluates to true\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\"name\", \"expression\", \"define\"]\n      }\n    }\n  },\n  \"required\": [\"name\"],\n  \"title\": \"Unity Assembly Definition\",\n  \"type\": \"object\"\n}\n\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "$id": "https://json.schemastore.org/asmdef.json",
+     "$schema": "http://json-schema.org/draft-07/schema#",
+     "anyOf": [
+      {
+       "properties": {
+        "includePlatforms": {
+         "minItems": 1
+        },
+        "excludePlatforms": {
+         "maxItems": 0
+        }
+       }
+      },
+      {
+       "properties": {
+        "includePlatforms": {
+         "maxItems": 0
+        },
+        "excludePlatforms": {
+         "minItems": 1
+        }
+       }
+      },
+      {
+       "properties": {
+        "includePlatforms": {
+         "maxItems": 0
+        },
+        "excludePlatforms": {
+         "maxItems": 0
+        }
+       }
+      }
+     ],
+     "definitions": {
+      "platformValues": {
+       "type": "array",
+       "uniqueItems": true,
+       "items": {
+        "enum": [
+         "Android",
+         "Editor",
+         "iOS",
+         "LinuxStandalone32",
+         "LinuxStandalone64",
+         "LinuxStandaloneUniversal",
+         "Lumin",
+         "macOSStandalone",
+         "Nintendo3DS",
+         "PS4",
+         "PSVita",
+         "Stadia",
+         "Switch",
+         "tvOS",
+         "WSA",
+         "WebGL",
+         "WindowsStandalone32",
+         "WindowsStandalone64",
+         "XboxOne"
+        ]
+       }
+      }
+     },
+     "description": "Defines an assembly in the Unity compilation pipeline",
+     "properties": {
+      "name": {
+       "description": "The name of the assembly being defined",
+       "type": "string",
+       "minLength": 1
+      },
+      "rootNamespace": {
+       "description": "The root namespace of the assembly. Requires Unity 2020.2",
+       "type": "string",
+       "minLength": 1
+      },
+      "references": {
+       "description": "A list of assembly names or assembly asset GUIDs to reference",
+       "type": "array",
+       "items": {
+        "type": "string",
+        "minLength": 1
+       },
+       "uniqueItems": true
+      },
+      "includePlatforms": {
+       "description": "Platforms to target",
+       "$ref": "#/definitions/platformValues"
+      },
+      "excludePlatforms": {
+       "description": "Platforms that are explicitly not targeted",
+       "$ref": "#/definitions/platformValues"
+      },
+      "allowUnsafeCode": {
+       "description": "Allow unsafe code",
+       "type": "boolean",
+       "default": false
+      },
+      "autoReferenced": {
+       "description": "When true, this assembly definition is automatically referenced by predefined assemblies (Assembly-CSharp, Assembly-CSharp-firstpass, etc.)",
+       "type": "boolean",
+       "default": true
+      },
+      "noEngineReferences": {
+       "description": "When true, no references to UnityEngine or UnityEditor will be added to this assembly project",
+       "type": "boolean",
+       "default": false
+      },
+      "overrideReferences": {
+       "description": "When true, any references to precompiled assembly assets are manually chosen. When false, all precompiled assembly assets are automatically referenced",
+       "type": "boolean",
+       "default": "false"
+      },
+      "precompiledReferences": {
+       "description": "A list of precompiled assembly assets that will be referenced. Only valid when overrideReferences is true",
+       "type": "array",
+       "uniqueItems": true
+      },
+      "defineConstraints": {
+       "description": "A list of the C# compiler define symbols that must evaluate to true in order for the assembly to be compiled or referenced. Absence of a symbol can be checked with a bang symbol (!DEFINE)",
+       "type": "array",
+       "uniqueItems": true
+      },
+      "optionalUnityReferences": {
+       "description": "Additional optional Unity features to reference",
+       "type": "array",
+       "items": {
+        "enum": [
+         "TestAssemblies"
+        ]
+       },
+       "uniqueItems": true
+      },
+      "versionDefines": {
+       "description": "A set of expressions that will define a symbol in the C# project if a package or module version matches the given expression",
+       "type": "array",
+       "uniqueItems": true,
+       "items": {
+        "type": "object",
+        "properties": {
+         "name": {
+          "description": "The package or module that will provide the version to be checked in the expression",
+          "type": "string"
+         },
+         "expression": {
+          "description": "The semantic version range of the chosen package or module",
+          "type": "string"
+         },
+         "define": {
+          "description": "The name of the define that is added to the project file when expression evaluates to true",
+          "type": "string"
+         }
+        },
+        "required": [
+         "name",
+         "expression",
+         "define"
+        ]
+       }
+      }
+     },
+     "required": [
+      "name"
+     ],
+     "title": "Unity Assembly Definition",
+     "type": "object"
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Github_medium/o39256",
+   "bench": "jsonschema",
+   "category": "Github_medium",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"properties\": {\n        \"options\": {\n            \"properties\": {\n                \"nick\": {\n                    \"type\": \"string\"\n                },\n                \"plugins\": {\n                    \"items\": {\n                        \"type\": \"string\"\n                    },\n                    \"type\": \"array\"\n                },\n                \"shell\": {\n                    \"type\": \"string\"\n                },\n                \"ttl\": {\n                    \"type\": \"number\"\n                }\n            },\n            \"type\": \"object\"\n        },\n        \"strategies\": {\n            \"patternProperties\": {\n                \".*\": {\n                    \"properties\": {\n                        \"jid\": {\n                            \"type\": \"string\"\n                        },\n                        \"password_env\": {\n                            \"type\": \"string\"\n                        },\n                        \"people\": {\n                            \"items\": {\n                                \"type\": \"string\"\n                            },\n                            \"type\": \"array\"\n                        },\n                        \"rooms\": {\n                            \"items\": {\n                                \"type\": \"string\"\n                            },\n                            \"type\": \"array\"\n                        }\n                    },\n                    \"required\": [\n                        \"jid\",\n                        \"password_env\"\n                    ],\n                    \"type\": \"object\"\n                }\n            }\n        }\n    },\n    \"required\": [\n        \"options\",\n        \"strategies\"\n    ],\n    \"type\": \"object\"\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "properties": {
+      "options": {
+       "properties": {
+        "nick": {
+         "type": "string"
+        },
+        "plugins": {
+         "items": {
+          "type": "string"
+         },
+         "type": "array"
+        },
+        "shell": {
+         "type": "string"
+        },
+        "ttl": {
+         "type": "number"
+        }
+       },
+       "type": "object"
+      },
+      "strategies": {
+       "patternProperties": {
+        ".*": {
+         "properties": {
+          "jid": {
+           "type": "string"
+          },
+          "password_env": {
+           "type": "string"
+          },
+          "people": {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          },
+          "rooms": {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          }
+         },
+         "required": [
+          "jid",
+          "password_env"
+         ],
+         "type": "object"
+        }
+       }
+      }
+     },
+     "required": [
+      "options",
+      "strategies"
+     ],
+     "type": "object"
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Github_medium/o29812",
+   "bench": "jsonschema",
+   "category": "Github_medium",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"$schema\": \"http://json-schema.org/draft-07/schema\",\n    \"title\": \"Protractor Target\",\n    \"description\": \"Protractor target options for Build Facade.\",\n    \"type\": \"object\",\n    \"properties\": {\n        \"protractorConfig\": {\n            \"type\": \"string\",\n            \"description\": \"The name of the Protractor configuration file.\"\n        },\n        \"devServerTarget\": {\n            \"type\": \"string\",\n            \"description\": \"Dev server target to run tests against.\",\n            \"pattern\": \"^([^:\\\\s]+:[^:\\\\s]+(:[^\\\\s]+)?)?$\"\n        },\n        \"grep\": {\n            \"type\": \"string\",\n            \"description\": \"Execute specs whose names match the pattern, which is internally compiled to a RegExp.\"\n        },\n        \"invertGrep\": {\n            \"type\": \"boolean\",\n            \"description\": \"Invert the selection specified by the 'grep' option.\",\n            \"default\": false\n        },\n        \"specs\": {\n            \"type\": \"array\",\n            \"description\": \"Override specs in the protractor config.\",\n            \"default\": [],\n            \"items\": {\n                \"type\": \"string\",\n                \"description\": \"Spec name.\"\n            }\n        },\n        \"suite\": {\n            \"type\": \"string\",\n            \"description\": \"Override suite in the protractor config.\"\n        },\n        \"elementExplorer\": {\n            \"type\": \"boolean\",\n            \"description\": \"Start Protractor's Element Explorer for debugging.\",\n            \"default\": false,\n            \"x-deprecated\": \"This option has no effect. See: https://github.com/angular/protractor/blob/master/docs/debugging.md#enabled-control-flow for alternative methods.\"\n        },\n        \"webdriverUpdate\": {\n            \"type\": \"boolean\",\n            \"description\": \"Try to update webdriver.\",\n            \"default\": true\n        },\n        \"port\": {\n            \"type\": \"number\",\n            \"description\": \"The port to use to serve the application.\"\n        },\n        \"host\": {\n            \"type\": \"string\",\n            \"description\": \"Host to listen on.\"\n        },\n        \"baseUrl\": {\n            \"type\": \"string\",\n            \"description\": \"Base URL for protractor to connect to.\"\n        }\n    },\n    \"additionalProperties\": false,\n    \"required\": [\n        \"protractorConfig\"\n    ]\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "$schema": "http://json-schema.org/draft-07/schema",
+     "title": "Protractor Target",
+     "description": "Protractor target options for Build Facade.",
+     "type": "object",
+     "properties": {
+      "protractorConfig": {
+       "type": "string",
+       "description": "The name of the Protractor configuration file."
+      },
+      "devServerTarget": {
+       "type": "string",
+       "description": "Dev server target to run tests against.",
+       "pattern": "^([^:\\s]+:[^:\\s]+(:[^\\s]+)?)?$"
+      },
+      "grep": {
+       "type": "string",
+       "description": "Execute specs whose names match the pattern, which is internally compiled to a RegExp."
+      },
+      "invertGrep": {
+       "type": "boolean",
+       "description": "Invert the selection specified by the 'grep' option.",
+       "default": false
+      },
+      "specs": {
+       "type": "array",
+       "description": "Override specs in the protractor config.",
+       "default": [],
+       "items": {
+        "type": "string",
+        "description": "Spec name."
+       }
+      },
+      "suite": {
+       "type": "string",
+       "description": "Override suite in the protractor config."
+      },
+      "elementExplorer": {
+       "type": "boolean",
+       "description": "Start Protractor's Element Explorer for debugging.",
+       "default": false,
+       "x-deprecated": "This option has no effect. See: https://github.com/angular/protractor/blob/master/docs/debugging.md#enabled-control-flow for alternative methods."
+      },
+      "webdriverUpdate": {
+       "type": "boolean",
+       "description": "Try to update webdriver.",
+       "default": true
+      },
+      "port": {
+       "type": "number",
+       "description": "The port to use to serve the application."
+      },
+      "host": {
+       "type": "string",
+       "description": "Host to listen on."
+      },
+      "baseUrl": {
+       "type": "string",
+       "description": "Base URL for protractor to connect to."
+      }
+     },
+     "additionalProperties": false,
+     "required": [
+      "protractorConfig"
+     ]
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Github_medium/o19062",
+   "bench": "jsonschema",
+   "category": "Github_medium",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"$schema\": \"http://json-schema.org/draft-04/schema#\",\n    \"type\": \"object\",\n    \"required\": [\n        \"engine\",\n        \"log_level\",\n        \"port\",\n        \"mongolog\"\n    ],\n    \"properties\": {\n        \"engine\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"timeout\": {\n                    \"type\": \"integer\"\n                },\n                \"dsps\": {\n                    \"type\": \"array\",\n                    \"items\": {\n                        \"type\": \"object\",\n                        \"properties\": {\n                            \"bid_host\": {\n                                \"type\": \"string\"\n                            },\n                            \"bid_port\": {\n                                \"type\": \"integer\"\n                            },\n                            \"bid_path\": {\n                                \"type\": \"string\"\n                            },\n                            \"id\": {\n                                \"type\": \"string\"\n                            }\n                        },\n                        \"required\": [\n                            \"bid_host\",\n                            \"bid_port\",\n                            \"bid_path\",\n                            \"id\"\n                        ]\n                    }\n                },\n                \"protocol\": {\n                    \"type\": \"string\"\n                }\n            },\n            \"required\": [\n                \"timeout\",\n                \"dsps\",\n                \"protocol\"\n            ]\n        },\n        \"log_level\": {\n            \"type\": \"string\",\n            \"enum\": [\n                \"info\",\n                \"error\",\n                \"verbose\",\n                \"debug\"\n            ]\n        },\n        \"port\": {\n            \"type\": \"integer\"\n        },\n        \"mongolog\": {\n            \"type\": \"object\"\n        }\n    }\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "$schema": "http://json-schema.org/draft-04/schema#",
+     "type": "object",
+     "required": [
+      "engine",
+      "log_level",
+      "port",
+      "mongolog"
+     ],
+     "properties": {
+      "engine": {
+       "type": "object",
+       "properties": {
+        "timeout": {
+         "type": "integer"
+        },
+        "dsps": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "bid_host": {
+            "type": "string"
+           },
+           "bid_port": {
+            "type": "integer"
+           },
+           "bid_path": {
+            "type": "string"
+           },
+           "id": {
+            "type": "string"
+           }
+          },
+          "required": [
+           "bid_host",
+           "bid_port",
+           "bid_path",
+           "id"
+          ]
+         }
+        },
+        "protocol": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "timeout",
+        "dsps",
+        "protocol"
+       ]
+      },
+      "log_level": {
+       "type": "string",
+       "enum": [
+        "info",
+        "error",
+        "verbose",
+        "debug"
+       ]
+      },
+      "port": {
+       "type": "integer"
+      },
+      "mongolog": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Github_medium/o74957",
+   "bench": "jsonschema",
+   "category": "Github_medium",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"$schema\": \"http://json-schema.org/draft-04/schema#\",\n    \"type\": \"object\",\n    \"properties\": {\n        \"@context\": {\n            \"type\": \"string\",\n            \"enum\": [\n                \"http://sonic-project.net/\"\n            ]\n        },\n        \"@type\": {\n            \"type\": \"string\",\n            \"enum\": [\n                \"socialrecord\"\n            ]\n        },\n        \"globalID\": {\n            \"type\": \"string\"\n        },\n        \"type\": {\n            \"type\": \"string\",\n            \"enum\": [\n                \"platform\",\n                \"user\"\n            ]\n        },\n        \"platformGID\": {\n            \"type\": \"string\"\n        },\n        \"displayName\": {\n            \"type\": \"string\"\n        },\n        \"profileLocation\": {\n            \"type\": \"string\"\n        },\n        \"personalPublicKey\": {\n            \"type\": \"string\"\n        },\n        \"accountPublicKey\": {\n            \"type\": \"string\"\n        },\n        \"salt\": {\n            \"type\": \"string\"\n        },\n        \"datetime\": {\n            \"type\": \"string\"\n        },\n        \"active\": {\n            \"type\": \"integer\"\n        },\n        \"keyRevocationList\": {\n            \"type\": \"array\",\n            \"items\": {\n                \"type\": \"object\",\n                \"properties\": {\n                    \"revokedPublicKey\": {\n                        \"type\": \"string\"\n                    },\n                    \"revocationDate\": {\n                        \"type\": \"string\"\n                    },\n                    \"revocationReason\": {\n                        \"type\": \"integer\"\n                    },\n                    \"signature\": {\n                        \"type\": \"string\"\n                    }\n                }\n            }\n        }\n    },\n    \"required\": [\n        \"@context\",\n        \"@type\",\n        \"globalID\",\n        \"type\",\n        \"platformGID\",\n        \"displayName\",\n        \"profileLocation\",\n        \"personalPublicKey\",\n        \"accountPublicKey\",\n        \"salt\",\n        \"datetime\",\n        \"active\",\n        \"keyRevocationList\"\n    ]\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "$schema": "http://json-schema.org/draft-04/schema#",
+     "type": "object",
+     "properties": {
+      "@context": {
+       "type": "string",
+       "enum": [
+        "http://sonic-project.net/"
+       ]
+      },
+      "@type": {
+       "type": "string",
+       "enum": [
+        "socialrecord"
+       ]
+      },
+      "globalID": {
+       "type": "string"
+      },
+      "type": {
+       "type": "string",
+       "enum": [
+        "platform",
+        "user"
+       ]
+      },
+      "platformGID": {
+       "type": "string"
+      },
+      "displayName": {
+       "type": "string"
+      },
+      "profileLocation": {
+       "type": "string"
+      },
+      "personalPublicKey": {
+       "type": "string"
+      },
+      "accountPublicKey": {
+       "type": "string"
+      },
+      "salt": {
+       "type": "string"
+      },
+      "datetime": {
+       "type": "string"
+      },
+      "active": {
+       "type": "integer"
+      },
+      "keyRevocationList": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "revokedPublicKey": {
+          "type": "string"
+         },
+         "revocationDate": {
+          "type": "string"
+         },
+         "revocationReason": {
+          "type": "integer"
+         },
+         "signature": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     "required": [
+      "@context",
+      "@type",
+      "globalID",
+      "type",
+      "platformGID",
+      "displayName",
+      "profileLocation",
+      "personalPublicKey",
+      "accountPublicKey",
+      "salt",
+      "datetime",
+      "active",
+      "keyRevocationList"
+     ]
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Github_hard/o41238",
+   "bench": "jsonschema",
+   "category": "Github_hard",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"title\": \"Invocation manifest for CMRR: Extract CMRR Physio\",\n    \"$schema\": \"http://json-schema.org/draft-04/schema#\",\n    \"type\": \"object\",\n    \"properties\": {\n        \"config\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"Generate_Bids\": {\n                    \"type\": \"boolean\",\n                    \"default\": true\n                },\n                \"Generate_json\": {\n                    \"type\": \"boolean\",\n                    \"default\": false\n                },\n                \"Generate_Raw\": {\n                    \"type\": \"boolean\",\n                    \"default\": true\n                },\n                \"Generate_QA\": {\n                    \"type\": \"boolean\",\n                    \"default\": true\n                },\n                \"Process_Data\": {\n                    \"type\": \"boolean\",\n                    \"default\": true\n                },\n                \"Missing_Data\": {\n                    \"type\": \"string\",\n                    \"enum\": [\n                        \"gap_fill\",\n                        \"uniform\",\n                        \"upsample\",\n                        \"none\"\n                    ],\n                    \"default\": \"gap_fill\"\n                },\n                \"Interpolation_Method\": {\n                    \"type\": \"string\",\n                    \"enum\": [\n                        \"fill\",\n                        \"linear\",\n                        \"nearest\",\n                        \"zero\",\n                        \"slinear\",\n                        \"quadratic\",\n                        \"cubic\",\n                        \"nan\"\n                    ],\n                    \"default\": \"nan\"\n                },\n                \"Fill_Value\": {\n                    \"type\": \"number\",\n                    \"default\": 0\n                },\n                \"gear-log-level\": {\n                    \"default\": \"INFO\",\n                    \"type\": \"string\",\n                    \"enum\": [\n                        \"ERROR\",\n                        \"WARNING\",\n                        \"INFO\",\n                        \"DEBUG\"\n                    ]\n                },\n                \"Dry-Run\": {\n                    \"type\": \"boolean\",\n                    \"default\": false\n                }\n            },\n            \"required\": [\n                \"Generate_Bids\",\n                \"Generate_json\",\n                \"Generate_Raw\",\n                \"Generate_QA\",\n                \"Process_Data\",\n                \"Missing_Data\",\n                \"Interpolation_Method\",\n                \"Fill_Value\",\n                \"gear-log-level\",\n                \"Dry-Run\"\n            ]\n        },\n        \"inputs\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"DICOM_ARCHIVE\": {\n                    \"type\": \"object\",\n                    \"properties\": {\n                        \"type\": {\n                            \"enum\": [\n                                \"dicom\",\n                                \"archive\"\n                            ]\n                        }\n                    }\n                }\n            },\n            \"required\": [\n                \"DICOM_ARCHIVE\"\n            ]\n        }\n    },\n    \"required\": [\n        \"config\",\n        \"inputs\"\n    ]\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "title": "Invocation manifest for CMRR: Extract CMRR Physio",
+     "$schema": "http://json-schema.org/draft-04/schema#",
+     "type": "object",
+     "properties": {
+      "config": {
+       "type": "object",
+       "properties": {
+        "Generate_Bids": {
+         "type": "boolean",
+         "default": true
+        },
+        "Generate_json": {
+         "type": "boolean",
+         "default": false
+        },
+        "Generate_Raw": {
+         "type": "boolean",
+         "default": true
+        },
+        "Generate_QA": {
+         "type": "boolean",
+         "default": true
+        },
+        "Process_Data": {
+         "type": "boolean",
+         "default": true
+        },
+        "Missing_Data": {
+         "type": "string",
+         "enum": [
+          "gap_fill",
+          "uniform",
+          "upsample",
+          "none"
+         ],
+         "default": "gap_fill"
+        },
+        "Interpolation_Method": {
+         "type": "string",
+         "enum": [
+          "fill",
+          "linear",
+          "nearest",
+          "zero",
+          "slinear",
+          "quadratic",
+          "cubic",
+          "nan"
+         ],
+         "default": "nan"
+        },
+        "Fill_Value": {
+         "type": "number",
+         "default": 0
+        },
+        "gear-log-level": {
+         "default": "INFO",
+         "type": "string",
+         "enum": [
+          "ERROR",
+          "WARNING",
+          "INFO",
+          "DEBUG"
+         ]
+        },
+        "Dry-Run": {
+         "type": "boolean",
+         "default": false
+        }
+       },
+       "required": [
+        "Generate_Bids",
+        "Generate_json",
+        "Generate_Raw",
+        "Generate_QA",
+        "Process_Data",
+        "Missing_Data",
+        "Interpolation_Method",
+        "Fill_Value",
+        "gear-log-level",
+        "Dry-Run"
+       ]
+      },
+      "inputs": {
+       "type": "object",
+       "properties": {
+        "DICOM_ARCHIVE": {
+         "type": "object",
+         "properties": {
+          "type": {
+           "enum": [
+            "dicom",
+            "archive"
+           ]
+          }
+         }
+        }
+       },
+       "required": [
+        "DICOM_ARCHIVE"
+       ]
+      }
+     },
+     "required": [
+      "config",
+      "inputs"
+     ]
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Github_hard/o74446",
+   "bench": "jsonschema",
+   "category": "Github_hard",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"$schema\": \"http://json-schema.org/draft-04/schema#\",\n    \"title\": \"Person\",\n    \"type\": \"object\",\n    \"properties\": {\n        \"type\": {\n            \"type\": \"string\",\n            \"enum\": [\n                \"person\"\n            ]\n        },\n        \"division_id\": {\n            \"type\": \"string\",\n            \"pattern\": \"^ocd-division/country:[a-z]{2}$\"\n        },\n        \"gid\": {\n            \"type\": \"integer\"\n        },\n        \"row\": {\n            \"type\": \"integer\"\n        },\n        \"id\": {\n            \"type\": \"string\",\n            \"pattern\": \"^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$\"\n        },\n        \"name\": {\n            \"$ref\": \"#/definitions/complex_string\"\n        },\n        \"other_names\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"value\": {\n                    \"type\": \"array\",\n                    \"items\": {\n                        \"type\": \"string\"\n                    }\n                },\n                \"sources\": {\n                    \"$ref\": \"#/definitions/sources\"\n                },\n                \"confidence\": {\n                    \"$ref\": \"#/definitions/confidence\"\n                }\n            },\n            \"additionalProperties\": false,\n            \"required\": [\n                \"value\"\n            ]\n        },\n        \"memberships\": {\n            \"type\": \"array\",\n            \"items\": {\n                \"type\": \"object\",\n                \"properties\": {\n                    \"organization_id\": {\n                        \"$ref\": \"#/definitions/complex_string\"\n                    },\n                    \"role\": {\n                        \"$ref\": \"#/definitions/complex_string\"\n                    },\n                    \"title\": {\n                        \"$ref\": \"#/definitions/complex_string\"\n                    },\n                    \"rank\": {\n                        \"$ref\": \"#/definitions/complex_string\"\n                    },\n                    \"date_first_cited\": {\n                        \"$ref\": \"#/definitions/complex_date_with_actual\"\n                    },\n                    \"start_date_description\": {\n                        \"$ref\": \"#/definitions/complex_string\"\n                    },\n                    \"date_last_cited\": {\n                        \"$ref\": \"#/definitions/complex_date_with_actual\"\n                    },\n                    \"end_date_description\": {\n                        \"$ref\": \"#/definitions/complex_string\"\n                    },\n                    \"site_id\": {\n                        \"$ref\": \"#/definitions/complex_string\"\n                    }\n                },\n                \"additionalProperties\": false,\n                \"required\": [\n                    \"organization_id\"\n                ]\n            }\n        },\n        \"notes\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"value\": {\n                    \"type\": \"string\"\n                }\n            },\n            \"additionalProperties\": false,\n            \"required\": [\n                \"value\"\n            ]\n        }\n    },\n    \"additionalProperties\": false,\n    \"required\": [\n        \"type\",\n        \"division_id\",\n        \"gid\",\n        \"row\",\n        \"id\",\n        \"name\"\n    ],\n    \"definitions\": {\n        \"complex_date\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"value\": {\n                    \"type\": \"string\",\n                    \"pattern\": \"^[0-9]{4}(-[0-9]{2}){0,2}$\"\n                },\n                \"sources\": {\n                    \"$ref\": \"#/definitions/sources\"\n                },\n                \"confidence\": {\n                    \"$ref\": \"#/definitions/confidence\"\n                }\n            },\n            \"additionalProperties\": false,\n            \"required\": [\n                \"value\"\n            ]\n        },\n        \"complex_date_with_actual\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"value\": {\n                    \"type\": \"string\",\n                    \"pattern\": \"^[0-9]{4}(-[0-9]{2}){0,2}$\"\n                },\n                \"sources\": {\n                    \"$ref\": \"#/definitions/sources\"\n                },\n                \"confidence\": {\n                    \"$ref\": \"#/definitions/confidence\"\n                },\n                \"actual\": {\n                    \"type\": \"boolean\"\n                }\n            },\n            \"additionalProperties\": false,\n            \"required\": [\n                \"value\"\n            ]\n        },\n        \"complex_string\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"value\": {\n                    \"type\": \"string\"\n                },\n                \"sources\": {\n                    \"$ref\": \"#/definitions/sources\"\n                },\n                \"confidence\": {\n                    \"$ref\": \"#/definitions/confidence\"\n                }\n            },\n            \"additionalProperties\": false,\n            \"required\": [\n                \"value\"\n            ]\n        },\n        \"confidence\": {\n            \"type\": \"string\",\n            \"enum\": [\n                \"Low\",\n                \"Medium\",\n                \"High\"\n            ]\n        },\n        \"sources\": {\n            \"type\": \"array\",\n            \"items\": {\n                \"type\": \"string\"\n            }\n        }\n    }\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "$schema": "http://json-schema.org/draft-04/schema#",
+     "title": "Person",
+     "type": "object",
+     "properties": {
+      "type": {
+       "type": "string",
+       "enum": [
+        "person"
+       ]
+      },
+      "division_id": {
+       "type": "string",
+       "pattern": "^ocd-division/country:[a-z]{2}$"
+      },
+      "gid": {
+       "type": "integer"
+      },
+      "row": {
+       "type": "integer"
+      },
+      "id": {
+       "type": "string",
+       "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+      },
+      "name": {
+       "$ref": "#/definitions/complex_string"
+      },
+      "other_names": {
+       "type": "object",
+       "properties": {
+        "value": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "sources": {
+         "$ref": "#/definitions/sources"
+        },
+        "confidence": {
+         "$ref": "#/definitions/confidence"
+        }
+       },
+       "additionalProperties": false,
+       "required": [
+        "value"
+       ]
+      },
+      "memberships": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "organization_id": {
+          "$ref": "#/definitions/complex_string"
+         },
+         "role": {
+          "$ref": "#/definitions/complex_string"
+         },
+         "title": {
+          "$ref": "#/definitions/complex_string"
+         },
+         "rank": {
+          "$ref": "#/definitions/complex_string"
+         },
+         "date_first_cited": {
+          "$ref": "#/definitions/complex_date_with_actual"
+         },
+         "start_date_description": {
+          "$ref": "#/definitions/complex_string"
+         },
+         "date_last_cited": {
+          "$ref": "#/definitions/complex_date_with_actual"
+         },
+         "end_date_description": {
+          "$ref": "#/definitions/complex_string"
+         },
+         "site_id": {
+          "$ref": "#/definitions/complex_string"
+         }
+        },
+        "additionalProperties": false,
+        "required": [
+         "organization_id"
+        ]
+       }
+      },
+      "notes": {
+       "type": "object",
+       "properties": {
+        "value": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": false,
+       "required": [
+        "value"
+       ]
+      }
+     },
+     "additionalProperties": false,
+     "required": [
+      "type",
+      "division_id",
+      "gid",
+      "row",
+      "id",
+      "name"
+     ],
+     "definitions": {
+      "complex_date": {
+       "type": "object",
+       "properties": {
+        "value": {
+         "type": "string",
+         "pattern": "^[0-9]{4}(-[0-9]{2}){0,2}$"
+        },
+        "sources": {
+         "$ref": "#/definitions/sources"
+        },
+        "confidence": {
+         "$ref": "#/definitions/confidence"
+        }
+       },
+       "additionalProperties": false,
+       "required": [
+        "value"
+       ]
+      },
+      "complex_date_with_actual": {
+       "type": "object",
+       "properties": {
+        "value": {
+         "type": "string",
+         "pattern": "^[0-9]{4}(-[0-9]{2}){0,2}$"
+        },
+        "sources": {
+         "$ref": "#/definitions/sources"
+        },
+        "confidence": {
+         "$ref": "#/definitions/confidence"
+        },
+        "actual": {
+         "type": "boolean"
+        }
+       },
+       "additionalProperties": false,
+       "required": [
+        "value"
+       ]
+      },
+      "complex_string": {
+       "type": "object",
+       "properties": {
+        "value": {
+         "type": "string"
+        },
+        "sources": {
+         "$ref": "#/definitions/sources"
+        },
+        "confidence": {
+         "$ref": "#/definitions/confidence"
+        }
+       },
+       "additionalProperties": false,
+       "required": [
+        "value"
+       ]
+      },
+      "confidence": {
+       "type": "string",
+       "enum": [
+        "Low",
+        "Medium",
+        "High"
+       ]
+      },
+      "sources": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "id": "jsonschema/Github_hard/o41286",
+   "bench": "jsonschema",
+   "category": "Github_hard",
+   "messages": [
+    {
+     "role": "system",
+     "content": "Generate a JSON object that matches the following JSON schema."
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-04/schema#\", \"definitions\": { \"address1\": { \"type\": \"string\" }, \"address2\": { \"type\": \"string\" }, \"city\": { \"type\": \"string\" }, \"country\": { \"type\": \"string\" }, \"postalCode\": { \"type\": \"string\" }, \"state\": { \"type\": \"string\" } }, \"description\": \"A simple address schema\", \"properties\": { \"address1\": { \"$ref\": \"#/definitions/address1\" }, \"address2\": { \"$ref\": \"#/definitions/address2\" }, \"city\": { \"$ref\": \"#/definitions/city\" }, \"country\": { \"$ref\": \"#/definitions/country\" }, \"postalCode\": { \"$ref\": \"#/definitions/postalCode\" }, \"state\": { \"$ref\": \"#/definitions/state\" } }, \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"address1\": \"123 Main Street\", \"address2\": \"Apt 4B\", \"city\": \"Seattle\", \"country\": \"USA\", \"postalCode\": \"98101\", \"state\": \"WA\" }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: { \"$schema\": \"http://json-schema.org/draft-06/schema#\", \"definitions\": { \"ElementType\": { \"enum\": [ \"component\", \"directive\" ], \"type\": \"string\" }, \"SelectorChange\": { \"properties\": { \"remove\": { \"description\": \"Remove directive/component\", \"type\": \"boolean\" }, \"replaceWith\": { \"description\": \"Replace original selector with new one\", \"type\": \"string\" }, \"selector\": { \"description\": \"Original selector to apply change to\", \"type\": \"string\" }, \"type\": { \"$ref\": \"#/definitions/ElementType\", \"description\": \"Type of selector the change applies to - either component or directive\" } }, \"required\": [ \"selector\", \"type\" ], \"type\": \"object\" } }, \"properties\": { \"changes\": { \"description\": \"An array of changes to component/directive selectors\", \"items\": { \"$ref\": \"#/definitions/SelectorChange\" }, \"type\": \"array\" } }, \"required\": [ \"changes\" ], \"type\": \"object\" }\\n\\nJSON object: "
+    },
+    {
+     "role": "assistant",
+     "content": "{ \"changes\": [ { \"selector\": \"app-root\", \"type\": \"component\", \"remove\": false, \"replaceWith\": \"new-root\" }, { \"selector\": \"my-directive\", \"type\": \"directive\", \"remove\": true, \"replaceWith\": \"new-directive\" } ] }"
+    },
+    {
+     "role": "user",
+     "content": "JSON schema: {\n    \"title\": \"Invocation manifest for FSL: SIENA - Longitudinal analysis of brain change\",\n    \"$schema\": \"http://json-schema.org/draft-04/schema#\",\n    \"type\": \"object\",\n    \"properties\": {\n        \"config\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"BET\": {\n                    \"default\": \"\",\n                    \"id\": \"-B\",\n                    \"type\": \"string\"\n                },\n                \"BOTTOM\": {\n                    \"default\": \"\",\n                    \"id\": \"-b\",\n                    \"type\": \"string\"\n                },\n                \"DEBUG\": {\n                    \"default\": false,\n                    \"id\": \"-d\",\n                    \"type\": \"boolean\"\n                },\n                \"SEG\": {\n                    \"default\": false,\n                    \"id\": \"-2\",\n                    \"type\": \"boolean\"\n                },\n                \"SS_BET\": {\n                    \"default\": false,\n                    \"id\": \"-m\",\n                    \"type\": \"boolean\"\n                },\n                \"S_DIFF\": {\n                    \"default\": \"\",\n                    \"id\": \"-S\",\n                    \"type\": \"string\"\n                },\n                \"T2\": {\n                    \"default\": false,\n                    \"id\": \"-t2\",\n                    \"type\": \"boolean\"\n                },\n                \"TOP\": {\n                    \"default\": \"\",\n                    \"id\": \"-t\",\n                    \"type\": \"string\"\n                },\n                \"VENT\": {\n                    \"default\": false,\n                    \"id\": \"-V\",\n                    \"type\": \"boolean\"\n                }\n            },\n            \"required\": [\n                \"BET\",\n                \"BOTTOM\",\n                \"DEBUG\",\n                \"SEG\",\n                \"SS_BET\",\n                \"S_DIFF\",\n                \"T2\",\n                \"TOP\",\n                \"VENT\"\n            ]\n        },\n        \"inputs\": {\n            \"type\": \"object\",\n            \"properties\": {\n                \"key\": {\n                    \"type\": \"object\"\n                },\n                \"NIFTI_1\": {\n                    \"type\": \"object\",\n                    \"properties\": {\n                        \"type\": {\n                            \"enum\": [\n                                \"nifti\"\n                            ]\n                        }\n                    }\n                },\n                \"NIFTI_2\": {\n                    \"type\": \"object\",\n                    \"properties\": {\n                        \"type\": {\n                            \"enum\": [\n                                \"nifti\"\n                            ]\n                        }\n                    }\n                },\n                \"ventricle_mask\": {\n                    \"type\": \"object\",\n                    \"properties\": {\n                        \"type\": {\n                            \"enum\": [\n                                \"nifti\"\n                            ]\n                        }\n                    }\n                }\n            },\n            \"required\": [\n                \"key\",\n                \"NIFTI_1\",\n                \"NIFTI_2\"\n            ]\n        }\n    },\n    \"required\": [\n        \"config\",\n        \"inputs\"\n    ]\n}\\n\\nJSON object: "
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "schema": {
+     "title": "Invocation manifest for FSL: SIENA - Longitudinal analysis of brain change",
+     "$schema": "http://json-schema.org/draft-04/schema#",
+     "type": "object",
+     "properties": {
+      "config": {
+       "type": "object",
+       "properties": {
+        "BET": {
+         "default": "",
+         "id": "-B",
+         "type": "string"
+        },
+        "BOTTOM": {
+         "default": "",
+         "id": "-b",
+         "type": "string"
+        },
+        "DEBUG": {
+         "default": false,
+         "id": "-d",
+         "type": "boolean"
+        },
+        "SEG": {
+         "default": false,
+         "id": "-2",
+         "type": "boolean"
+        },
+        "SS_BET": {
+         "default": false,
+         "id": "-m",
+         "type": "boolean"
+        },
+        "S_DIFF": {
+         "default": "",
+         "id": "-S",
+         "type": "string"
+        },
+        "T2": {
+         "default": false,
+         "id": "-t2",
+         "type": "boolean"
+        },
+        "TOP": {
+         "default": "",
+         "id": "-t",
+         "type": "string"
+        },
+        "VENT": {
+         "default": false,
+         "id": "-V",
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "BET",
+        "BOTTOM",
+        "DEBUG",
+        "SEG",
+        "SS_BET",
+        "S_DIFF",
+        "T2",
+        "TOP",
+        "VENT"
+       ]
+      },
+      "inputs": {
+       "type": "object",
+       "properties": {
+        "key": {
+         "type": "object"
+        },
+        "NIFTI_1": {
+         "type": "object",
+         "properties": {
+          "type": {
+           "enum": [
+            "nifti"
+           ]
+          }
+         }
+        },
+        "NIFTI_2": {
+         "type": "object",
+         "properties": {
+          "type": {
+           "enum": [
+            "nifti"
+           ]
+          }
+         }
+        },
+        "ventricle_mask": {
+         "type": "object",
+         "properties": {
+          "type": {
+           "enum": [
+            "nifti"
+           ]
+          }
+         }
+        }
+       },
+       "required": [
+        "key",
+        "NIFTI_1",
+        "NIFTI_2"
+       ]
+      }
+     },
+     "required": [
+      "config",
+      "inputs"
+     ]
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,512 @@
+[
+ {
+  "item_id": "jsonschema/Github_hard/o41238",
+  "response": "{\n  \"config\": {\n    \"Generate_Bids\": true,\n    \"Generate_json\": false,\n    \"Generate_Raw\": true,\n    \"Generate_QA\": true,\n    \"Process_Data\": true,\n    \"Missing_Data\": \"gap_fill\",\n    \"Interpolation_Method\": \"nan\",\n    \"Fill_Value\": 0,\n    \"gear-log-level\": \"INFO\",\n    \"Dry-Run\": false\n  },\n  \"inputs\": {\n    \"DICOM_ARCHIVE\": {\n      \"type\": \"dicom\"\n    }\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41286",
+  "response": "{\n  \"config\": {\n    \"BET\": \"\",\n    \"BOTTOM\": \"\",\n    \"DEBUG\": false,\n    \"SEG\": false,\n    \"SS_BET\": false,\n    \"S_DIFF\": \"\",\n    \"T2\": false,\n    \"TOP\": \"\",\n    \"VENT\": false\n  },\n  \"inputs\": {\n    \"key\": {},\n    \"NIFTI_1\": {\n      \"type\": \"nifti\"\n    },\n    \"NIFTI_2\": {\n      \"type\": \"nifti\"\n    },\n    \"ventricle_mask\": {\n      \"type\": \"nifti\"\n    }\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o74446",
+  "response": "{\n  \"type\": \"person\",\n  \"division_id\": \"ocd-division/USA\",\n  \"gid\": 12345678,\n  \"row\": 1,\n  \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"name\": {\n    \"value\": \"John Doe\"\n  },\n  \"other_names\": {\n    \"value\": [\n      \"John Robert Doe\"\n    ],\n    \"sources\": [\n      \"Official Records\"\n    ],\n    \"confidence\": \"High\"\n  },\n  \"memberships\": [\n    {\n      \"organization_id\": \"org-123\",\n      \"role\": \"Director\",\n      \"title\": \"Chief Executive Officer\",\n      \"rank\": \"Senior\",\n      \"date_first_cited\": {\n        \"value\": \"2020-01-01\",\n        \"sources\": [\n          \"Official Records\"\n        ],\n        \"confidence\": \"High\"\n      },\n      \"start_date_description\": \"January 2020\",\n      \"date_last_cited\": {\n        \"value\": \"2023-12-31\",\n        \"sources\": [\n          \"Official Records\"\n        ],\n        \"confidence\": \"High\"\n      },\n      \"end_date_description\": \"N/A\",\n      \"site_id\": \"site-456\"\n    }\n  ],\n  \"notes\": {\n    \"value\": \"Employee since 2020.\"\n  }\n}",
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o19062",
+  "response": "{\n  \"engine\": {\n    \"timeout\": 5000,\n    \"dsps\": [\n      {\n        \"bid_host\": \"192.168.1.100\",\n        \"bid_port\": 8080,\n        \"bid_path\": \"/api/v1\",\n        \"id\": \"node-01\"\n      },\n      {\n        \"bid_host\": \"192.168.1.101\",\n        \"bid_port\": 8080,\n        \"bid_path\": \"/api/v2\",\n        \"id\": \"node-02\"\n      }\n    ],\n    \"protocol\": \"http\"\n  },\n  \"log_level\": \"info\",\n  \"port\": 3000,\n  \"mongolog\": {\n    \"enabled\": true,\n    \"max_connections\": 100\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o29812",
+  "response": "{\n  \"protractorConfig\": \"my-protractor-config.js\",\n  \"devServerTarget\": \"localhost:3000\",\n  \"grep\": \"test-specs\",\n  \"invertGrep\": false,\n  \"specs\": [\"user-auth.spec.js\", \"login.spec.js\"],\n  \"suite\": \"default-suite\",\n  \"elementExplorer\": true,\n  \"webdriverUpdate\": true,\n  \"port\": 4444,\n  \"host\": \"0.0.0.0\",\n  \"baseUrl\": \"http://localhost:4444\"\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o39256",
+  "response": "{\n  \"options\": {\n    \"nick\": \"Alice\",\n    \"plugins\": [\"emoji\", \"giphy\"],\n    \"shell\": \"dark\",\n    \"ttl\": 300\n  },\n  \"strategies\": {\n    \".*\": {\n      \"jid\": \"alice@example.com\",\n      \"password_env\": \"env/passwords/alice\",\n      \"people\": [\"Bob\", \"Charlie\"],\n      \"rooms\": [\"#general\", \"#work\"]\n    }\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o74957",
+  "response": "{\n  \"@context\": \"http://sonic-project.net/\",\n  \"@type\": \"socialrecord\",\n  \"globalID\": \"1234567890\",\n  \"type\": \"platform\",\n  \"platformGID\": \"pl_abc123def456\",\n  \"displayName\": \"Alice Johnson\",\n  \"profileLocation\": \"New York, NY\",\n  \"personalPublicKey\": \"pk_live_xxxxxxxxxxxxxxxx\",\n  \"accountPublicKey\": \"ac_live_yyyyyyyyyyyyyyyy\",\n  \"salt\": \"s_1234567890abcdef\",\n  \"datetime\": \"2023-10-27T10:30:00Z\",\n  \"active\": 1,\n  \"keyRevocationList\": [\n    {\n      \"revokedPublicKey\": \"pk_rev_1111111111\",\n      \"revocationDate\": \"2023-09-01T00:00:00Z\",\n      \"revocationReason\": 1,\n      \"signature\": \"sig_xxxxxxxxxxxxxxxx\"\n    }\n  ]\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/adonisrc",
+  "response": "{\n  \"typescript\": true,\n  \"exceptionHandlerNamespace\": \"app\",\n  \"assetsDriver\": \"vite\",\n  \"preloads\": [\n    {\n      \"file\": \"main.js\"\n    }\n  ],\n  \"metaFiles\": [\n    {\n      \"pattern\": \"*.css\"\n    },\n    {\n      \"pattern\": \"*.scss\",\n      \"reloadServer\": true\n    }\n  ],\n  \"commands\": [\"start\", \"build\"],\n  \"providers\": [\"UserProvider\", \"AuthProvider\"],\n  \"aceProviders\": [],\n  \"testProviders\": [],\n  \"directories\": {\n    \"config\": \"/app/config\",\n    \"public\": \"/app/public\",\n    \"contracts\": \"/app/contracts\",\n    \"providers\": \"/app/providers\",\n    \"database\": \"/app/database\",\n    \"migrations\": \"/app/migrations\",\n    \"seeds\": \"/app/seeds\",\n    \"resources\": \"/app/resources\",\n    \"views\": \"/app/views\",\n    \"start\": \"/app/start\",\n    \"tmp\": \"/app/tmp\",\n    \"tests\": \"/app/tests\"\n  },\n  \"commandsAliases\": {},\n  \"aliases\": {},\n  \"namespaces\": {\n    \"models\": \"User\",\n    \"exceptions\": \"AppException\",\n    \"middleware\": [],\n    \"httpControllers\": [],\n    \"eventListeners\": [],\n    \"redisListeners\": [],\n    \"validators\": []\n  },\n  \"tests\": {\n    \"suites\": [\n      {\n        \"name\": \"Unit Tests\",\n        \"files\": [\"src/unit/**/*.spec.ts\"]\n      },\n      {\n        \"name\": \"Integration Tests\",\n        \"files\": [\"src/integration/**/*.spec.ts\"]\n      }\n    ],\n    \"timeout\": 5000,\n    \"forceExit\": false\n  }\n}",
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/asmdef",
+  "response": "{\n  \"name\": \"MyAssembly\",\n  \"rootNamespace\": \"com.example.MyProject\",\n  \"includePlatforms\": [\n    \"Android\",\n    \"iOS\",\n    \"WindowsStandalone64\"\n  ],\n  \"excludePlatforms\": [],\n  \"allowUnsafeCode\": false,\n  \"autoReferenced\": true,\n  \"noEngineReferences\": false,\n  \"overrideReferences\": false,\n  \"precompiledReferences\": [],\n  \"defineConstraints\": [],\n  \"optionalUnityReferences\": [],\n  \"versionDefines\": []\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/lego",
+  "response": "{\n  \"blocks\": [\n    {\n      \"type\": \"image\",\n      \"path\": \"/images/photo.jpg\",\n      \"isFile\": true,\n      \"files\": [\n        {\n          \"description\": \"This object or string represents the file format\",\n          \"type\": \"string\"\n        },\n        {\n          \"description\": \"This object or string represents the file format\",\n          \"type\": \"null\"\n        }\n      ]\n    },\n    {\n      \"type\": \"video\",\n      \"path\": \"/videos/tutorial.mp4\",\n      \"isFile\": true,\n      \"files\": [\n        {\n          \"description\": \"This object or string represents the file format\",\n          \"type\": \"string\"\n        },\n        {\n          \"description\": \"This object or string represents the file format\",\n          \"type\": \"null\"\n        }\n      ]\n    }\n  ],\n  \"fileFormats\": {\n    \"image\": {\n      \"name\": \"Image\",\n      \"template\": \"/images/\"\n    },\n    \"video\": {\n      \"name\": \"Video\",\n      \"template\": \"/videos/\"\n    }\n  }\n}",
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/samtrc",
+  "response": "{\n  \"extends\": \"recommended\",\n  \"rules\": [\n    {\n      \"type\": \"split-model-and-providers\",\n      \"level\": \"info\"\n    },\n    {\n      \"type\": \"naming-conventions\",\n      \"level\": \"off\",\n      \"record\": \"PascalCase\",\n      \"recordField\": \"camelCase\",\n      \"enum\": \"snake_case\",\n      \"enumValue\": \"SCREAMING_SNAKE_CASE\",\n      \"typeAlias\": \"kebab-case\",\n      \"service\": \"camelCase\",\n      \"serviceOperation\": \"PascalCase\",\n      \"serviceOperationParameter\": \"camelCase\",\n      \"provider\": \"snake_case\",\n      \"package\": \"kebab-case\"\n    }\n  ]\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1037_Normalized",
+  "response": "{\n  \"apiGroup\": null,\n  \"kind\": \"User\",\n  \"name\": \"alice\",\n  \"namespace\": \"production\"\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1125_Normalized",
+  "response": "{\n  \"devicePath\": \"/dev/sda1\",\n  \"name\": \"my-pv-claim\"\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_180_Normalized",
+  "response": "{\n  \"controllerExpandSecretRef\": {\n    \"name\": \"my-secret\",\n    \"namespace\": \"default\"\n  },\n  \"controllerPublishSecretRef\": null,\n  \"driver\": \"csi-driver-name\",\n  \"fsType\": \"ext4\",\n  \"nodePublishSecretRef\": null,\n  \"nodeStageSecretRef\": null,\n  \"readOnly\": false,\n  \"volumeAttributes\": {},\n  \"volumeHandle\": \"volumes/volume-handle-123\"\n}",
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_510_Normalized",
+  "response": "{\n  \"key\": \"status\",\n  \"operator\": \"In\",\n  \"values\": [\"active\", \"pending\"]\n}",
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41238",
+  "response": "{\n  \"config\": {\n    \"Generate_Bids\": true,\n    \"Generate_json\": false,\n    \"Generate_Raw\": true,\n    \"Generate_QA\": true,\n    \"Process_Data\": true,\n    \"Missing_Data\": \"gap_fill\",\n    \"Interpolation_Method\": \"nan\",\n    \"Fill_Value\": 0,\n    \"gear-log-level\": \"INFO\",\n    \"Dry-Run\": false\n  },\n  \"inputs\": {\n    \"DICOM_ARCHIVE\": {\n      \"type\": \"dicom\"\n    }\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41286",
+  "response": "{\n  \"config\": {\n    \"BET\": \"\",\n    \"BOTTOM\": \"\",\n    \"DEBUG\": false,\n    \"SEG\": false,\n    \"SS_BET\": false,\n    \"S_DIFF\": \"\",\n    \"T2\": false,\n    \"TOP\": \"\",\n    \"VENT\": false\n  },\n  \"inputs\": {\n    \"key\": {},\n    \"NIFTI_1\": {\n      \"type\": \"nifti\"\n    },\n    \"NIFTI_2\": {\n      \"type\": \"nifti\"\n    }\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o74446",
+  "response": "{\n  \"type\": \"person\",\n  \"division_id\": \"ocd-division/country:us\",\n  \"gid\": 12345,\n  \"row\": 1,\n  \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"name\": {\n    \"value\": \"John Doe\"\n  },\n  \"other_names\": {\n    \"value\": [\n      \"Johnny Doe\"\n    ],\n    \"sources\": [\n      \"https://example.com/source1\"\n    ],\n    \"confidence\": \"High\"\n  },\n  \"memberships\": [\n    {\n      \"organization_id\": {\n        \"value\": \"ocd-organization/country:us/national\"\n      },\n      \"role\": {\n        \"value\": \"Representative\"\n      },\n      \"title\": {\n        \"value\": \"Member of Congress\"\n      },\n      \"rank\": {\n        \"value\": 1\n      },\n      \"date_first_cited\": {\n        \"value\": \"2023-01-01\",\n        \"actual\": true\n      },\n      \"start_date_description\": {\n        \"value\": \"January 2023\"\n      },\n      \"date_last_cited\": {\n        \"value\": \"2024-12-31\"\n      },\n      \"end_date_description\": {\n        \"value\": \"December 2024\"\n      },\n      \"site_id\": {\n        \"value\": \"https://example.com/member/123\"\n      }\n    }\n  ],\n  \"notes\": {\n    \"value\": \"This is a sample person record.\"\n  }\n}",
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o19062",
+  "response": "{\n  \"engine\": {\n    \"timeout\": 30,\n    \"dsps\": [\n      {\n        \"bid_host\": \"192.168.1.10\",\n        \"bid_port\": 8080,\n        \"bid_path\": \"/api/bid\",\n        \"id\": \"dsp-001\"\n      }\n    ],\n    \"protocol\": \"http\"\n  },\n  \"log_level\": \"info\",\n  \"port\": 3000,\n  \"mongolog\": {\n    \"host\": \"localhost\",\n    \"db\": \"logs\"\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o29812",
+  "response": "{\n  \"protractorConfig\": \"protractor.conf.js\",\n  \"devServerTarget\": \"my-app:serve\",\n  \"grep\": \"login\",\n  \"invertGrep\": false,\n  \"specs\": [\n    \"e2e/login.spec.ts\"\n  ],\n  \"suite\": \"authentication\",\n  \"elementExplorer\": false,\n  \"webdriverUpdate\": true,\n  \"port\": 4200,\n  \"host\": \"localhost\",\n  \"baseUrl\": \"http://localhost:4200\"\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o39256",
+  "response": "{\n  \"options\": {\n    \"nick\": \"bot_user\",\n    \"plugins\": [\n      \"logger\",\n      \"scheduler\"\n    ],\n    \"shell\": \"/bin/bash\",\n    \"ttl\": 3600\n  },\n  \"strategies\": {\n    \"strategy1\": {\n      \"jid\": \"user@example.com\",\n      \"password_env\": \"JABBER_PASSWORD\",\n      \"people\": [\n        \"admin@example.com\"\n      ],\n      \"rooms\": [\n        \"general@conference.example.com\"\n      ]\n    }\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o74957",
+  "response": "{\n  \"@context\": \"http://sonic-project.net/\",\n  \"@type\": \"socialrecord\",\n  \"globalID\": \"urn:global:id:123456789\",\n  \"type\": \"user\",\n  \"platformGID\": \"platform-987654321\",\n  \"displayName\": \"John Doe\",\n  \"profileLocation\": \"https://example.com/profile/johndoe\",\n  \"personalPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\\n-----END PUBLIC KEY-----\",\n  \"accountPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEB...\\n-----END PUBLIC KEY-----\",\n  \"salt\": \"a1b2c3d4e5f6g7h8i9j0\",\n  \"datetime\": \"2023-10-27T14:30:00Z\",\n  \"active\": 1,\n  \"keyRevocationList\": [\n    {\n      \"revokedPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEC...\\n-----END PUBLIC KEY-----\",\n      \"revocationDate\": \"2023-10-26T10:00:00Z\",\n      \"revocationReason\": 1,\n      \"signature\": \"sig_abc123def456\"\n    }\n  ]\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/adonisrc",
+  "response": "{\n  \"typescript\": true,\n  \"exceptionHandlerNamespace\": \"App/Exceptions/Handler\",\n  \"assetsDriver\": \"vite\",\n  \"preloads\": [\n    \"app/providers/app_provider\",\n    {\n      \"file\": \"config/session.js\",\n      \"environment\": [\"web\"],\n      \"optional\": false\n    }\n  ],\n  \"metaFiles\": [\n    \"*.js\",\n    {\n      \"pattern\": \"**/*.ts\",\n      \"reloadServer\": true\n    }\n  ],\n  \"commands\": [\n    \"make:controller\",\n    \"make:model\"\n  ],\n  \"providers\": [\n    \"App/Providers/AppServiceProvider\",\n    \"App/Providers/RouteServiceProvider\"\n  ],\n  \"aceProviders\": [],\n  \"testProviders\": [],\n  \"directories\": {\n    \"config\": \"config\",\n    \"public\": \"public\",\n    \"contracts\": \"contracts\",\n    \"providers\": \"app/providers\",\n    \"database\": \"database\",\n    \"migrations\": \"database/migrations\",\n    \"seeds\": \"database/seeds\",\n    \"resources\": \"resources\",\n    \"views\": \"resources/views\",\n    \"start\": \"start\",\n    \"tmp\": \"tmp\",\n    \"tests\": \"tests\"\n  },\n  \"commandsAliases\": {\n    \"mc\": \"make:controller\",\n    \"mm\": \"make:model\"\n  },\n  \"aliases\": {\n    \"App\": \"app\",\n    \"Config\": \"config\"\n  },\n  \"namespaces\": {\n    \"models\": \"App/Models\",\n    \"exceptions\": \"App/Exceptions\",\n    \"middleware\": \"App/Middleware\",\n    \"httpControllers\": \"App/Http/Controllers\",\n    \"eventListeners\": \"App/Listeners\",\n    \"redisListeners\": \"App/Listeners\",\n    \"validators\": \"App/Validators\"\n  },\n  \"tests\": {\n    \"suites\": [\n      {\n        \"name\": \"unit\",\n        \"files\": \"tests/unit/**/*.spec.js\",\n        \"timeout\": 5000\n      },\n      {\n        \"name\": \"functional\",\n        \"files\": [\n          \"tests/functional/api.spec.js\",\n          \"tests/functional/web.spec.js\"\n        ],\n        \"timeout\": 10000\n      }\n    ],\n    \"timeout\": 30000,\n    \"forceExit\": false\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/asmdef",
+  "response": "{\n  \"name\": \"MyAssembly\",\n  \"rootNamespace\": \"MyCompany.MyProject\",\n  \"references\": [\n    \"UnityEngine.CoreModule\",\n    \"com.unity.inputsystem\"\n  ],\n  \"includePlatforms\": [\n    \"WindowsStandalone64\",\n    \"macOSStandalone\"\n  ],\n  \"excludePlatforms\": [],\n  \"allowUnsafeCode\": false,\n  \"autoReferenced\": true,\n  \"noEngineReferences\": false,\n  \"overrideReferences\": false,\n  \"precompiledReferences\": [],\n  \"defineConstraints\": [\n    \"UNITY_2021_1_OR_NEWER\"\n  ],\n  \"optionalUnityReferences\": [],\n  \"versionDefines\": []\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/lego",
+  "response": "{\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"path\": \"/components/header\",\n      \"isFile\": false,\n      \"files\": [\n        \"index.html\",\n        \"style.css\"\n      ],\n      \"file\": null\n    },\n    {\n      \"type\": \"footer\",\n      \"path\": \"/components/footer.js\",\n      \"isFile\": true,\n      \"file\": {\n        \"name\": \"footer-template\",\n        \"template\": \"/templates/footer.ejs\"\n      }\n    }\n  ],\n  \"fileFormats\": {\n    \"html\": {\n      \"name\": \"HTML Block\",\n      \"template\": \"/templates/html.html\"\n    },\n    \"css\": {\n      \"name\": \"CSS Block\",\n      \"template\": \"/templates/css.css\"\n    }\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/samtrc",
+  "response": "{\n  \"extends\": \"recommended\",\n  \"rules\": [\n    {\n      \"type\": \"split-model-and-providers\",\n      \"level\": \"warn\"\n    },\n    {\n      \"type\": \"naming-conventions\",\n      \"level\": \"error\",\n      \"record\": \"PascalCase\",\n      \"recordField\": \"camelCase\",\n      \"enum\": \"PascalCase\",\n      \"enumValue\": \"SCREAMING_SNAKE_CASE\",\n      \"typeAlias\": \"PascalCase\",\n      \"service\": \"PascalCase\",\n      \"serviceOperation\": \"camelCase\",\n      \"serviceOperationParameter\": \"camelCase\",\n      \"provider\": \"PascalCase\",\n      \"package\": \"kebab-case\",\n      \"fileName\": \"kebab-case\"\n    }\n  ]\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1037_Normalized",
+  "response": "{ \"kind\": \"User\", \"name\": \"admin-user\" }",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1125_Normalized",
+  "response": "{ \"devicePath\": \"/dev/sda1\", \"name\": \"data-pvc\" }",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_180_Normalized",
+  "response": "{\n  \"driver\": \"example.csi.k8s.io\",\n  \"volumeHandle\": \"vol-1234567890abcdef0\",\n  \"fsType\": \"ext4\",\n  \"readOnly\": false,\n  \"controllerExpandSecretRef\": {\n    \"name\": \"expand-secret\",\n    \"namespace\": \"kube-system\"\n  },\n  \"controllerPublishSecretRef\": {\n    \"name\": \"publish-secret\",\n    \"namespace\": \"kube-system\"\n  },\n  \"nodeStageSecretRef\": {\n    \"name\": \"stage-secret\",\n    \"namespace\": \"default\"\n  },\n  \"nodePublishSecretRef\": {\n    \"name\": \"publish-node-secret\",\n    \"namespace\": \"default\"\n  },\n  \"volumeAttributes\": {\n    \"type\": \"ssd\",\n    \"encrypted\": \"true\"\n  }\n}",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_510_Normalized",
+  "response": "{ \"key\": \"app.kubernetes.io/name\", \"operator\": \"In\", \"values\": [ \"my-app\" ] }",
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, done_reason=stop"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41238",
+  "response": "{\n  \"inputs\": {\n    \"DICOM_ARCHIVE\": {\n      \"type\": \"dicom\"\n    }\n  }\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'config'"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41238",
+  "response": "{\"config\": {\"Generate_Bids\": true, \"Generate_json\": false, \"Generate_Raw\": true, \"Generate_QA\": true, \"Process_Data\": true, \"Missing_Data\": \"gap_fill\", \"Interpolation_Method\": \"nan\", \"Fill_Value\": 0, \"gear-log-level\": \"INFO\", \"Dry-Run\": false}, \"inputs\": {\"DICOM_ARCHIVE\": {\"type\": \"dicom\"}}, \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41238",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"config\": {\n    \"Generate_Bids\": true,\n    \"Generate_json\": false,\n    \"Generate_Raw\": true,\n    \"Generate_QA\": true,\n    \"Process_Data\": true,\n    \"Missing_Data\": \"gap_fill\",\n    \"Interpolation_Method\": \"nan\",\n    \"Fill_Value\": 0,\n    \"gear-log-level\": \"INFO\",\n    \"Dry-Run\": false\n  },\n  \"inputs\": {\n    \"DICOM_ARCHIVE\": {\n      \"type\": \"dicom\"\n    }\n  }\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41286",
+  "response": "{\n  \"inputs\": {\n    \"key\": {},\n    \"NIFTI_1\": {\n      \"type\": \"nifti\"\n    },\n    \"NIFTI_2\": {\n      \"type\": \"nifti\"\n    }\n  }\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'config'"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41286",
+  "response": "{\"config\": {\"BET\": \"\", \"BOTTOM\": \"\", \"DEBUG\": false, \"SEG\": false, \"SS_BET\": false, \"S_DIFF\": \"\", \"T2\": false, \"TOP\": \"\", \"VENT\": false}, \"inputs\": {\"key\": {}, \"NIFTI_1\": {\"type\": \"nifti\"}, \"NIFTI_2\": {\"type\": \"nifti\"}}, \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o41286",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"config\": {\n    \"BET\": \"\",\n    \"BOTTOM\": \"\",\n    \"DEBUG\": false,\n    \"SEG\": false,\n    \"SS_BET\": false,\n    \"S_DIFF\": \"\",\n    \"T2\": false,\n    \"TOP\": \"\",\n    \"VENT\": false\n  },\n  \"inputs\": {\n    \"key\": {},\n    \"NIFTI_1\": {\n      \"type\": \"nifti\"\n    },\n    \"NIFTI_2\": {\n      \"type\": \"nifti\"\n    }\n  }\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o74446",
+  "response": "{\n  \"division_id\": \"ocd-division/country:us\",\n  \"gid\": 12345,\n  \"row\": 1,\n  \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"name\": {\n    \"value\": \"John Doe\"\n  },\n  \"other_names\": {\n    \"value\": [\n      \"Johnny Doe\"\n    ],\n    \"sources\": [\n      \"https://example.com/source1\"\n    ],\n    \"confidence\": \"High\"\n  },\n  \"memberships\": [\n    {\n      \"organization_id\": {\n        \"value\": \"ocd-organization/country:us/national\"\n      },\n      \"role\": {\n        \"value\": \"Representative\"\n      },\n      \"title\": {\n        \"value\": \"Member of Congress\"\n      },\n      \"rank\": {\n        \"value\": 1\n      },\n      \"date_first_cited\": {\n        \"value\": \"2023-01-01\",\n        \"actual\": true\n      },\n      \"start_date_description\": {\n        \"value\": \"January 2023\"\n      },\n      \"date_last_cited\": {\n        \"value\": \"2024-12-31\"\n      },\n      \"end_date_description\": {\n        \"value\": \"December 2024\"\n      },\n      \"site_id\": {\n        \"value\": \"https://example.com/member/123\"\n      }\n    }\n  ],\n  \"notes\": {\n    \"value\": \"This is a sample person record.\"\n  }\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'type'"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o74446",
+  "response": "{\"type\": \"person\", \"division_id\": \"ocd-division/country:us\", \"gid\": 12345, \"row\": 1, \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\", \"name\": {\"value\": \"John Doe\"}, \"other_names\": {\"value\": [\"Johnny Doe\"], \"sources\": [\"https://example.com/source1\"], \"confidence\": \"High\"}, \"memberships\": [{\"organization_id\": {\"value\": \"ocd-organization/country:us/national\"}, \"role\": {\"value\": \"Representative\"}, \"title\": {\"value\": \"Member of Congress\"}, \"rank\": {\"value\": 1}, \"date_first_cited\": {\"value\": \"2023-01-01\", \"actual\": true}, \"start_date_description\": {\"value\": \"January 2023\"}, \"date_last_cited\": {\"value\": \"2024-12-31\"}, \"end_date_description\": {\"value\": \"December 2024\"}, \"site_id\": {\"value\": \"https://example.com/member/123\"}}], \"notes\": {\"value\": \"This is a sample person record.\"}, \"zz_unexpected\": true}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o74446",
+  "response": "{\"type\": 12345, \"division_id\": \"ocd-division/country:us\", \"gid\": 12345, \"row\": 1, \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\", \"name\": {\"value\": \"John Doe\"}, \"other_names\": {\"value\": [\"Johnny Doe\"], \"sources\": [\"https://example.com/source1\"], \"confidence\": \"High\"}, \"memberships\": [{\"organization_id\": {\"value\": \"ocd-organization/country:us/national\"}, \"role\": {\"value\": \"Representative\"}, \"title\": {\"value\": \"Member of Congress\"}, \"rank\": {\"value\": 1}, \"date_first_cited\": {\"value\": \"2023-01-01\", \"actual\": true}, \"start_date_description\": {\"value\": \"January 2023\"}, \"date_last_cited\": {\"value\": \"2024-12-31\"}, \"end_date_description\": {\"value\": \"December 2024\"}, \"site_id\": {\"value\": \"https://example.com/member/123\"}}], \"notes\": {\"value\": \"This is a sample person record.\"}}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: 'type' as a number"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o74446",
+  "response": "{\"type\": \"not-an-enum-value\", \"division_id\": \"ocd-division/country:us\", \"gid\": 12345, \"row\": 1, \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\", \"name\": {\"value\": \"John Doe\"}, \"other_names\": {\"value\": [\"Johnny Doe\"], \"sources\": [\"https://example.com/source1\"], \"confidence\": \"High\"}, \"memberships\": [{\"organization_id\": {\"value\": \"ocd-organization/country:us/national\"}, \"role\": {\"value\": \"Representative\"}, \"title\": {\"value\": \"Member of Congress\"}, \"rank\": {\"value\": 1}, \"date_first_cited\": {\"value\": \"2023-01-01\", \"actual\": true}, \"start_date_description\": {\"value\": \"January 2023\"}, \"date_last_cited\": {\"value\": \"2024-12-31\"}, \"end_date_description\": {\"value\": \"December 2024\"}, \"site_id\": {\"value\": \"https://example.com/member/123\"}}], \"notes\": {\"value\": \"This is a sample person record.\"}}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: 'type' outside its enum"
+ },
+ {
+  "item_id": "jsonschema/Github_hard/o74446",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"type\": \"person\",\n  \"division_id\": \"ocd-division/country:us\",\n  \"gid\": 12345,\n  \"row\": 1,\n  \"id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"name\": {\n    \"value\": \"John Doe\"\n  },\n  \"other_names\": {\n    \"value\": [\n      \"Johnny Doe\"\n    ],\n    \"sources\": [\n      \"https://example.com/source1\"\n    ],\n    \"confidence\": \"High\"\n  },\n  \"memberships\": [\n    {\n      \"organization_id\": {\n        \"value\": \"ocd-organization/country:us/national\"\n      },\n      \"role\": {\n        \"value\": \"Representative\"\n      },\n      \"title\": {\n        \"value\": \"Member of Congress\"\n      },\n      \"rank\": {\n        \"value\": 1\n      },\n      \"date_first_cited\": {\n        \"value\": \"2023-01-01\",\n        \"actual\": true\n      },\n      \"start_date_description\": {\n        \"value\": \"January 2023\"\n      },\n      \"date_last_cited\": {\n        \"value\": \"2024-12-31\"\n      },\n      \"end_date_description\": {\n        \"value\": \"December 2024\"\n      },\n      \"site_id\": {\n        \"value\": \"https://example.com/member/123\"\n      }\n    }\n  ],\n  \"notes\": {\n    \"value\": \"This is a sample person record.\"\n  }\n}\n```\n",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o19062",
+  "response": "{\n  \"log_level\": \"info\",\n  \"port\": 3000,\n  \"mongolog\": {\n    \"host\": \"localhost\",\n    \"db\": \"logs\"\n  }\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'engine'"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o19062",
+  "response": "{\"engine\": {\"timeout\": 30, \"dsps\": [{\"bid_host\": \"192.168.1.10\", \"bid_port\": 8080, \"bid_path\": \"/api/bid\", \"id\": \"dsp-001\"}], \"protocol\": \"http\"}, \"log_level\": \"info\", \"port\": 3000, \"mongolog\": {\"host\": \"localhost\", \"db\": \"logs\"}, \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o19062",
+  "response": "{\"engine\": {\"timeout\": 30, \"dsps\": [{\"bid_host\": \"192.168.1.10\", \"bid_port\": 8080, \"bid_path\": \"/api/bid\", \"id\": \"dsp-001\"}], \"protocol\": \"http\"}, \"log_level\": 12345, \"port\": 3000, \"mongolog\": {\"host\": \"localhost\", \"db\": \"logs\"}}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: 'log_level' as a number"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o19062",
+  "response": "{\"engine\": {\"timeout\": 30, \"dsps\": [{\"bid_host\": \"192.168.1.10\", \"bid_port\": 8080, \"bid_path\": \"/api/bid\", \"id\": \"dsp-001\"}], \"protocol\": \"http\"}, \"log_level\": \"not-an-enum-value\", \"port\": 3000, \"mongolog\": {\"host\": \"localhost\", \"db\": \"logs\"}}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: 'log_level' outside its enum"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o19062",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"engine\": {\n    \"timeout\": 30,\n    \"dsps\": [\n      {\n        \"bid_host\": \"192.168.1.10\",\n        \"bid_port\": 8080,\n        \"bid_path\": \"/api/bid\",\n        \"id\": \"dsp-001\"\n      }\n    ],\n    \"protocol\": \"http\"\n  },\n  \"log_level\": \"info\",\n  \"port\": 3000,\n  \"mongolog\": {\n    \"host\": \"localhost\",\n    \"db\": \"logs\"\n  }\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o29812",
+  "response": "{\n  \"devServerTarget\": \"my-app:serve\",\n  \"grep\": \"login\",\n  \"invertGrep\": false,\n  \"specs\": [\n    \"e2e/login.spec.ts\"\n  ],\n  \"suite\": \"authentication\",\n  \"elementExplorer\": false,\n  \"webdriverUpdate\": true,\n  \"port\": 4200,\n  \"host\": \"localhost\",\n  \"baseUrl\": \"http://localhost:4200\"\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'protractorConfig'"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o29812",
+  "response": "{\"protractorConfig\": \"protractor.conf.js\", \"devServerTarget\": \"my-app:serve\", \"grep\": \"login\", \"invertGrep\": false, \"specs\": [\"e2e/login.spec.ts\"], \"suite\": \"authentication\", \"elementExplorer\": false, \"webdriverUpdate\": true, \"port\": 4200, \"host\": \"localhost\", \"baseUrl\": \"http://localhost:4200\", \"zz_unexpected\": true}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o29812",
+  "response": "{\"protractorConfig\": 12345, \"devServerTarget\": \"my-app:serve\", \"grep\": \"login\", \"invertGrep\": false, \"specs\": [\"e2e/login.spec.ts\"], \"suite\": \"authentication\", \"elementExplorer\": false, \"webdriverUpdate\": true, \"port\": 4200, \"host\": \"localhost\", \"baseUrl\": \"http://localhost:4200\"}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: 'protractorConfig' as a number"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o29812",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"protractorConfig\": \"protractor.conf.js\",\n  \"devServerTarget\": \"my-app:serve\",\n  \"grep\": \"login\",\n  \"invertGrep\": false,\n  \"specs\": [\n    \"e2e/login.spec.ts\"\n  ],\n  \"suite\": \"authentication\",\n  \"elementExplorer\": false,\n  \"webdriverUpdate\": true,\n  \"port\": 4200,\n  \"host\": \"localhost\",\n  \"baseUrl\": \"http://localhost:4200\"\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o39256",
+  "response": "{\n  \"strategies\": {\n    \"strategy1\": {\n      \"jid\": \"user@example.com\",\n      \"password_env\": \"JABBER_PASSWORD\",\n      \"people\": [\n        \"admin@example.com\"\n      ],\n      \"rooms\": [\n        \"general@conference.example.com\"\n      ]\n    }\n  }\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'options'"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o39256",
+  "response": "{\"options\": {\"nick\": \"bot_user\", \"plugins\": [\"logger\", \"scheduler\"], \"shell\": \"/bin/bash\", \"ttl\": 3600}, \"strategies\": {\"strategy1\": {\"jid\": \"user@example.com\", \"password_env\": \"JABBER_PASSWORD\", \"people\": [\"admin@example.com\"], \"rooms\": [\"general@conference.example.com\"]}}, \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o39256",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"options\": {\n    \"nick\": \"bot_user\",\n    \"plugins\": [\n      \"logger\",\n      \"scheduler\"\n    ],\n    \"shell\": \"/bin/bash\",\n    \"ttl\": 3600\n  },\n  \"strategies\": {\n    \"strategy1\": {\n      \"jid\": \"user@example.com\",\n      \"password_env\": \"JABBER_PASSWORD\",\n      \"people\": [\n        \"admin@example.com\"\n      ],\n      \"rooms\": [\n        \"general@conference.example.com\"\n      ]\n    }\n  }\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o74957",
+  "response": "{\n  \"@type\": \"socialrecord\",\n  \"globalID\": \"urn:global:id:123456789\",\n  \"type\": \"user\",\n  \"platformGID\": \"platform-987654321\",\n  \"displayName\": \"John Doe\",\n  \"profileLocation\": \"https://example.com/profile/johndoe\",\n  \"personalPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\\n-----END PUBLIC KEY-----\",\n  \"accountPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEB...\\n-----END PUBLIC KEY-----\",\n  \"salt\": \"a1b2c3d4e5f6g7h8i9j0\",\n  \"datetime\": \"2023-10-27T14:30:00Z\",\n  \"active\": 1,\n  \"keyRevocationList\": [\n    {\n      \"revokedPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEC...\\n-----END PUBLIC KEY-----\",\n      \"revocationDate\": \"2023-10-26T10:00:00Z\",\n      \"revocationReason\": 1,\n      \"signature\": \"sig_abc123def456\"\n    }\n  ]\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required '@context'"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o74957",
+  "response": "{\"@context\": \"http://sonic-project.net/\", \"@type\": \"socialrecord\", \"globalID\": \"urn:global:id:123456789\", \"type\": \"user\", \"platformGID\": \"platform-987654321\", \"displayName\": \"John Doe\", \"profileLocation\": \"https://example.com/profile/johndoe\", \"personalPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\\n-----END PUBLIC KEY-----\", \"accountPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEB...\\n-----END PUBLIC KEY-----\", \"salt\": \"a1b2c3d4e5f6g7h8i9j0\", \"datetime\": \"2023-10-27T14:30:00Z\", \"active\": 1, \"keyRevocationList\": [{\"revokedPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEC...\\n-----END PUBLIC KEY-----\", \"revocationDate\": \"2023-10-26T10:00:00Z\", \"revocationReason\": 1, \"signature\": \"sig_abc123def456\"}], \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o74957",
+  "response": "{\"@context\": 12345, \"@type\": \"socialrecord\", \"globalID\": \"urn:global:id:123456789\", \"type\": \"user\", \"platformGID\": \"platform-987654321\", \"displayName\": \"John Doe\", \"profileLocation\": \"https://example.com/profile/johndoe\", \"personalPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\\n-----END PUBLIC KEY-----\", \"accountPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEB...\\n-----END PUBLIC KEY-----\", \"salt\": \"a1b2c3d4e5f6g7h8i9j0\", \"datetime\": \"2023-10-27T14:30:00Z\", \"active\": 1, \"keyRevocationList\": [{\"revokedPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEC...\\n-----END PUBLIC KEY-----\", \"revocationDate\": \"2023-10-26T10:00:00Z\", \"revocationReason\": 1, \"signature\": \"sig_abc123def456\"}]}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: '@context' as a number"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o74957",
+  "response": "{\"@context\": \"not-an-enum-value\", \"@type\": \"socialrecord\", \"globalID\": \"urn:global:id:123456789\", \"type\": \"user\", \"platformGID\": \"platform-987654321\", \"displayName\": \"John Doe\", \"profileLocation\": \"https://example.com/profile/johndoe\", \"personalPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\\n-----END PUBLIC KEY-----\", \"accountPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEB...\\n-----END PUBLIC KEY-----\", \"salt\": \"a1b2c3d4e5f6g7h8i9j0\", \"datetime\": \"2023-10-27T14:30:00Z\", \"active\": 1, \"keyRevocationList\": [{\"revokedPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEC...\\n-----END PUBLIC KEY-----\", \"revocationDate\": \"2023-10-26T10:00:00Z\", \"revocationReason\": 1, \"signature\": \"sig_abc123def456\"}]}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: '@context' outside its enum"
+ },
+ {
+  "item_id": "jsonschema/Github_medium/o74957",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"@context\": \"http://sonic-project.net/\",\n  \"@type\": \"socialrecord\",\n  \"globalID\": \"urn:global:id:123456789\",\n  \"type\": \"user\",\n  \"platformGID\": \"platform-987654321\",\n  \"displayName\": \"John Doe\",\n  \"profileLocation\": \"https://example.com/profile/johndoe\",\n  \"personalPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\\n-----END PUBLIC KEY-----\",\n  \"accountPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEB...\\n-----END PUBLIC KEY-----\",\n  \"salt\": \"a1b2c3d4e5f6g7h8i9j0\",\n  \"datetime\": \"2023-10-27T14:30:00Z\",\n  \"active\": 1,\n  \"keyRevocationList\": [\n    {\n      \"revokedPublicKey\": \"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEC...\\n-----END PUBLIC KEY-----\",\n      \"revocationDate\": \"2023-10-26T10:00:00Z\",\n      \"revocationReason\": 1,\n      \"signature\": \"sig_abc123def456\"\n    }\n  ]\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/adonisrc",
+  "response": "{\n  \"exceptionHandlerNamespace\": \"App/Exceptions/Handler\",\n  \"assetsDriver\": \"vite\",\n  \"preloads\": [\n    \"app/providers/app_provider\",\n    {\n      \"file\": \"config/session.js\",\n      \"environment\": [\n        \"web\"\n      ],\n      \"optional\": false\n    }\n  ],\n  \"metaFiles\": [\n    \"*.js\",\n    {\n      \"pattern\": \"**/*.ts\",\n      \"reloadServer\": true\n    }\n  ],\n  \"commands\": [\n    \"make:controller\",\n    \"make:model\"\n  ],\n  \"providers\": [\n    \"App/Providers/AppServiceProvider\",\n    \"App/Providers/RouteServiceProvider\"\n  ],\n  \"aceProviders\": [],\n  \"testProviders\": [],\n  \"directories\": {\n    \"config\": \"config\",\n    \"public\": \"public\",\n    \"contracts\": \"contracts\",\n    \"providers\": \"app/providers\",\n    \"database\": \"database\",\n    \"migrations\": \"database/migrations\",\n    \"seeds\": \"database/seeds\",\n    \"resources\": \"resources\",\n    \"views\": \"resources/views\",\n    \"start\": \"start\",\n    \"tmp\": \"tmp\",\n    \"tests\": \"tests\"\n  },\n  \"commandsAliases\": {\n    \"mc\": \"make:controller\",\n    \"mm\": \"make:model\"\n  },\n  \"aliases\": {\n    \"App\": \"app\",\n    \"Config\": \"config\"\n  },\n  \"namespaces\": {\n    \"models\": \"App/Models\",\n    \"exceptions\": \"App/Exceptions\",\n    \"middleware\": \"App/Middleware\",\n    \"httpControllers\": \"App/Http/Controllers\",\n    \"eventListeners\": \"App/Listeners\",\n    \"redisListeners\": \"App/Listeners\",\n    \"validators\": \"App/Validators\"\n  },\n  \"tests\": {\n    \"suites\": [\n      {\n        \"name\": \"unit\",\n        \"files\": \"tests/unit/**/*.spec.js\",\n        \"timeout\": 5000\n      },\n      {\n        \"name\": \"functional\",\n        \"files\": [\n          \"tests/functional/api.spec.js\",\n          \"tests/functional/web.spec.js\"\n        ],\n        \"timeout\": 10000\n      }\n    ],\n    \"timeout\": 30000,\n    \"forceExit\": false\n  }\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'typescript'"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/adonisrc",
+  "response": "{\"typescript\": true, \"exceptionHandlerNamespace\": \"App/Exceptions/Handler\", \"assetsDriver\": \"vite\", \"preloads\": [\"app/providers/app_provider\", {\"file\": \"config/session.js\", \"environment\": [\"web\"], \"optional\": false}], \"metaFiles\": [\"*.js\", {\"pattern\": \"**/*.ts\", \"reloadServer\": true}], \"commands\": [\"make:controller\", \"make:model\"], \"providers\": [\"App/Providers/AppServiceProvider\", \"App/Providers/RouteServiceProvider\"], \"aceProviders\": [], \"testProviders\": [], \"directories\": {\"config\": \"config\", \"public\": \"public\", \"contracts\": \"contracts\", \"providers\": \"app/providers\", \"database\": \"database\", \"migrations\": \"database/migrations\", \"seeds\": \"database/seeds\", \"resources\": \"resources\", \"views\": \"resources/views\", \"start\": \"start\", \"tmp\": \"tmp\", \"tests\": \"tests\"}, \"commandsAliases\": {\"mc\": \"make:controller\", \"mm\": \"make:model\"}, \"aliases\": {\"App\": \"app\", \"Config\": \"config\"}, \"namespaces\": {\"models\": \"App/Models\", \"exceptions\": \"App/Exceptions\", \"middleware\": \"App/Middleware\", \"httpControllers\": \"App/Http/Controllers\", \"eventListeners\": \"App/Listeners\", \"redisListeners\": \"App/Listeners\", \"validators\": \"App/Validators\"}, \"tests\": {\"suites\": [{\"name\": \"unit\", \"files\": \"tests/unit/**/*.spec.js\", \"timeout\": 5000}, {\"name\": \"functional\", \"files\": [\"tests/functional/api.spec.js\", \"tests/functional/web.spec.js\"], \"timeout\": 10000}], \"timeout\": 30000, \"forceExit\": false}, \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/adonisrc",
+  "response": "{\"typescript\": true, \"exceptionHandlerNamespace\": 12345, \"assetsDriver\": \"vite\", \"preloads\": [\"app/providers/app_provider\", {\"file\": \"config/session.js\", \"environment\": [\"web\"], \"optional\": false}], \"metaFiles\": [\"*.js\", {\"pattern\": \"**/*.ts\", \"reloadServer\": true}], \"commands\": [\"make:controller\", \"make:model\"], \"providers\": [\"App/Providers/AppServiceProvider\", \"App/Providers/RouteServiceProvider\"], \"aceProviders\": [], \"testProviders\": [], \"directories\": {\"config\": \"config\", \"public\": \"public\", \"contracts\": \"contracts\", \"providers\": \"app/providers\", \"database\": \"database\", \"migrations\": \"database/migrations\", \"seeds\": \"database/seeds\", \"resources\": \"resources\", \"views\": \"resources/views\", \"start\": \"start\", \"tmp\": \"tmp\", \"tests\": \"tests\"}, \"commandsAliases\": {\"mc\": \"make:controller\", \"mm\": \"make:model\"}, \"aliases\": {\"App\": \"app\", \"Config\": \"config\"}, \"namespaces\": {\"models\": \"App/Models\", \"exceptions\": \"App/Exceptions\", \"middleware\": \"App/Middleware\", \"httpControllers\": \"App/Http/Controllers\", \"eventListeners\": \"App/Listeners\", \"redisListeners\": \"App/Listeners\", \"validators\": \"App/Validators\"}, \"tests\": {\"suites\": [{\"name\": \"unit\", \"files\": \"tests/unit/**/*.spec.js\", \"timeout\": 5000}, {\"name\": \"functional\", \"files\": [\"tests/functional/api.spec.js\", \"tests/functional/web.spec.js\"], \"timeout\": 10000}], \"timeout\": 30000, \"forceExit\": false}}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: 'exceptionHandlerNamespace' as a number"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/adonisrc",
+  "response": "{\"typescript\": true, \"exceptionHandlerNamespace\": \"App/Exceptions/Handler\", \"assetsDriver\": \"not-an-enum-value\", \"preloads\": [\"app/providers/app_provider\", {\"file\": \"config/session.js\", \"environment\": [\"web\"], \"optional\": false}], \"metaFiles\": [\"*.js\", {\"pattern\": \"**/*.ts\", \"reloadServer\": true}], \"commands\": [\"make:controller\", \"make:model\"], \"providers\": [\"App/Providers/AppServiceProvider\", \"App/Providers/RouteServiceProvider\"], \"aceProviders\": [], \"testProviders\": [], \"directories\": {\"config\": \"config\", \"public\": \"public\", \"contracts\": \"contracts\", \"providers\": \"app/providers\", \"database\": \"database\", \"migrations\": \"database/migrations\", \"seeds\": \"database/seeds\", \"resources\": \"resources\", \"views\": \"resources/views\", \"start\": \"start\", \"tmp\": \"tmp\", \"tests\": \"tests\"}, \"commandsAliases\": {\"mc\": \"make:controller\", \"mm\": \"make:model\"}, \"aliases\": {\"App\": \"app\", \"Config\": \"config\"}, \"namespaces\": {\"models\": \"App/Models\", \"exceptions\": \"App/Exceptions\", \"middleware\": \"App/Middleware\", \"httpControllers\": \"App/Http/Controllers\", \"eventListeners\": \"App/Listeners\", \"redisListeners\": \"App/Listeners\", \"validators\": \"App/Validators\"}, \"tests\": {\"suites\": [{\"name\": \"unit\", \"files\": \"tests/unit/**/*.spec.js\", \"timeout\": 5000}, {\"name\": \"functional\", \"files\": [\"tests/functional/api.spec.js\", \"tests/functional/web.spec.js\"], \"timeout\": 10000}], \"timeout\": 30000, \"forceExit\": false}}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: 'assetsDriver' outside its enum"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/adonisrc",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"typescript\": true,\n  \"exceptionHandlerNamespace\": \"App/Exceptions/Handler\",\n  \"assetsDriver\": \"vite\",\n  \"preloads\": [\n    \"app/providers/app_provider\",\n    {\n      \"file\": \"config/session.js\",\n      \"environment\": [\n        \"web\"\n      ],\n      \"optional\": false\n    }\n  ],\n  \"metaFiles\": [\n    \"*.js\",\n    {\n      \"pattern\": \"**/*.ts\",\n      \"reloadServer\": true\n    }\n  ],\n  \"commands\": [\n    \"make:controller\",\n    \"make:model\"\n  ],\n  \"providers\": [\n    \"App/Providers/AppServiceProvider\",\n    \"App/Providers/RouteServiceProvider\"\n  ],\n  \"aceProviders\": [],\n  \"testProviders\": [],\n  \"directories\": {\n    \"config\": \"config\",\n    \"public\": \"public\",\n    \"contracts\": \"contracts\",\n    \"providers\": \"app/providers\",\n    \"database\": \"database\",\n    \"migrations\": \"database/migrations\",\n    \"seeds\": \"database/seeds\",\n    \"resources\": \"resources\",\n    \"views\": \"resources/views\",\n    \"start\": \"start\",\n    \"tmp\": \"tmp\",\n    \"tests\": \"tests\"\n  },\n  \"commandsAliases\": {\n    \"mc\": \"make:controller\",\n    \"mm\": \"make:model\"\n  },\n  \"aliases\": {\n    \"App\": \"app\",\n    \"Config\": \"config\"\n  },\n  \"namespaces\": {\n    \"models\": \"App/Models\",\n    \"exceptions\": \"App/Exceptions\",\n    \"middleware\": \"App/Middleware\",\n    \"httpControllers\": \"App/Http/Controllers\",\n    \"eventListeners\": \"App/Listeners\",\n    \"redisListeners\": \"App/Listeners\",\n    \"validators\": \"App/Validators\"\n  },\n  \"tests\": {\n    \"suites\": [\n      {\n        \"name\": \"unit\",\n        \"files\": \"tests/unit/**/*.spec.js\",\n        \"timeout\": 5000\n      },\n      {\n        \"name\": \"functional\",\n        \"files\": [\n          \"tests/functional/api.spec.js\",\n          \"tests/functional/web.spec.js\"\n        ],\n        \"timeout\": 10000\n      }\n    ],\n    \"timeout\": 30000,\n    \"forceExit\": false\n  }\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/asmdef",
+  "response": "{\n  \"rootNamespace\": \"MyCompany.MyProject\",\n  \"references\": [\n    \"UnityEngine.CoreModule\",\n    \"com.unity.inputsystem\"\n  ],\n  \"includePlatforms\": [\n    \"WindowsStandalone64\",\n    \"macOSStandalone\"\n  ],\n  \"excludePlatforms\": [],\n  \"allowUnsafeCode\": false,\n  \"autoReferenced\": true,\n  \"noEngineReferences\": false,\n  \"overrideReferences\": false,\n  \"precompiledReferences\": [],\n  \"defineConstraints\": [\n    \"UNITY_2021_1_OR_NEWER\"\n  ],\n  \"optionalUnityReferences\": [],\n  \"versionDefines\": []\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'name'"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/asmdef",
+  "response": "{\"name\": \"MyAssembly\", \"rootNamespace\": \"MyCompany.MyProject\", \"references\": [\"UnityEngine.CoreModule\", \"com.unity.inputsystem\"], \"includePlatforms\": [\"WindowsStandalone64\", \"macOSStandalone\"], \"excludePlatforms\": [], \"allowUnsafeCode\": false, \"autoReferenced\": true, \"noEngineReferences\": false, \"overrideReferences\": false, \"precompiledReferences\": [], \"defineConstraints\": [\"UNITY_2021_1_OR_NEWER\"], \"optionalUnityReferences\": [], \"versionDefines\": [], \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/asmdef",
+  "response": "{\"name\": 12345, \"rootNamespace\": \"MyCompany.MyProject\", \"references\": [\"UnityEngine.CoreModule\", \"com.unity.inputsystem\"], \"includePlatforms\": [\"WindowsStandalone64\", \"macOSStandalone\"], \"excludePlatforms\": [], \"allowUnsafeCode\": false, \"autoReferenced\": true, \"noEngineReferences\": false, \"overrideReferences\": false, \"precompiledReferences\": [], \"defineConstraints\": [\"UNITY_2021_1_OR_NEWER\"], \"optionalUnityReferences\": [], \"versionDefines\": []}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: 'name' as a number"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/asmdef",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"name\": \"MyAssembly\",\n  \"rootNamespace\": \"MyCompany.MyProject\",\n  \"references\": [\n    \"UnityEngine.CoreModule\",\n    \"com.unity.inputsystem\"\n  ],\n  \"includePlatforms\": [\n    \"WindowsStandalone64\",\n    \"macOSStandalone\"\n  ],\n  \"excludePlatforms\": [],\n  \"allowUnsafeCode\": false,\n  \"autoReferenced\": true,\n  \"noEngineReferences\": false,\n  \"overrideReferences\": false,\n  \"precompiledReferences\": [],\n  \"defineConstraints\": [\n    \"UNITY_2021_1_OR_NEWER\"\n  ],\n  \"optionalUnityReferences\": [],\n  \"versionDefines\": []\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/lego",
+  "response": "{\n  \"fileFormats\": {\n    \"html\": {\n      \"name\": \"HTML Block\",\n      \"template\": \"/templates/html.html\"\n    },\n    \"css\": {\n      \"name\": \"CSS Block\",\n      \"template\": \"/templates/css.css\"\n    }\n  }\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'blocks'"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/lego",
+  "response": "{\"blocks\": [{\"type\": \"header\", \"path\": \"/components/header\", \"isFile\": false, \"files\": [\"index.html\", \"style.css\"], \"file\": null}, {\"type\": \"footer\", \"path\": \"/components/footer.js\", \"isFile\": true, \"file\": {\"name\": \"footer-template\", \"template\": \"/templates/footer.ejs\"}}], \"fileFormats\": {\"html\": {\"name\": \"HTML Block\", \"template\": \"/templates/html.html\"}, \"css\": {\"name\": \"CSS Block\", \"template\": \"/templates/css.css\"}}, \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/lego",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"path\": \"/components/header\",\n      \"isFile\": false,\n      \"files\": [\n        \"index.html\",\n        \"style.css\"\n      ],\n      \"file\": null\n    },\n    {\n      \"type\": \"footer\",\n      \"path\": \"/components/footer.js\",\n      \"isFile\": true,\n      \"file\": {\n        \"name\": \"footer-template\",\n        \"template\": \"/templates/footer.ejs\"\n      }\n    }\n  ],\n  \"fileFormats\": {\n    \"html\": {\n      \"name\": \"HTML Block\",\n      \"template\": \"/templates/html.html\"\n    },\n    \"css\": {\n      \"name\": \"CSS Block\",\n      \"template\": \"/templates/css.css\"\n    }\n  }\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/samtrc",
+  "response": "{\n  \"rules\": [\n    {\n      \"type\": \"split-model-and-providers\",\n      \"level\": \"warn\"\n    },\n    {\n      \"type\": \"naming-conventions\",\n      \"level\": \"error\",\n      \"record\": \"PascalCase\",\n      \"recordField\": \"camelCase\",\n      \"enum\": \"PascalCase\",\n      \"enumValue\": \"SCREAMING_SNAKE_CASE\",\n      \"typeAlias\": \"PascalCase\",\n      \"service\": \"PascalCase\",\n      \"serviceOperation\": \"camelCase\",\n      \"serviceOperationParameter\": \"camelCase\",\n      \"provider\": \"PascalCase\",\n      \"package\": \"kebab-case\",\n      \"fileName\": \"kebab-case\"\n    }\n  ]\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'extends'"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/samtrc",
+  "response": "{\"extends\": \"recommended\", \"rules\": [{\"type\": \"split-model-and-providers\", \"level\": \"warn\"}, {\"type\": \"naming-conventions\", \"level\": \"error\", \"record\": \"PascalCase\", \"recordField\": \"camelCase\", \"enum\": \"PascalCase\", \"enumValue\": \"SCREAMING_SNAKE_CASE\", \"typeAlias\": \"PascalCase\", \"service\": \"PascalCase\", \"serviceOperation\": \"camelCase\", \"serviceOperationParameter\": \"camelCase\", \"provider\": \"PascalCase\", \"package\": \"kebab-case\", \"fileName\": \"kebab-case\"}], \"zz_unexpected\": true}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/JsonSchemaStore/samtrc",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"extends\": \"recommended\",\n  \"rules\": [\n    {\n      \"type\": \"split-model-and-providers\",\n      \"level\": \"warn\"\n    },\n    {\n      \"type\": \"naming-conventions\",\n      \"level\": \"error\",\n      \"record\": \"PascalCase\",\n      \"recordField\": \"camelCase\",\n      \"enum\": \"PascalCase\",\n      \"enumValue\": \"SCREAMING_SNAKE_CASE\",\n      \"typeAlias\": \"PascalCase\",\n      \"service\": \"PascalCase\",\n      \"serviceOperation\": \"camelCase\",\n      \"serviceOperationParameter\": \"camelCase\",\n      \"provider\": \"PascalCase\",\n      \"package\": \"kebab-case\",\n      \"fileName\": \"kebab-case\"\n    }\n  ]\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1037_Normalized",
+  "response": "{\n  \"name\": \"admin-user\"\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'kind'"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1037_Normalized",
+  "response": "{\"kind\": \"User\", \"name\": \"admin-user\", \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1037_Normalized",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"kind\": \"User\",\n  \"name\": \"admin-user\"\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1125_Normalized",
+  "response": "{\n  \"devicePath\": \"/dev/sda1\"\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'name'"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1125_Normalized",
+  "response": "{\"devicePath\": \"/dev/sda1\", \"name\": \"data-pvc\", \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_1125_Normalized",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"devicePath\": \"/dev/sda1\",\n  \"name\": \"data-pvc\"\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_180_Normalized",
+  "response": "{\n  \"volumeHandle\": \"vol-1234567890abcdef0\",\n  \"fsType\": \"ext4\",\n  \"readOnly\": false,\n  \"controllerExpandSecretRef\": {\n    \"name\": \"expand-secret\",\n    \"namespace\": \"kube-system\"\n  },\n  \"controllerPublishSecretRef\": {\n    \"name\": \"publish-secret\",\n    \"namespace\": \"kube-system\"\n  },\n  \"nodeStageSecretRef\": {\n    \"name\": \"stage-secret\",\n    \"namespace\": \"default\"\n  },\n  \"nodePublishSecretRef\": {\n    \"name\": \"publish-node-secret\",\n    \"namespace\": \"default\"\n  },\n  \"volumeAttributes\": {\n    \"type\": \"ssd\",\n    \"encrypted\": \"true\"\n  }\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'driver'"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_180_Normalized",
+  "response": "{\"driver\": \"example.csi.k8s.io\", \"volumeHandle\": \"vol-1234567890abcdef0\", \"fsType\": \"ext4\", \"readOnly\": false, \"controllerExpandSecretRef\": {\"name\": \"expand-secret\", \"namespace\": \"kube-system\"}, \"controllerPublishSecretRef\": {\"name\": \"publish-secret\", \"namespace\": \"kube-system\"}, \"nodeStageSecretRef\": {\"name\": \"stage-secret\", \"namespace\": \"default\"}, \"nodePublishSecretRef\": {\"name\": \"publish-node-secret\", \"namespace\": \"default\"}, \"volumeAttributes\": {\"type\": \"ssd\", \"encrypted\": \"true\"}, \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_180_Normalized",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"driver\": \"example.csi.k8s.io\",\n  \"volumeHandle\": \"vol-1234567890abcdef0\",\n  \"fsType\": \"ext4\",\n  \"readOnly\": false,\n  \"controllerExpandSecretRef\": {\n    \"name\": \"expand-secret\",\n    \"namespace\": \"kube-system\"\n  },\n  \"controllerPublishSecretRef\": {\n    \"name\": \"publish-secret\",\n    \"namespace\": \"kube-system\"\n  },\n  \"nodeStageSecretRef\": {\n    \"name\": \"stage-secret\",\n    \"namespace\": \"default\"\n  },\n  \"nodePublishSecretRef\": {\n    \"name\": \"publish-node-secret\",\n    \"namespace\": \"default\"\n  },\n  \"volumeAttributes\": {\n    \"type\": \"ssd\",\n    \"encrypted\": \"true\"\n  }\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_510_Normalized",
+  "response": "{\n  \"operator\": \"In\",\n  \"values\": [\n    \"my-app\"\n  ]\n}",
+  "official_passed": false,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: dropped required 'key'"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_510_Normalized",
+  "response": "{\"key\": \"app.kubernetes.io/name\", \"operator\": \"In\", \"values\": [\"my-app\"], \"zz_unexpected\": true}",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: added an unknown property"
+ },
+ {
+  "item_id": "jsonschema/Kubernetes/kb_510_Normalized",
+  "response": "Here is the JSON object:\n\n```json\n{\n  \"key\": \"app.kubernetes.io/name\",\n  \"operator\": \"In\",\n  \"values\": [\n    \"my-app\"\n  ]\n}\n```\n",
+  "official_passed": true,
+  "note": "edit of qwen3.6:35b-a3b-q4_K_M: prose around one ```json block"
+ }
+]

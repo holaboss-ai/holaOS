@@ -59,9 +59,15 @@ def speed(record, task):
 def summarize(run_dir, record):
     subject = record.get("subject") or {}
     runtime = record.get("runtime") or {}
-    shallow, deep = speed(record, "speed@0"), speed(record, "speed@8k")
+    shallow = speed(record, "speed@0") or speed(record, "tg128")
+    deep = speed(record, "speed@8k") or speed(record, "tg128@d8192")
     tasks = {r["task"]: {"status": r.get("status"), "passed": r.get("passed"), "samples": r.get("samples_n")}
              for r in record.get("results") or [] if r.get("kind") == "task"}
+    for r in record.get("results") or []:
+        if r.get("kind") == "item":
+            bench = tasks.setdefault(r["bench"], {"status": "ok", "passed": 0, "samples": 0})
+            bench["passed"] += bool(r.get("passed"))
+            bench["samples"] += 1
     return {
         "run_id": record.get("run_id"),
         "run_dir": str(run_dir),

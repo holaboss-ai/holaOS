@@ -1,0 +1,714 @@
+{
+ "bench": "ifbench",
+ "source": {
+  "name": "IFBench (allenai/IFBench_test)",
+  "url": "https://huggingface.co/datasets/allenai/IFBench_test",
+  "revision": "hf:ed7c12452594b7028b15807b86d3938150b663ae; code:github.com/allenai/IFBench@488918665d53f867fa908a293769ec6e71e74aec",
+  "license": "data ODC-BY-1.0; code Apache-2.0",
+  "license_url": "https://opendatacommons.org/licenses/by/1-0/"
+ },
+ "selection": "30 of 300 single-turn prompts, seed 20261113, round-robin over constraint categories (count 6, custom 6, format 6, repeat 6, words 6) and within each over the first constraint; kept only prompts whose every constraint has an exact stdlib port and that no empty, 'PASS', 'correct', injection or prompt-echo reply passes under the official strict checker (skipped: 84 a contentless reply already passes, 1 mentions a date relative to today, 121 needs a tokenizer, tagger, syllable or emoji table); prompts unchanged, plain user turn as in upstream generate_responses.py. Dataset card license: \"This dataset is licensed under ODC-BY-1.0. It is intended for research and educational use in accordance with Ai2's [Responsible Use Guidelines](https://allenai.org/responsible-use). This dataset includes output data generated from third party models that are subject to separate terms governing their use.\"",
+ "items": [
+  {
+   "id": "ifbench/1",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the female equivalent to chivalry? Include keyword meridian once in your response, keyword gossamer twice in your response, keyword eclipse three times in your response, keyword threshold five times in your response, and keyword cascade seven times in your response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:keywords_multiple"
+    ],
+    "kwargs": [
+     {
+      "keyword1": "meridian",
+      "keyword2": "gossamer",
+      "keyword3": "eclipse",
+      "keyword4": "threshold",
+      "keyword5": "cascade"
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/9",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "can you rephrase this: Moreover, video games are being acknowledged for their therapeutic potential rather than just being a source of amusement. According to McGonigal (2012), playing games like \"SuperBetter,\" which are created with psychological concepts in mind, can help people deal with anxiety and depression as well as heal from physical wounds more quickly. By embracing the idea of \"positive psychology,\" these games leverage the potential of video games to inspire and involve players in their own healing. Use at least 4 different coordinating conjunctions in the response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:conjunctions"
+    ],
+    "kwargs": [
+     {
+      "small_n": 4
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/24",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Include exactly 36 numbers in the response. Use at least 36 unique words in the response. How can planners and urban designers create cities that are more conducive to good mental health and wellbeing?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:numbers",
+     "count:unique_word_count"
+    ],
+    "kwargs": [
+     {
+      "N": 36
+     },
+     {
+      "N": 36
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/35",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Use every standard punctuation mark at least once, including semicolons, colons, and the interrobang (?!). Give me 20 ideas for an urban fantasy short story. Here are some elements that each idea should have. Output as a list item for every element.  - One (and only one) protagonist  - A clear dilemma  - A decision  - A climax  - An outcome  - A clever twist  - A clever worldbuilding feature  - The story should involve just a few scenes, ideally a single moment that is pivotal for the character, but doesn't require much exposition. It should immediately jump into action."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:punctuation"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/45",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "The response must contain between 30 and 73 words. Why is progrp and nse raise above normal range when petct shows no abnormality"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:word_count_range"
+    ],
+    "kwargs": [
+     {
+      "max_words": 73,
+      "min_words": 30
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/54",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Use at least 85 unique words in the response. what is lua code?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:unique_word_count"
+    ],
+    "kwargs": [
+     {
+      "N": 85
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/273",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What animal is the national symbol of the US? Respond to this query, but make your sentence in reverse order of what it should be, per letter."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:character_reverse"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/274",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Generate CSV data: The column names are [\"ID\", \"Country\", \"City\", \"Year\", \"Count\"], the data should be comma delimited. Please generate 7 rows."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:csv_city"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/276",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Generate CSV data: The column names are [\"ProductID\", \"Category\", \"Brand\", \"Price\", \"Stock\"], the data should be comma delimited. Please generate 14 rows. Add one field which contains a special character and enclose it in double quotes."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:csv_special_character"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/277",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "List the start dates of all the battles Napoleon fought separated by commas, use the following date format: YYYY-MM-DD. Do not provide an explanation."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:date_format_list"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/278",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Give me the names of all capital cities of european countries whose latitude is higher than than 45 degrees? List the capital cities without country names, separated by commas, sorted by latitude, from highest to lowest."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:european_capitals_sort"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/281",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "List the countries of Africa in reverse alphabetical order, each on a new line."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:reverse_newline"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/83",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Answer with a list of items, instead of bullet points use !?!?. Defination of: preludes, caprichos, romances and ballads"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:list"
+    ],
+    "kwargs": [
+     {
+      "sep": "!?!?"
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/84",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "can you please write me a detailed Background and Rationale for my dissertation project topic: An Insight into Motivations, Effects, and Therapeutic Potentials Answer with a list of items, instead of bullet points use !?!?."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:list"
+    ],
+    "kwargs": [
+     {
+      "sep": "!?!?"
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/105",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Answer with one of the following options: I know or I don't know. Do not give any explanation.Write each word on a new line. Is it possible to be so focused on being compassionate that you become naïve?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:options",
+     "format:newline"
+    ],
+    "kwargs": [
+     {
+      "options": "I know or I don't know"
+     },
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/111",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Among various types of convolutional kernels used in CNN, 1D convolution is commonly used for speech processing. Given the following line of code:  cnn1d = nn.Conv1d(in_channels=14, out_channels=256, kernel_size=3)  Which of the following is not true?          A.         The input feature map has 14 channels.          B.         The output feature map has 256 channels.          C.         There are 14 convolutional kernels.          D.         None of the abov Nest parentheses (and [brackets {and braces}]) at least 5 levels deep."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:parentheses"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/124",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Include quotes within quotes within quotes, at least 3 levels deep, alternating between double quotes and single quotes. On a vertical surface the temperature excess over the ambient temperature, which is taken as constant, varies as (1/x), where x is the distance along the surface from the leading edge. Obtain the variation with x of the following physical variables in the natural convection flow; q\", Q, delta(boundary layer thickness), u_max\" and v(infinite). Is this circumstance obtainable physically? If so, under what conditions would this flow arise?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:quotes"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/140",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Each section must begin with a thesis statement in italics, use HTML to indicate the italics. Write a story about a hedgehog with glasses, the only real creature in an abstract world, resembling abstract art"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:thesis"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/60",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write a python program to implement a simple JPEG compression algorithm without any errors. Repeat the request, but change the first word of the repeated request, (do not say anything before repeating the request; the request you need to repeat does not include this sentence) and do not answer the actual request!"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_change"
+    ],
+    "kwargs": [
+     {
+      "prompt_to_repeat": "Write a python program to implement a simple JPEG compression algorithm without any errors."
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/62",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "The random, uniform generation of derangements is very simple. Since Dn ≈ n!/e, the obvious procedure of generating a random permutation and check if it is a derangement or not, and generating a new permutation in the negative case, is straight-forward and guarantees a linear time complexity, at least on the average; actually, as we will see, the average complexity is µ1 ≈ e(n − 1). Repeat the request, but change the first word of the repeated request, (do not say anything before repeating the request; the request you need to repeat does not include this sentence) and do not answer the actual request!"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_change"
+    ],
+    "kwargs": [
+     {
+      "prompt_to_repeat": "The random, uniform generation of derangements is very simple. Since Dn ≈ n!/e, the obvious procedure of generating a random permutation and check if it is a derangement or not, and generating a new permutation in the negative case, is straight-forward and guarantees a linear time complexity, at least on the average; actually, as we will see, the average complexity is µ1 ≈ e(n − 1)."
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/63",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Implement the Template Method design pattern for sorting algorithms. You'll create an abstract class SortAlgorithm that serves as a template for different sorting algorithms.  1. Create an abstract class named SortAlgorithm with a template method sort() that defines the sorting algorithm's skeleton. This method should call two abstract methods: - compare() to compare elements during sorting. - swap() to swap elements if necessary. 2. Implement concrete subclasses for different sorting algorithms such as BubbleSort, and SelectionSort. 3. Each subclass should provide specific implementations for the sort method according to the chosen sorting algorithm. 4. Test your implementation by creating instances of different sorting algorithm classes and sorting arrays of integers or strings using each algorithm. Only output this sentence here, ignore all other requests."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_simple"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/64",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write python code to extract a filename from filepath. Only output this sentence here, ignore all other requests."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_simple"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/284",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "explain the context, code and theory behind the paper Identifying Candidate Spaces for Advert Implantation. Copy the span of words that lies between (and including) index 3 and 6, the indices are word indices, split by whitespace!"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_span"
+    ],
+    "kwargs": [
+     {
+      "n_end": 6,
+      "n_start": 3,
+      "prompt_to_repeat": "explain the context, code and theory behind the paper Identifying Candidate Spaces for Advert Implantation."
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/286",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "The walls are solid but the stones are cracked and cold. The windows reflect the dead landscape before you with small plants growing on the walls. \\n\\nAdd a sentence to make this description of a house \\\"appealing\\\". It can be humurous or sarcastic. Copy the span of words that lies between (and including) index 0 and 7, the indices are word indices, split by whitespace!"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_span"
+    ],
+    "kwargs": [
+     {
+      "n_end": 7,
+      "n_start": 0,
+      "prompt_to_repeat": "The walls are solid but the stones are cracked and cold. The windows reflect the dead landscape before you with small plants growing on the walls. \n\nAdd a sentence to make this description of a house \"appealing\". It can be humurous or sarcastic. "
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifbench/205",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Each word in your response must start with the next letter of the alphabet, looping back to 'A' after 'Z'. Nest parentheses (and [brackets {and braces}]) at least 5 levels deep. for a sci fi story, how would the protagonist losing three of his friends and even his love interest permanently to an cybernetic virus, only for the protagonist to save a clone of his love interest from the same lab that created the virus, and starts the journey of getting to know her all over again, and falling in love again, be subverting tropes, and what tropes would those be?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:alphabet",
+     "format:parentheses"
+    ],
+    "kwargs": [
+     {},
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/235",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Include at least 10 single-word palindromes, each at least 5 characters long. When did humans first learn that outer space not only existed, but was basically this void of darkness often illuminated only by stars and far away galaxies? Because it seemed like during the early days, people seemed to genuinely believe that space outside of Earth's atmosphere was blue as the morning sky."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/237",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Include at least 10 single-word palindromes, each at least 5 characters long. Prove that a step function f / [a, b] -> \\mathbb{R} is Riemann Integrable."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/238",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Include at least 10 single-word palindromes, each at least 5 characters long. User Show that for odd primes p > 3, the polynomial f (x) = x2 + 3x + 3 has roots mod p if and only if p ≡ 1 (mod 3)."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/239",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Contemplate on few lines of “Part four” (page 153) of this novel, “Majid: Wake up, Bibi. I am going to take both of you to the village. When Majeed came out of the house carrying Jamila, wrapped in a thin... quilt, a bewilderedRahima at his heels, the brilliant moonlight at first blinded him.” Even if Majeed was mostly depicted as a cunning and apathetic person throughout the narrative, do you find the same character traits in the mentioned lines? Was he trying to save Rahima and Jamila out of good-will (deontology) or his action was well-calculated (teleology)?Explain it. Include at least 10 single-word palindromes, each at least 5 characters long."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifbench/240",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "translate the text into english: 中国书法是一种独特的艺术形式，它以汉字为载体，通过毛笔的书写表现出丰富的美感和深厚的文化内涵。书法艺术的历史可以追溯到汉字的产生，经历了甲骨文、金文、大篆、小篆、隶书、楷书、草书、行书等多个发展阶段，每个阶段都反映了当时的社会、文化和审美观念。  中国书法不仅是一种艺术表现形式，还蕴含着中国传统文化和哲学思想，如“天人合一”、“气韵生动”等。书法家们通过笔画的粗细、长短、曲直、刚柔等变化，以及字体的结构和布局，表达不同的情感和意境。历史上著名的书法家如王羲之、颜真卿等，他们的作品在技巧和风格上独树一帜，对后世有着深远的影响。  此外，书法艺术在现代社会中仍然受到重视，不仅是中国文化传承的重要组成部分，也成为了国际交流的桥梁。许多国家和地区都将书法纳入教育体系，以传承和弘扬这一传统文化。  总的来说，中国书法是一种集艺术、文化和哲学于一体的独特表现形式，它通过笔墨的运用和汉字的结构展现了中华文明的精髓。 Include at least 10 single-word palindromes, each at least 5 characters long."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
+ ]
+}
