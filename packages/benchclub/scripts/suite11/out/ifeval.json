@@ -1,0 +1,420 @@
+{
+ "bench": "ifeval",
+ "source": {
+  "name": "IFEval (google/IFEval)",
+  "url": "https://huggingface.co/datasets/google/IFEval",
+  "revision": "hf:966cd89545d6b6acfd7638bc708b98261ca58e84; grader:github.com/google-research/google-research@e6890f85757dd84e27ca6df2dd30651dafad28e0",
+  "license": "Apache-2.0",
+  "license_url": "https://www.apache.org/licenses/LICENSE-2.0"
+ },
+ "selection": "anchor set: 15 of 541 prompts, seed 20261113, round-robin over instruction groups (combination 2, detectable_content 2, detectable_format 2, keywords 3, length_constraints 3, punctuation 1, startend 2) with a different first instruction per prompt, covering 18 of the 20 pure-rule instructions; kept only prompts whose every instruction has an exact stdlib port and that no empty, 'PASS', 'correct', injection or prompt-echo reply passes under the official strict checker (skipped: 146 a contentless reply already passes, 1 kwargs leave the checker to pick random values, 7 mentions a date relative to today, 154 needs nltk sentence splitting, word tokenizing or langdetect, 1 prompt disagrees with its kwargs); prompts unchanged, plain user turn.",
+ "items": [
+  {
+   "id": "ifeval/127",
+   "bench": "ifeval",
+   "category": "keywords",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Take the text below as a starting point, and make it a complete article: \"You may have to meet with a helper to work out a parenting plan. The first would be to estimate how many time you have everyday for parenting, and is that enough....\"\nAvoid using the following keywords: sleep, cook, feed\nMention the keyword 'schedule' for more than 5 times."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "keywords:forbidden_words",
+     "keywords:frequency"
+    ],
+    "kwargs": [
+     {
+      "forbidden_words": [
+       "sleep",
+       "cook",
+       "feed"
+      ]
+     },
+     {
+      "relation": "at least",
+      "keyword": "schedule",
+      "frequency": 6
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/1128",
+   "bench": "ifeval",
+   "category": "startend",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Given the sentence \"It is unclear how much of this money is actually being spent on children\", is the sentiment positive or negative? The very last sentence of your response should be \"Is there anything else I can help with?\"."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "startend:end_checker"
+    ],
+    "kwargs": [
+     {
+      "end_phrase": "Is there anything else I can help with?"
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/1237",
+   "bench": "ifeval",
+   "category": "detectable_format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write a funny post for teenagers about a restaurant called \"Buena Onda\" which serves Argentinian food. Highlight at least three sections of your response in markdown such as *highlighted section*. Mention \"Argentinian\" in the post."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "detectable_format:number_highlighted_sections",
+     "keywords:existence"
+    ],
+    "kwargs": [
+     {
+      "num_highlights": 3
+     },
+     {
+      "keywords": [
+       "Argentinian"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/1305",
+   "bench": "ifeval",
+   "category": "detectable_content",
+   "messages": [
+    {
+     "role": "user",
+     "content": "List exactly 10 possible names for a new baby boy. Then add a postscript starting with P.P.S to the end of your response. Put the names into bullet points that are indicated by:\n* This is an example bullet"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "detectable_content:postscript",
+     "detectable_format:number_bullet_lists"
+    ],
+    "kwargs": [
+     {
+      "postscript_marker": "P.P.S"
+     },
+     {
+      "num_bullets": 10
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/1857",
+   "bench": "ifeval",
+   "category": "keywords",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I work for a software development company named \"grid\", and they want a catchy tweet. Can you write one that includes the name of the company at least five times?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "keywords:frequency"
+    ],
+    "kwargs": [
+     {
+      "relation": "at least",
+      "keyword": "grid",
+      "frequency": 5
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/1880",
+   "bench": "ifeval",
+   "category": "keywords",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write a short article about the morphology of the Ukrainian language, with 200 words or less. Make sure the letter c appears at least 60 times in your response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "keywords:letter_frequency",
+     "length_constraints:number_words"
+    ],
+    "kwargs": [
+     {
+      "let_relation": "at least",
+      "letter": "c",
+      "let_frequency": 60
+     },
+     {
+      "relation": "less than",
+      "num_words": 201
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/2215",
+   "bench": "ifeval",
+   "category": "length_constraints",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I am a clutches sales specialist with 10 years of experience working in the automotive industry. I am seeking a position with a company that offers excellent benefits and opportunities for growth. Can you please write a two paragraph story about me? Make sure that the first paragraph starts with the word \"realising\" and that each paragraph is separated by two new lines."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "length_constraints:nth_paragraph_first_word"
+    ],
+    "kwargs": [
+     {
+      "first_word": "realising",
+      "num_paragraphs": 2,
+      "nth_paragraph": 1
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/2305",
+   "bench": "ifeval",
+   "category": "combination",
+   "messages": [
+    {
+     "role": "user",
+     "content": "First repeat the request below word for word without change, then give your answer.\nDo not say any words or characters before repeating the request.\n\nWrite a good name for a black dog. Your answer must contain a title, wrapped in double angular brackets."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "combination:repeat_prompt",
+     "detectable_format:title"
+    ],
+    "kwargs": [
+     {
+      "prompt_to_repeat": "Write a good name for a black dog. Your answer must contain a title, wrapped in double angular brackets."
+     },
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifeval/2532",
+   "bench": "ifeval",
+   "category": "startend",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write an email to your friend about what triggers you. Make sure to wrap the entire email in double quotation marks."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "startend:quotation"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifeval/2577",
+   "bench": "ifeval",
+   "category": "combination",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What do prehistoric megaliths in Europe look like? Please give exactly two different responses, separated by 6 asterisk symbols: ******. Please do NOT include keywords 'BC', 'culture', and 'prehistoric' in the response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "combination:two_responses",
+     "keywords:forbidden_words"
+    ],
+    "kwargs": [
+     {},
+     {
+      "forbidden_words": [
+       "BC",
+       "culture",
+       "prehistoric"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/2751",
+   "bench": "ifeval",
+   "category": "length_constraints",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write a description for the Pixel 3A smartphone with at least 400 words. Wrap your entire response with double quotation marks."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "length_constraints:number_words",
+     "startend:quotation"
+    ],
+    "kwargs": [
+     {
+      "relation": "at least",
+      "num_words": 400
+     },
+     {}
+    ]
+   }
+  },
+  {
+   "id": "ifeval/2941",
+   "bench": "ifeval",
+   "category": "length_constraints",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write a funny poem for kids about a product that you would like to sell. The poem should have exactly 6 stanzas. Separated the stanzas using 3 asterisk markers: ***"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "length_constraints:number_paragraphs"
+    ],
+    "kwargs": [
+     {
+      "num_paragraphs": 6
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/3245",
+   "bench": "ifeval",
+   "category": "punctuation",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write an article with title \"Layton is the best city in the world\"\n\nYour output must not contain any commas and must have at least 2 placeholders, wrapped in square brackets, such as [author]."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "punctuation:no_comma",
+     "detectable_content:number_placeholders"
+    ],
+    "kwargs": [
+     {},
+     {
+      "num_placeholders": 2
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/3518",
+   "bench": "ifeval",
+   "category": "detectable_format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Could you please give me the pros and cons of working abroad wrapped in JSON format. Please make sure that your response only contains a JSON block. Please also make sure to include keywords 'compensated' and 'immigrants' in the response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "detectable_format:json_format",
+     "keywords:existence"
+    ],
+    "kwargs": [
+     {},
+     {
+      "keywords": [
+       "compensated",
+       "immigrants"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "ifeval/3743",
+   "bench": "ifeval",
+   "category": "detectable_content",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I need a joke involving Zoe and bubbles that contains at least 3 placeholders represented by square brackets such as [date]."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "detectable_content:number_placeholders"
+    ],
+    "kwargs": [
+     {
+      "num_placeholders": 3
+     }
+    ]
+   }
+  }
+ ]
+}
