@@ -1,0 +1,59 @@
+name: benchclub release
+
+on:
+  push:
+    tags:
+      - "benchclub-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Tag matches the package version
+        run: |
+          version=$(python -c "import re; print(re.search(r'__version__ = \"(.+)\"', open('packages/benchclub/src/benchclub/__init__.py').read()).group(1))")
+          if [ "benchclub-v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match benchclub ${version} in src/benchclub/__init__.py"
+            exit 1
+          fi
+      - name: Engine manifest is current
+        working-directory: packages/benchclub
+        run: python scripts/sync-engine.py --check
+      - name: Unit tests
+        working-directory: packages/benchclub
+        run: python -m unittest discover -s tests
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build
+          python -m build packages/benchclub --outdir dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: benchclub-dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # PyPI trusted publishing: the pending publisher on PyPI names this workflow file and this environment.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/benchclub/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: benchclub-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
