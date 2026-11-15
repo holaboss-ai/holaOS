@@ -207,6 +207,81 @@ test("searchPublicWeb reads provider settings from runtime config", async (t) =>
   });
 });
 
+test("native web search selects free Parallel MCP and returns useful results", async (t) => {
+  const previousConfigPath = process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "holaboss-search-"));
+  t.after(async () => {
+    if (previousConfigPath === undefined) delete process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
+    else process.env.HOLABOSS_RUNTIME_CONFIG_PATH = previousConfigPath;
+    await rm(tempDir, { force: true, recursive: true });
+  });
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = path.join(tempDir, "runtime-config.json");
+  await writeFile(process.env.HOLABOSS_RUNTIME_CONFIG_PATH, JSON.stringify({
+    web_search: { provider: "parallel_search_mcp", api_key: "legacy-exa-key" },
+  }));
+
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const result = await searchPublicWeb({
+    query: "latest alpha 2026",
+    numResults: 1,
+    fetchImpl: async (input, init) => {
+      requests.push({ url: String(input), init });
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { content: [{
+        type: "text", text: JSON.stringify({ results: [
+          { title: "Alpha", url: "https://example.com/alpha", excerpts: ["First result"] },
+          { title: "Beta", url: "https://example.com/beta", excerpts: ["Second result"] },
+        ] }),
+      }] } }), { headers: { "content-type": "application/json" } });
+    },
+  });
+
+  assert.equal(result.providerId, "parallel_search_mcp");
+  assert.equal(result.text, "Title: Alpha\nURL: https://example.com/alpha\nHighlights:\nFirst result");
+  assert.equal(requests[0]?.url, "https://search.parallel.ai/mcp");
+  assert.deepEqual(requests[0]?.init?.headers, {
+    accept: "application/json, text/event-stream",
+    "content-type": "application/json",
+    "user-agent": "holaOS",
+  });
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
+    jsonrpc: "2.0", id: 1, method: "tools/call",
+    params: { name: "web_search", arguments: {
+      objective: "latest alpha 2026", search_queries: ["latest alpha 2026"],
+    } },
+  });
+});
+
+test("explicit Parallel credentials stay on the selected provider when rejected", async () => {
+  const requests: RequestInit[] = [];
+  await assert.rejects(
+    searchPublicWeb({
+      query: "latest alpha 2026",
+      providerId: "parallel_search_mcp",
+      apiKey: "parallel-test-key",
+      fetchImpl: async (_input, init) => {
+        requests.push(init ?? {});
+        return new Response("invalid key", { status: 401 });
+      },
+    }),
+    /web_search failed with status 401: invalid key/,
+  );
+  assert.equal(requests.length, 1);
+  assert.equal((requests[0]?.headers as Record<string, string>).authorization, "Bearer parallel-test-key");
+});
+
+test("Parallel MCP tool errors are surfaced instead of shown as search results", async () => {
+  await assert.rejects(
+    searchPublicWeb({
+      query: "latest alpha 2026",
+      providerKind: "parallel_search_mcp",
+      fetchImpl: async () => new Response(JSON.stringify({ result: {
+        isError: true, content: [{ type: "text", text: "rate limit reached" }],
+      } }), { headers: { "content-type": "application/json" } }),
+    }),
+    /rate limit reached/,
+  );
+});
+
 test("searchPublicWeb derives local Holaboss search URL from model proxy config", async (t) => {
   const previousConfigPath = process.env.HOLABOSS_RUNTIME_CONFIG_PATH;
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "holaboss-search-"));
