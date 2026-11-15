@@ -276,6 +276,7 @@ export const projectViewAtom = atom<ProjectViewState | null>(null);
  */
 export type WorkspaceOverlay =
   | "automations"
+  | "evaluations"
   | "skills"
   | "customize"
   | "channels"

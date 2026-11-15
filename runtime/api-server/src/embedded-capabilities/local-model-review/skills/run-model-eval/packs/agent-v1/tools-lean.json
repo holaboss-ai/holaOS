@@ -1,0 +1,580 @@
+[
+ {
+  "type": "function",
+  "function": {
+   "name": "read",
+   "description": "Read files, directories, and common documents. Use this tool instead of shelling out to `cat`, `head`, `tail`, or `ls`. Plain text/code reads return verbatim file contents and can be paginated with offset/limit. Large source files (100-20000 lines) may return a structural summary that keeps declarations and elides long function bodies; re-read elided ranges with offset/limit before editing. Directories return numbered entry listings. Images are returned inline as attachments. PDFs, DOCX, PPTX, XLSX, and XLS files are converted into readable text output.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the file to read (relative or absolute)"
+     },
+     "offset": {
+      "type": "number",
+      "description": "Line number to start reading from (1-indexed)"
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum number of lines to read"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "edit",
+   "description": "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path",
+     "edits"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the file to edit (relative or absolute)"
+     },
+     "edits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "oldText",
+        "newText"
+       ],
+       "properties": {
+        "oldText": {
+         "type": "string",
+         "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+        },
+        "newText": {
+         "type": "string",
+         "description": "Replacement text for this targeted edit."
+        }
+       },
+       "additionalProperties": false
+      },
+      "description": "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+     }
+    },
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "bash",
+   "description": "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "command"
+    ],
+    "properties": {
+     "command": {
+      "type": "string",
+      "description": "Bash command to execute"
+     },
+     "timeout": {
+      "type": "number",
+      "description": "Timeout in seconds (optional, no default timeout)"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "search",
+   "description": "Search file contents across files, directories, globs, or .zip archive members with grouped results. Use this tool for content search instead of shelling out to `grep`, `rg`, or `git grep`. Accepts file selectors like \"src/app.ts:50-120\" to constrain the search to specific line ranges. Results are grouped by file, show 1 line before and 3 lines after each match with gap elision, paginate by 20 files via skip, and truncate long lines to 500 characters.",
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "pattern"
+    ],
+    "properties": {
+     "pattern": {
+      "description": "Regex pattern to search for",
+      "type": "string"
+     },
+     "path": {
+      "description": "Single file, directory, glob, or file with line selector (for example \"src/app.ts:50-120\")",
+      "type": "string"
+     },
+     "paths": {
+      "description": "Optional multi-path search scope. Use instead of `path` when searching several scopes.",
+      "type": "array",
+      "items": {
+       "description": "File, directory, glob, or file with line selector (for example \"src/app.ts:50-120\")",
+       "type": "string"
+      }
+     },
+     "i": {
+      "description": "Case-insensitive search.",
+      "type": "boolean"
+     },
+     "gitignore": {
+      "description": "Respect .gitignore files. Defaults to true.",
+      "type": "boolean"
+     },
+     "skip": {
+      "description": "Number of matching files to skip before showing the next page. Defaults to 0. File window size is 20.",
+      "type": "number"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "find",
+   "description": "Find files and directories from one or more file, directory, or glob inputs. Use this tool for filename lookup instead of shelling out to `find`, `fd`, or `ls`. Results are grouped by directory, sorted by most recent modification time, and truncated to 200 results or 50.0KB of output.",
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+     "paths": {
+      "minItems": 1,
+      "description": "File, directory, or glob entries to search. Prefer this over the legacy pattern/path pair.",
+      "type": "array",
+      "items": {
+       "description": "File, directory, or glob including an optional search path.",
+       "type": "string"
+      }
+     },
+     "pattern": {
+      "description": "Legacy compatibility alias for a single glob pattern.",
+      "type": "string"
+     },
+     "path": {
+      "description": "Legacy compatibility search root used with `pattern`.",
+      "type": "string"
+     },
+     "hidden": {
+      "description": "Include hidden files. Defaults to true.",
+      "type": "boolean"
+     },
+     "gitignore": {
+      "description": "Respect .gitignore files. Defaults to true.",
+      "type": "boolean"
+     },
+     "limit": {
+      "description": "Maximum results to return. Clamped to 1-200. Defaults to 200.",
+      "type": "number"
+     },
+     "timeout": {
+      "description": "Timeout in seconds. Returns partial results on timeout.",
+      "type": "number"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "ls",
+   "description": "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Directory to list (default: current directory)"
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum number of entries to return (default: 500)"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "search_web",
+   "description": "Search the public web for current information across many sources — the PRIMARY tool for latest news, recent events, prices/quotes, general lookups, source discovery, and multi-source research, INCLUDING time-sensitive and \"today/latest/now\" questions. Prefer this over the browser for any web reading or research: it is faster, returns cited sources, and does not need a page open. Reach for browser tools only when the task genuinely needs interaction (logging in, clicking through an app or an authenticated page), direct UI/visual inspection, or a specific page this search cannot surface — NOT for general web reading or because a question is time-sensitive. It does not perform actions, read UI-only state, or reach pages behind a login; escalate to the browser only for those. Uses hosted Exa web search without authentication. The current year is 2026; include 2026 in recent-information queries.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "Search query for the public web.",
+      "minLength": 1
+     },
+     "num_results": {
+      "type": "integer",
+      "description": "Number of search results to return (1-10). Defaults to 8.",
+      "minimum": 1,
+      "maximum": 10
+     },
+     "max_results": {
+      "type": "integer",
+      "description": "Compatibility alias for num_results (1-10).",
+      "minimum": 1,
+      "maximum": 10
+     },
+     "livecrawl": {
+      "type": "string",
+      "enum": [
+       "fallback",
+       "preferred"
+      ],
+      "description": "Whether to prefer live crawling or only use it as fallback."
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "auto",
+       "fast",
+       "deep"
+      ],
+      "description": "Search depth mode."
+     },
+     "context_max_characters": {
+      "type": "integer",
+      "description": "Maximum number of context characters to request from the search backend.",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "ask_user_question",
+   "description": "Pause and ask the user one or more multiple-choice questions in an inline answer card on the current session. Prefer this over listing questions as prose whenever you need setup details, scope, or a decision before acting — the card lets the user confirm or tweak with a tap instead of composing a reply. For each question offer concrete options and mark the single best default with `recommended: true`, deriving it from connected integrations, workspace context, and sensible convention, so the user can accept the whole set at once; leave a question without a recommended option only when it is genuinely unknowable and you truly need the user to pick. Keep freeform on as an escape hatch. Each option's `answer_text` is what routes back into the session, so write it as a clear standalone statement. Keep the deck short — at most 4 questions per ask (extras are dropped), and ask only what actually changes what you do, inferring or safely defaulting the rest. The user's answers return as the next user message.",
+   "parameters": {
+    "properties": {
+     "question": {
+      "description": "Structured question payload. Use either one question object with `prompt` and `options`, or a deck object with `questions: [...]` where each item also has `prompt` and `options`. You may also pass `questions: [...]` at the top level instead of wrapping it in `question`.",
+      "anyOf": [
+       {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "description": "Optional stable question id."
+         },
+         "title": {
+          "type": "string",
+          "description": "Optional short heading above the prompt."
+         },
+         "prompt": {
+          "type": "string",
+          "description": "Required question text shown to the user."
+         },
+         "details": {
+          "type": "string",
+          "description": "Optional supporting detail under the prompt."
+         },
+         "allow_notes": {
+          "type": "boolean",
+          "description": "Allow a short notes field."
+         },
+         "notes_placeholder": {
+          "type": "string",
+          "description": "Optional notes input placeholder."
+         },
+         "allow_freeform": {
+          "type": "boolean",
+          "description": "Allow a natural-language answer box in addition to options."
+         },
+         "freeform_placeholder": {
+          "type": "string",
+          "description": "Optional placeholder for the freeform answer box."
+         },
+         "options": {
+          "type": "array",
+          "description": "Two or more answer choices.",
+          "minItems": 2,
+          "items": {
+           "type": "object",
+           "properties": {
+            "id": {
+             "type": "string",
+             "description": "Optional stable option id."
+            },
+            "label": {
+             "type": "string",
+             "description": "Visible answer label shown to the user."
+            },
+            "description": {
+             "type": "string",
+             "description": "Optional helper detail for this option."
+            },
+            "answer_text": {
+             "type": "string",
+             "description": "Optional normalized answer text to store instead of the visible label."
+            },
+            "recommended": {
+             "type": "boolean",
+             "description": "Mark the recommended default option."
+            }
+           },
+           "required": [
+            "label"
+           ],
+           "additionalProperties": false
+          }
+         }
+        },
+        "required": [
+         "prompt",
+         "options"
+        ],
+        "additionalProperties": false
+       },
+       {
+        "type": "object",
+        "properties": {
+         "title": {
+          "type": "string",
+          "description": "Optional deck heading above the questions."
+         },
+         "details": {
+          "type": "string",
+          "description": "Optional deck-level context."
+         },
+         "allow_notes": {
+          "type": "boolean",
+          "description": "Default notes toggle inherited by questions unless overridden."
+         },
+         "notes_placeholder": {
+          "type": "string",
+          "description": "Default notes placeholder inherited by questions unless overridden."
+         },
+         "allow_freeform": {
+          "type": "boolean",
+          "description": "Default freeform-answer toggle inherited by questions unless overridden."
+         },
+         "freeform_placeholder": {
+          "type": "string",
+          "description": "Default freeform placeholder inherited by questions unless overridden."
+         },
+         "questions": {
+          "type": "array",
+          "description": "One or more structured alignment questions.",
+          "minItems": 1,
+          "items": {
+           "type": "object",
+           "properties": {
+            "id": {
+             "type": "string",
+             "description": "Optional stable question id."
+            },
+            "title": {
+             "type": "string",
+             "description": "Optional short heading above the prompt."
+            },
+            "prompt": {
+             "type": "string",
+             "description": "Required question text shown to the user."
+            },
+            "details": {
+             "type": "string",
+             "description": "Optional supporting detail under the prompt."
+            },
+            "allow_notes": {
+             "type": "boolean",
+             "description": "Allow a short notes field."
+            },
+            "notes_placeholder": {
+             "type": "string",
+             "description": "Optional notes input placeholder."
+            },
+            "allow_freeform": {
+             "type": "boolean",
+             "description": "Allow a natural-language answer box in addition to options."
+            },
+            "freeform_placeholder": {
+             "type": "string",
+             "description": "Optional placeholder for the freeform answer box."
+            },
+            "options": {
+             "type": "array",
+             "description": "Two or more answer choices.",
+             "minItems": 2,
+             "items": {
+              "type": "object",
+              "properties": {
+               "id": {
+                "type": "string",
+                "description": "Optional stable option id."
+               },
+               "label": {
+                "type": "string",
+                "description": "Visible answer label shown to the user."
+               },
+               "description": {
+                "type": "string",
+                "description": "Optional helper detail for this option."
+               },
+               "answer_text": {
+                "type": "string",
+                "description": "Optional normalized answer text to store instead of the visible label."
+               },
+               "recommended": {
+                "type": "boolean",
+                "description": "Mark the recommended default option."
+               }
+              },
+              "required": [
+               "label"
+              ],
+              "additionalProperties": false
+             }
+            }
+           },
+           "required": [
+            "prompt",
+            "options"
+           ],
+           "additionalProperties": false
+          }
+         }
+        },
+        "required": [
+         "questions"
+        ],
+        "additionalProperties": false
+       },
+       {
+        "type": "string"
+       }
+      ]
+     },
+     "questions": {
+      "description": "Alias for a deck — the array of question items directly (equivalent to `question.questions`). Prefer this when asking multiple questions.",
+      "anyOf": [
+       {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "string",
+           "description": "Optional stable question id."
+          },
+          "title": {
+           "type": "string",
+           "description": "Optional short heading above the prompt."
+          },
+          "prompt": {
+           "type": "string",
+           "description": "Required question text shown to the user."
+          },
+          "details": {
+           "type": "string",
+           "description": "Optional supporting detail under the prompt."
+          },
+          "allow_notes": {
+           "type": "boolean",
+           "description": "Allow a short notes field."
+          },
+          "notes_placeholder": {
+           "type": "string",
+           "description": "Optional notes input placeholder."
+          },
+          "allow_freeform": {
+           "type": "boolean",
+           "description": "Allow a natural-language answer box in addition to options."
+          },
+          "freeform_placeholder": {
+           "type": "string",
+           "description": "Optional placeholder for the freeform answer box."
+          },
+          "options": {
+           "type": "array",
+           "description": "Two or more answer choices.",
+           "minItems": 2,
+           "items": {
+            "type": "object",
+            "properties": {
+             "id": {
+              "type": "string",
+              "description": "Optional stable option id."
+             },
+             "label": {
+              "type": "string",
+              "description": "Visible answer label shown to the user."
+             },
+             "description": {
+              "type": "string",
+              "description": "Optional helper detail for this option."
+             },
+             "answer_text": {
+              "type": "string",
+              "description": "Optional normalized answer text to store instead of the visible label."
+             },
+             "recommended": {
+              "type": "boolean",
+              "description": "Mark the recommended default option."
+             }
+            },
+            "required": [
+             "label"
+            ],
+            "additionalProperties": false
+           }
+          }
+         },
+         "required": [
+          "prompt",
+          "options"
+         ],
+         "additionalProperties": false
+        }
+       },
+       {
+        "type": "string"
+       }
+      ]
+     }
+    },
+    "anyOf": [
+     {
+      "required": [
+       "question"
+      ],
+      "type": "object"
+     },
+     {
+      "required": [
+       "questions"
+      ],
+      "type": "object"
+     }
+    ],
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ }
+]

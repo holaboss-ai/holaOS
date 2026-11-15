@@ -108,6 +108,7 @@
     "jszip": "^3.10.1",
     "mammoth": "^1.10.0",
     "motion": "^12.39.0",
+    "mp4-muxer": "5.2.2",
     "playwright-core": "1.60.0",
     "qrcode": "^1.5.4",
     "react": "^19.1.1",

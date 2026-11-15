@@ -2092,3 +2092,260 @@ test("projectAgentRuntimeConfig keeps direct OpenRouter providers on the provide
     "X-OpenRouter-Categories": "personal-agent,general-chat",
   });
 });
+
+function resolveClientWithRuntimeConfig(
+  document: Record<string, unknown>,
+  selectedModel: string,
+) {
+  const root = makeTempDir("hb-agent-runtime-config-");
+  process.env.HB_SANDBOX_ROOT = root;
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = writeRuntimeConfigDocument(
+    root,
+    document,
+  );
+  return resolveRuntimeModelClient({
+    selectedModel,
+    defaultProviderId: "holaboss_model_proxy",
+    sessionId: "session-1",
+    workspaceId: "workspace-1",
+    inputId: "input-1",
+  });
+}
+
+test("resolveRuntimeModelClient keeps local provider base URLs direct and only appends /v1 to bare roots", () => {
+  const cases: Array<[string, string]> = [
+    ["http://localhost:8080", "http://localhost:8080/v1"],
+    ["http://localhost:8080/", "http://localhost:8080/v1"],
+    ["http://127.0.0.1:11434", "http://127.0.0.1:11434/v1"],
+    ["http://192.168.1.20:1234/v1", "http://192.168.1.20:1234/v1"],
+    ["http://localhost:8080/api/v1", "http://localhost:8080/api/v1"],
+    ["localhost:8080", "http://localhost:8080/v1"],
+  ];
+  for (const [baseUrl, expected] of cases) {
+    const resolved = resolveClientWithRuntimeConfig(
+      {
+        providers: {
+          local_server: { kind: "openai_compatible", base_url: baseUrl },
+        },
+      },
+      "local_server/qwen3-8b",
+    );
+    assert.equal(resolved.modelClient.base_url, expected, baseUrl);
+    assert.equal(resolved.modelClient.model_proxy_provider, "openai_compatible");
+  }
+});
+
+test("resolveRuntimeModelClient leaves non-local provider base URLs and env fallbacks unchanged", () => {
+  process.env.OPENAI_API_KEY = "sk-env-openai";
+  const resolved = resolveClientWithRuntimeConfig(
+    {
+      providers: {
+        remote_server: {
+          kind: "openai_compatible",
+          base_url: "https://llm.example.com",
+        },
+      },
+    },
+    "remote_server/some-model",
+  );
+  assert.equal(resolved.modelClient.base_url, "https://llm.example.com/openai/v1");
+  assert.equal(resolved.modelClient.api_key, "sk-env-openai");
+});
+
+test("resolveRuntimeModelClient uses a placeholder key for local providers and never falls back to cloud env credentials", () => {
+  process.env.OPENAI_API_KEY = "sk-env-openai";
+  process.env.OPENAI_BASE_URL = "https://api.openai.com/v1";
+  process.env.ANTHROPIC_API_KEY = "sk-env-anthropic";
+  process.env.ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+
+  const byHost = resolveClientWithRuntimeConfig(
+    {
+      providers: {
+        llama_cpp: { kind: "openai_compatible", base_url: "http://127.0.0.1:8080" },
+      },
+    },
+    "llama_cpp/gpt-oss-20b",
+  );
+  assert.equal(byHost.modelClient.api_key, "local");
+  assert.equal(byHost.modelClient.base_url, "http://127.0.0.1:8080/v1");
+
+  const byFlag = resolveClientWithRuntimeConfig(
+    {
+      providers: {
+        gpu_box: {
+          kind: "openai_compatible",
+          base_url: "http://gpu-box.tailnet.ts.net:8000",
+          local: true,
+        },
+      },
+    },
+    "gpu_box/meta-llama/Llama-3.1-8B-Instruct",
+  );
+  assert.equal(byFlag.modelClient.api_key, "local");
+  assert.equal(byFlag.modelClient.base_url, "http://gpu-box.tailnet.ts.net:8000/v1");
+  assert.equal(byFlag.modelId, "meta-llama/Llama-3.1-8B-Instruct");
+
+  const byKind = resolveClientWithRuntimeConfig(
+    {
+      providers: {
+        vllm: { kind: "local", base_url: "http://gpu-box.lan:8000/v1", api_key: "secret" },
+      },
+    },
+    "vllm/Qwen/Qwen3-8B",
+  );
+  assert.equal(byKind.modelClient.api_key, "secret");
+  assert.equal(byKind.modelClient.base_url, "http://gpu-box.lan:8000/v1");
+  assert.equal(byKind.modelClient.model_proxy_provider, "openai_compatible");
+});
+
+test("resolveRuntimeModelClient does not hand the Holaboss auth token to a local default provider", () => {
+  const resolved = resolveClientWithRuntimeConfig(
+    {
+      runtime: { default_provider: "local_lmstudio" },
+      model_proxy_base_url: "https://runtime.example/api/v1/model-proxy",
+      providers: {
+        local_lmstudio: {
+          kind: "openai_compatible",
+          base_url: "http://127.0.0.1:1234/v1",
+          local: true,
+        },
+      },
+      integrations: {
+        holaboss: { enabled: true, auth_token: "hb-secret-token", user_id: "user-1" },
+      },
+    },
+    "local_lmstudio/qwen/qwen3-8b",
+  );
+  assert.equal(resolved.modelClient.api_key, "local");
+  assert.equal(resolved.modelClient.base_url, "http://127.0.0.1:1234/v1");
+});
+
+test("resolveRuntimeModelClient reports a missing base_url for a local provider without one", () => {
+  process.env.OPENAI_BASE_URL = "https://api.openai.com/v1";
+  assert.throws(
+    () =>
+      resolveClientWithRuntimeConfig(
+        { providers: { local_box: { kind: "local" } } },
+        "local_box/qwen3-8b",
+      ),
+    /Direct provider 'local_box' is not fully configured \(missing: base_url\)/,
+  );
+});
+
+test("local providers accept model ids containing slashes", () => {
+  const document = {
+    providers: {
+      local_lmstudio: {
+        kind: "openai_compatible",
+        base_url: "http://127.0.0.1:1234/v1",
+        api_key: "local",
+        local: true,
+      },
+    },
+    models: {
+      "local_lmstudio/qwen/qwen3-8b": {
+        provider: "local_lmstudio",
+        model: "qwen/qwen3-8b",
+        context_window: 32768,
+        input_modalities: ["text"],
+      },
+    },
+  };
+
+  const declared = resolveClientWithRuntimeConfig(
+    document,
+    "local_lmstudio/qwen/qwen3-8b",
+  );
+  assert.equal(declared.providerId, "local_lmstudio");
+  assert.equal(declared.configuredProviderId, "local_lmstudio");
+  assert.equal(declared.modelId, "qwen/qwen3-8b");
+  assert.equal(declared.modelToken, "local_lmstudio/qwen/qwen3-8b");
+  assert.equal(declared.modelClient.base_url, "http://127.0.0.1:1234/v1");
+
+  const byBareId = resolveRuntimeModelReference(
+    "qwen/qwen3-8b",
+    "holaboss_model_proxy",
+  );
+  assert.equal(byBareId.configuredProviderId, "local_lmstudio");
+  assert.equal(byBareId.modelId, "qwen/qwen3-8b");
+
+  const undeclared = resolveRuntimeModelReference(
+    "local_lmstudio/mlx-community/Qwen3-8B-4bit",
+    "holaboss_model_proxy",
+  );
+  assert.equal(undeclared.providerId, "local_lmstudio");
+  assert.equal(undeclared.modelId, "mlx-community/Qwen3-8B-4bit");
+});
+
+test("non-local OpenAI-compatible providers still reject provider-prefixed model ids", () => {
+  assert.throws(
+    () =>
+      resolveClientWithRuntimeConfig(
+        {
+          providers: {
+            openai_direct: {
+              kind: "openai_compatible",
+              base_url: "https://api.openai.com/v1",
+              api_key: "sk-direct",
+            },
+          },
+        },
+        "openai_direct/openai/gpt-5.4",
+      ),
+    /must be a bare model id without provider prefixes/,
+  );
+});
+
+test("projectAgentRuntimeConfig routes agent runs for local providers directly to the local server", () => {
+  const root = makeTempDir("hb-agent-runtime-config-");
+  process.env.HB_SANDBOX_ROOT = root;
+  process.env.OPENAI_API_KEY = "sk-env-openai";
+  process.env.HOLABOSS_RUNTIME_CONFIG_PATH = writeRuntimeConfigDocument(root, {
+    runtime: { default_provider: "holaboss_model_proxy" },
+    providers: {
+      holaboss_model_proxy: {
+        kind: "holaboss_proxy",
+        base_url: "https://proxy.example/api/v1/model-proxy",
+        api_key: "hb-token",
+      },
+      local_ollama: {
+        kind: "openai_compatible",
+        base_url: "http://localhost:11434",
+        local: true,
+      },
+    },
+    integrations: {
+      holaboss: { enabled: true, auth_token: "hb-token", user_id: "user-1" },
+    },
+    models: {
+      "local_ollama/qwen3:8b": { provider: "local_ollama", model: "qwen3:8b" },
+    },
+  });
+
+  const result = projectAgentRuntimeConfig({
+    session_id: "session-1",
+    workspace_id: "workspace-1",
+    input_id: "input-1",
+    session_kind: "main_session",
+    harness_id: "pi",
+    runtime_exec_model_proxy_api_key: "hb-runtime-token",
+    runtime_exec_sandbox_id: "sandbox-1",
+    runtime_exec_run_id: "run-1",
+    selected_model: "local_ollama/qwen3:8b",
+    default_provider_id: "holaboss_model_proxy",
+    session_mode: "code",
+    workspace_config_checksum: "checksum-1",
+    workspace_skill_ids: [],
+    default_tools: ["read"],
+    extra_tools: [],
+    resolved_mcp_tool_refs: [],
+    resolved_output_schemas: {},
+    agent: { id: "workspace.general", model: "", prompt: "You are concise." },
+  });
+
+  assert.equal(result.provider_id, "local_ollama");
+  assert.equal(result.model_id, "qwen3:8b");
+  assert.equal(result.model_client.api_key, "local");
+  assert.equal(result.model_client.base_url, "http://localhost:11434/v1");
+  assert.equal(result.model_client.default_headers, null);
+});

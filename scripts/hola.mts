@@ -473,7 +473,7 @@ async function main(): Promise<void> {
     die(`no workspace found in ${root} — open it in the desktop once to provision one.`);
   }
 
-  const config = resolveProductRuntimeConfig();
+  const config = resolveProductRuntimeConfig({ requireAuth: false, requireBaseUrl: false });
   const workspaceDir = workspaceDirForId(workspaceId);
   const cwd = a.cwd ? path.resolve(a.cwd) : workspaceDir;
 

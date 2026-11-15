@@ -1,0 +1,229 @@
+[
+ {
+  "type": "function",
+  "function": {
+   "name": "read",
+   "description": "Read files, directories, and common documents. Use this tool instead of shelling out to `cat`, `head`, `tail`, or `ls`. Plain text/code reads return verbatim file contents and can be paginated with offset/limit. Large source files (100-20000 lines) may return a structural summary that keeps declarations and elides long function bodies; re-read elided ranges with offset/limit before editing. Directories return numbered entry listings. Images are returned inline as attachments. PDFs, DOCX, PPTX, XLSX, and XLS files are converted into readable text output.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the file to read (relative or absolute)"
+     },
+     "offset": {
+      "type": "number",
+      "description": "Line number to start reading from (1-indexed)"
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum number of lines to read"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "edit",
+   "description": "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path",
+     "edits"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the file to edit (relative or absolute)"
+     },
+     "edits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "oldText",
+        "newText"
+       ],
+       "properties": {
+        "oldText": {
+         "type": "string",
+         "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+        },
+        "newText": {
+         "type": "string",
+         "description": "Replacement text for this targeted edit."
+        }
+       },
+       "additionalProperties": false
+      },
+      "description": "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+     }
+    },
+    "additionalProperties": false
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "write",
+   "description": "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+   "parameters": {
+    "type": "object",
+    "required": [
+     "path",
+     "content"
+    ],
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the file to write (relative or absolute)"
+     },
+     "content": {
+      "type": "string",
+      "description": "Content to write to the file"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "ls",
+   "description": "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Directory to list (default: current directory)"
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum number of entries to return (default: 500)"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "find",
+   "description": "Find files and directories from one or more file, directory, or glob inputs. Use this tool for filename lookup instead of shelling out to `find`, `fd`, or `ls`. Results are grouped by directory, sorted by most recent modification time, and truncated to 200 results or 50.0KB of output.",
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object",
+    "properties": {
+     "paths": {
+      "minItems": 1,
+      "description": "File, directory, or glob entries to search. Prefer this over the legacy pattern/path pair.",
+      "type": "array",
+      "items": {
+       "description": "File, directory, or glob including an optional search path.",
+       "type": "string"
+      }
+     },
+     "pattern": {
+      "description": "Legacy compatibility alias for a single glob pattern.",
+      "type": "string"
+     },
+     "path": {
+      "description": "Legacy compatibility search root used with `pattern`.",
+      "type": "string"
+     },
+     "hidden": {
+      "description": "Include hidden files. Defaults to true.",
+      "type": "boolean"
+     },
+     "gitignore": {
+      "description": "Respect .gitignore files. Defaults to true.",
+      "type": "boolean"
+     },
+     "limit": {
+      "description": "Maximum results to return. Clamped to 1-200. Defaults to 200.",
+      "type": "number"
+     },
+     "timeout": {
+      "description": "Timeout in seconds. Returns partial results on timeout.",
+      "type": "number"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "search",
+   "description": "Search file contents across files, directories, globs, or .zip archive members with grouped results. Use this tool for content search instead of shelling out to `grep`, `rg`, or `git grep`. Accepts file selectors like \"src/app.ts:50-120\" to constrain the search to specific line ranges. Results are grouped by file, show 1 line before and 3 lines after each match with gap elision, paginate by 20 files via skip, and truncate long lines to 500 characters.",
+   "parameters": {
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "pattern"
+    ],
+    "properties": {
+     "pattern": {
+      "description": "Regex pattern to search for",
+      "type": "string"
+     },
+     "path": {
+      "description": "Single file, directory, glob, or file with line selector (for example \"src/app.ts:50-120\")",
+      "type": "string"
+     },
+     "paths": {
+      "description": "Optional multi-path search scope. Use instead of `path` when searching several scopes.",
+      "type": "array",
+      "items": {
+       "description": "File, directory, glob, or file with line selector (for example \"src/app.ts:50-120\")",
+       "type": "string"
+      }
+     },
+     "i": {
+      "description": "Case-insensitive search.",
+      "type": "boolean"
+     },
+     "gitignore": {
+      "description": "Respect .gitignore files. Defaults to true.",
+      "type": "boolean"
+     },
+     "skip": {
+      "description": "Number of matching files to skip before showing the next page. Defaults to 0. File window size is 20.",
+      "type": "number"
+     }
+    }
+   },
+   "strict": false
+  }
+ },
+ {
+  "type": "function",
+  "function": {
+   "name": "run_tests",
+   "description": "Run the repository's tests with Python's unittest and return a summary and the end of the output. With no target it runs every test under tests/. Each run is limited to 20 seconds and has no network access.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "target": {
+      "type": "string",
+      "description": "Optional test module to run, for example tests/test_example.py or tests.test_example"
+     }
+    }
+   },
+   "strict": false
+  }
+ }
+]

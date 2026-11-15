@@ -1,0 +1,8 @@
+[
+  {"sku": "W-200", "name": "Wing nut", "qty": 120, "price_cents": 35},
+  {"sku": "B-104", "name": "Bolt, M4", "qty": 500, "price_cents": 12},
+  {"sku": "H-010", "name": "Hammer", "qty": 8, "price_cents": 1999},
+  {"sku": "S-330", "name": "Saw blade 10\"", "qty": 14, "price_cents": 500},
+  {"sku": "A-001", "name": "Anchor", "qty": 0, "price_cents": 250},
+  {"sku": "D-075", "name": "Drill bit set", "qty": 3, "price_cents": 4250}
+]

@@ -4,6 +4,7 @@ import {
   runtimeToolCapabilityAvailable,
 } from "./runtime-tool-capability-client.js";
 import {
+  EVAL_RUNTIME_TOOL_IDS,
   RUNTIME_AGENT_TOOL_DEFINITIONS,
   RUNTIME_AGENT_TOOL_IDS,
   type RuntimeAgentToolId,
@@ -52,6 +53,15 @@ const BASE_RELATION_TYPES = [
   "many_to_one",
   "many_to_many",
 ] as const;
+const LOCAL_MODEL_ENGINE_IDS = [
+  "ollama",
+  "lmstudio",
+  "llamacpp",
+  "vllm",
+  "sglang",
+  "mlx",
+  "openai_compatible",
+] as const;
 const TODO_WRITE_OPS_TEXT = "`replace`, `add_phase`, `add_task`, `update`, and `remove_task`";
 const TODO_WRITE_ALIAS_WARNING =
   "Do not invent alias op names such as `replace_all`, `update_task`, or `set_status`.";
@@ -67,6 +77,35 @@ const APP_BUILDER_RUNTIME_TOOL_IDS = new Set<RuntimeAgentToolId>([
   "workspace_apps_get_ports",
   "workspace_apps_probe_endpoints",
 ]);
+const EVAL_PLAN_RUN_SCHEMA = {
+  type: "object",
+  properties: {
+    key: { type: "string", description: "Unique run key: lowercase letters, digits and dashes, e.g. `q4-default`." },
+    label: { type: "string", description: "Short label shown in tables and charts." },
+    target: {
+      type: "object",
+      properties: {
+        provider_id: { type: "string" },
+        model_id: { type: "string" },
+        base_url: { type: "string" },
+        engine: { type: "string" },
+      },
+      required: ["model_id", "base_url"],
+      additionalProperties: false,
+    },
+    kinds: { type: "array", items: { type: "string", enum: ["speed", "capability", "agent"] } },
+    sampling: {
+      type: "object",
+      properties: { temperature: { type: "number" }, top_p: { type: "number" }, min_p: { type: "number" } },
+      additionalProperties: false,
+    },
+    samples: { type: "integer", minimum: 1, maximum: 10, description: "Samples per task; default 3." },
+    agent_conditions: { type: "array", items: { type: "string", enum: ["full", "lean"] } },
+    notes: { type: "string", description: "Why this run exists." },
+  },
+  required: ["key", "label", "target", "kinds"],
+  additionalProperties: false,
+} as const;
 
 export interface HarnessRuntimeToolOptions {
   runtimeApiBaseUrl: string;
@@ -1362,7 +1401,7 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
           capability_id: {
             type: "string",
             description:
-              "The id of the capability to install. Must match the directory name under `capabilities/` and the `id` field in `capability.yaml`.",
+              "The id of the capability to install: the directory name under `capabilities/` for one you authored, or a built-in catalog id such as `local-model-review`.",
           },
         },
         required: ["capability_id"],
@@ -1417,6 +1456,107 @@ function runtimeToolParameters(toolId: RuntimeAgentToolId): Record<string, unkno
           },
         },
         required: ["server"],
+        additionalProperties: false,
+      };
+    case "local_models_discover":
+      return {
+        type: "object",
+        properties: {
+          base_url: {
+            type: "string",
+            description:
+              "Optional extra server address to probe in addition to the default local ports, e.g. `http://127.0.0.1:9000` or `192.168.1.20:11434` (with or without `/v1`).",
+          },
+        },
+        additionalProperties: false,
+      };
+    case "local_models_register":
+      return {
+        type: "object",
+        properties: {
+          base_url: {
+            type: "string",
+            description: "The server's `base_url` as returned by `local_models_discover`.",
+          },
+          models: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Optional model ids to register. Omit to register every chat model the server lists.",
+          },
+          engine: literalStringUnion(
+            LOCAL_MODEL_ENGINE_IDS,
+            "Optional engine override, only when the detected engine is wrong (e.g. an MLX server detected as `openai_compatible`).",
+          ),
+        },
+        required: ["base_url"],
+        additionalProperties: false,
+      };
+    case "eval_get":
+      return { type: "object", properties: {}, additionalProperties: false };
+    case "eval_set_plan":
+      return {
+        type: "object",
+        properties: {
+          runs: { type: "array", items: EVAL_PLAN_RUN_SCHEMA, description: "Runs to execute, in order." },
+          estimate_minutes: { type: "number", description: "Your estimate of the total running time." },
+          notes: { type: "string", description: "What the plan is meant to show." },
+        },
+        required: ["runs"],
+        additionalProperties: false,
+      };
+    case "eval_propose_followup":
+      return {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short name of the experiment." },
+          rationale: { type: "string", description: "Why the anomaly needs this experiment and what result would explain it." },
+          evidence: {
+            type: "array",
+            items: { type: "object", additionalProperties: true },
+            description: "Observations that motivate it, e.g. {run_key, task_id, sample, observation}.",
+          },
+          runs: { type: "array", items: EVAL_PLAN_RUN_SCHEMA, description: "Extra runs with new keys; change one variable." },
+          estimate_minutes: { type: "number" },
+        },
+        required: ["title", "rationale", "evidence", "runs"],
+        additionalProperties: false,
+      };
+    case "eval_write_opinion":
+      return {
+        type: "object",
+        properties: {
+          opinion_md: { type: "string", description: "The full opinion layer in Markdown, with number placeholders." },
+        },
+        required: ["opinion_md"],
+        additionalProperties: false,
+      };
+    case "eval_draft_posts":
+      return {
+        type: "object",
+        properties: {
+          x_post: { type: "object", properties: { text: { type: "string" } }, additionalProperties: false },
+          x_thread: {
+            type: "object",
+            properties: { posts: { type: "array", items: { type: "string" } } },
+            additionalProperties: false,
+          },
+          cn_post: {
+            type: "object",
+            properties: { title: { type: "string" }, text: { type: "string" } },
+            additionalProperties: false,
+          },
+          video_script: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              outline: { type: "array", items: { type: "string" } },
+              script: { type: "string" },
+              assets: { type: "array", items: { type: "string" }, description: "Chart ids to show: speed, capability, agent." },
+            },
+            additionalProperties: false,
+          },
+        },
         additionalProperties: false,
       };
   }
@@ -1634,6 +1774,25 @@ function runtimeToolPromptGuidelines(toolId: RuntimeAgentToolId): string[] {
       "After you propose connects, stop. Do not retry the tool, do not call MCP tools that need those connections, do not poll. The runtime parks the input and re-dispatches it the moment every required connection is active.",
       "DASHBOARD APPS — POST-BUILD POLISH PASS IS AUTO-QUEUED: when `workspace_apps_ensure_running` returns `ready: true` for a dashboard-shape app (one with `src/client/`), the runtime automatically queues a polish-only input on the user-facing main session (the response includes `polish_pass_queued` listing the queued inputs). Do NOT also attempt an interface-design refactor pass inside the current turn. Wrap up the build turn cleanly — tell the user the app is built and that a polish pass will run next. The polish input dispatches as the next turn, with fresh context and a narrow `apps/<app_id>/src/client/` scope; that turn is where the rewrite happens.",
       "When that polish turn fires (you will see a `text` payload starting with `[Auto-queued post-build polish pass]`), follow it literally: invoke `interface-design`, REWRITE each `src/client/` file via `bash` heredoc (NOT `edit`), rebuild + restart, then verify with `browser_screenshot`. The polish turn's `text` payload tells you what to do and when it's done; do not bring concrete visual rules from elsewhere — the `interface-design` skill output is the sole authority for what the dashboard should look like.",
+    ];
+  }
+  if (toolId === "local_models_discover") {
+    return [
+      "Use `local_models_discover` when the user wants to use, compare, or evaluate a model running on their own machine (Ollama, LM Studio, llama.cpp, MLX, vLLM, SGLang, or another OpenAI-compatible server).",
+      "It only finds servers that are already running. When it returns no endpoints, ask the user to start their local server or tell you its address; do not try to install an engine or download a model.",
+      "Pass `base_url` when the user names a host or port other than the engine defaults.",
+    ];
+  }
+  if (EVAL_RUNTIME_TOOL_IDS.has(toolId)) {
+    return [
+      "These tools act on the evaluation attached to this conversation; there is no evaluation id to pass.",
+      "Measured numbers live in the data layer; in the opinion and posts cite them with placeholders from `eval_get` instead of typing them.",
+    ];
+  }
+  if (toolId === "local_models_register") {
+    return [
+      "Call `local_models_discover` first and pass the `base_url` it returned; pass `models` only when the user wants a subset.",
+      "After registering, the model is selectable in the chat model picker and can be targeted as `<provider_id>/<model_id>`; use the exact `token` values from the result.",
     ];
   }
   return appBuilderToolGuidance;

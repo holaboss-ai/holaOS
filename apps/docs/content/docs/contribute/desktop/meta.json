@@ -1,4 +1,9 @@
 {
   "title": "Desktop",
-  "pages": ["workspace-experience", "model-configuration", "internals"]
+  "pages": [
+    "workspace-experience",
+    "model-configuration",
+    "evaluations",
+    "internals"
+  ]
 }

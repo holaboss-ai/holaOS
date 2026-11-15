@@ -1,0 +1,13 @@
+id: local-model-review
+name: Local Model Review
+description: Test a model already running on this machine, write a reproducible conclusion pack, and draft review posts from it
+category: research
+icon: "ph:gauge-fill"
+skills:
+  - path: ./skills/run-model-eval/SKILL.md
+  - path: ./skills/write-conclusion-pack/SKILL.md
+  - path: ./skills/draft-review-posts/SKILL.md
+integrations:
+  - provider: twitter
+    required: false
+    reason: Publishes review posts to X after you approve the exact text

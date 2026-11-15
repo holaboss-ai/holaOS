@@ -10,6 +10,7 @@ import {
 const LABELS: Record<WorkspaceOverlay, string> = {
   customize: "Customize",
   automations: "Automations",
+  evaluations: "Evaluations",
   skills: "Skills",
   channels: "Channels",
   profiles: "Browser Profiles",

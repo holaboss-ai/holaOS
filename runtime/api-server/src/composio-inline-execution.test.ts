@@ -77,7 +77,7 @@ test("executeComposioInlineTool captures the raw body of a non-JSON gateway 502"
   const result = await executeComposioInlineTool({
     composio,
     toolkitSlug: "linkedin",
-    toolSlug: "LINKEDIN_CREATE_LINKED_IN_POST",
+    toolSlug: "LINKEDIN_GET_MY_INFO",
     connectedAccountId: "ca_user",
     arguments: {},
   });

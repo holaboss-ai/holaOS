@@ -80,6 +80,7 @@ export type HarnessPromptLayerId =
   | "delegated_capability_availability_context"
   | "current_user_context"
   | "operator_surface_context"
+  | "evaluation_context"
   | "pending_user_memory"
   | "legacy_session_history"
   | "memory_recall"

@@ -1,5 +1,6 @@
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { BenchApp } from "./components/bench/BenchApp";
 import "./index.css";
 import "@holaboss/editor/styles.css";
 import { recordLaunch } from "./lib/analytics/device-id";
@@ -13,7 +14,10 @@ if (platform) {
   document.documentElement.dataset.platform = platform;
 }
 
-const launch = recordLaunch();
+// The benchmark window loads this same bundle; it is not an app launch.
+const isBenchWindow = new URLSearchParams(window.location.search).get("view") === "bench";
+
+const launch = isBenchWindow ? null : recordLaunch();
 if (launch) {
   trackUmamiEvent("desktop_launched", {
     is_first_launch: launch.isFirstLaunch,
@@ -23,12 +27,14 @@ if (launch) {
 }
 
 const sessionStartedAt = Date.now();
-window.addEventListener("beforeunload", () => {
-  trackUmamiEvent("desktop_quit", {
-    session_duration_ms: Date.now() - sessionStartedAt,
-    platform: platform ?? null,
+if (!isBenchWindow) {
+  window.addEventListener("beforeunload", () => {
+    trackUmamiEvent("desktop_quit", {
+      session_duration_ms: Date.now() - sessionStartedAt,
+      platform: platform ?? null,
+    });
   });
-});
+}
 
 const rootElement = document.getElementById("root")!;
-ReactDOM.createRoot(rootElement).render(<App />);
+ReactDOM.createRoot(rootElement).render(isBenchWindow ? <BenchApp /> : <App />);

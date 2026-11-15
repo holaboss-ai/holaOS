@@ -7,6 +7,7 @@ import { FileTypeIcon } from "@/lib/fileIcon";
 import { cn } from "@/lib/utils";
 import { useWorkspaceDesktop } from "@/lib/workspaceDesktop";
 import { useWorkspaceSelection } from "@/lib/workspaceSelection";
+import { EvaluationDetailPane } from "@/components/evaluations/EvaluationDetailPane";
 import { AutomationsPane } from "@/components/panes/AutomationsPane";
 import { SkillsPane } from "@/components/panes/SkillsPane";
 import { FilePreviewPane } from "./FilePreviewPane";
@@ -83,6 +84,12 @@ export function Center() {
           <AutomationsSurface workspaceId={activeInternal.workspaceId} />
         ) : activeInternal.kind === "skills" ? (
           <SkillsTab workspaceId={activeInternal.workspaceId} />
+        ) : activeInternal.kind === "evaluation" ? (
+          <EvaluationDetailPane
+            evalId={activeInternal.evalId}
+            key={activeInternal.evalId}
+            onClose={closeActiveInternalTab}
+          />
         ) : (
           <NewTabLanding />
         )

@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { buildRuntimeApiServer } from "./app.js";
+import { startLocalModelAutoDetect } from "./local-model-autodetect.js";
 
 const SHUTDOWN_TIMEOUT_MS = 2_000;
 
@@ -94,6 +95,20 @@ async function main(): Promise<void> {
     app.log.error(error);
     process.exit(1);
   }
+
+  startLocalModelAutoDetect({
+    onChange: (changed) => {
+      for (const provider of changed) {
+        app.log.info(
+          { event: "local_models.autodetect.registered", provider_id: provider.provider_id, base_url: provider.base_url, models: provider.models.map((model) => model.model) },
+          "local model server registered",
+        );
+      }
+    },
+    onError: (error) => {
+      app.log.warn({ event: "local_models.autodetect.failed", err: error }, "local model auto-detect failed");
+    },
+  });
 }
 
 await main();

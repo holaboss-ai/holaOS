@@ -46,6 +46,9 @@ import {
   CronjobsServiceError,
   CapabilitiesServiceError,
   ChannelsServiceError,
+  EvalsServiceError,
+  BenchServiceError,
+  type BenchServiceErrorCode,
   type OutputRecord as RemoteOutputRecord,
   type NotificationRecord as RemoteNotificationRecord,
   type CronjobRecord as RemoteCronjobRecord,
@@ -57,6 +60,17 @@ import {
 } from "@holaboss/remote-api/server";
 import { mountRemoteApiMcp } from "@holaboss/remote-api/mcp";
 import { mountRuntimeToolsMcp } from "./runtime-tools-mcp.js";
+import { registerLocalModelRoutes } from "./local-model-routes.js";
+import { BenchError, BenchRunner } from "./bench-runner.js";
+import { EvaluationEngine } from "./evaluation-engine.js";
+import { bundledHolaevalPath, registerEvaluationAgentRoutes } from "./evaluation-routes.js";
+import {
+  EvaluationService,
+  EvaluationServiceError,
+  currentDefaultModel,
+  evaluationDir,
+  localEvalTargets,
+} from "./evaluation-service.js";
 import { resolveProductRuntimeConfig } from "./runtime-config.js";
 
 // Org-owned sessions: the org active RIGHT NOW (from runtime-config.json, which
@@ -199,6 +213,7 @@ import { ComposioSchemaCache, primeComposioSchemaCache } from "./composio-schema
 import { isInStoreCatalog } from "./integration-store-catalog.js";
 import { removeComposioMcpRegistryEntry } from "./composio-tool-registry.js";
 import { executeComposioInlineTool } from "./composio-inline-execution.js";
+import { PublishApprovalGate } from "./publish-approval-gate.js";
 import { createComposioApiClientFromEnv } from "./composio-api-client.js";
 import { setRemoteComposioSource } from "./composio-remote-source.js";
 import {
@@ -246,6 +261,7 @@ import { materializeSkill } from "./workspace-skills-catalog.js";
 import { importSkillFromGithub, importSkillFromUpload, previewSkillFromGithub, SkillImportError } from "./workspace-skill-import.js";
 import { importPluginAsCapability } from "./import-plugin.js";
 import {
+  buildRunnerEnv,
   NativeRunnerExecutor,
   RunnerExecutorError,
   type RunnerExecutorLike,
@@ -3117,6 +3133,147 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       model: view.model,
       updated_at: view.updatedAt,
     }) as unknown as RemoteChannelConnection;
+  let benchRunner: BenchRunner | null = null;
+  const evaluationEngine = new EvaluationEngine({
+    store,
+    workspaceId: resolveCanonicalWs,
+    evalDir: (evalId) => evaluationDir(store, resolveCanonicalWs(), evalId),
+    holaevalPath: bundledHolaevalPath,
+    env: buildRunnerEnv,
+    isBlocked: () => benchRunner?.busy ?? false,
+    contextWindowFor: (target) =>
+      localEvalTargets().find(
+        (option) =>
+          option.model_id === target.model_id &&
+          (option.provider_id === target.provider_id || option.base_url === target.base_url),
+      )?.context_window ?? null,
+    waitForBrainIdle: async (evalId) => {
+      const workspaceId = resolveCanonicalWs();
+      const evaluation = store.getEvaluation({ workspaceId, evalId });
+      const brain = evaluation?.brainModel ?? currentDefaultModel() ?? "";
+      if (!evaluation?.sessionId || !brain.startsWith("local_")) {
+        return;
+      }
+      const deadline = Date.now() + 15 * 60_000;
+      while (Date.now() < deadline) {
+        const state = store.getRuntimeState({ workspaceId, sessionId: evaluation.sessionId });
+        const status = (state?.status ?? "IDLE").toUpperCase();
+        if (status !== "BUSY" && status !== "QUEUED") {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    },
+    onSettled: (event) => {
+      void evaluationService.onRunsSettled(event).catch((error: unknown) => {
+        app.log.warn(
+          { event: "evaluation.settled_notify", outcome: "error", eval_id: event.evalId, err: error },
+          "evaluation settle notification failed",
+        );
+      });
+    },
+    onError: (error, context) => {
+      app.log.error(
+        { event: "evaluation.run", outcome: "error", run_id: context.runId, err: error },
+        "evaluation run crashed",
+      );
+    },
+  });
+  const evaluationService: EvaluationService = new EvaluationService({
+    store,
+    engine: evaluationEngine,
+    workspaceId: resolveCanonicalWs,
+    evalDir: (evalId) => evaluationDir(store, resolveCanonicalWs(), evalId),
+    localTargets: localEvalTargets,
+    defaultModel: currentDefaultModel,
+    pythonEnv: buildRunnerEnv,
+    createSession: ({ title }) => {
+      const sessionId = randomUUID();
+      store.ensureSession({
+        workspaceId: resolveCanonicalWs(),
+        sessionId,
+        kind: "main_session",
+        title,
+        orgId: currentActiveOrgId(),
+      });
+      return sessionId;
+    },
+    queueSessionMessage: async ({ sessionId, text, model }) => {
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      const token = (process.env.SANDBOX_RUNTIME_API_TOKEN ?? "").trim();
+      if (token) {
+        headers.authorization = `Bearer ${token}`;
+      }
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/agent-sessions/queue",
+        headers,
+        payload: { workspace_id: resolveCanonicalWs(), session_id: sessionId, text, ...(model ? { model } : {}) },
+      });
+      if (response.statusCode >= 400) {
+        throw new Error(`queue message failed (${response.statusCode}): ${response.body.slice(0, 300)}`);
+      }
+    },
+  });
+  const evalsCall = async <T>(run: () => T | Promise<T>): Promise<T> => {
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof EvaluationServiceError) {
+        throw new EvalsServiceError(error.code, { message: error.message });
+      }
+      throw error;
+    }
+  };
+  registerEvaluationAgentRoutes(app, () => evaluationService);
+  const benchDir = () => path.join(store.workspaceDir(resolveCanonicalWs()), "bench");
+  const bench = new BenchRunner({
+    stateDir: benchDir,
+    runDir: (runId) => path.join(benchDir(), runId),
+    holaevalPath: bundledHolaevalPath,
+    packsDir: () => path.join(path.dirname(bundledHolaevalPath()), "packs"),
+    env: buildRunnerEnv,
+    appVersion: () => process.env.HOLABOSS_DESKTOP_APP_VERSION?.trim() || "dev",
+    isBusy: () => evaluationEngine.busyWith !== null,
+    onIdle: () => evaluationEngine.wake(),
+    ...(process.env.HOLABOSS_EMBEDDED_RUNTIME === "1" ? {} : { findBinary: () => null }),
+  });
+  benchRunner = bench;
+  const BENCH_SERVICE_ERRORS: Partial<Record<BenchError["code"], BenchServiceErrorCode>> = {
+    busy: "BUSY",
+    invalid_subject: "INVALID_SUBJECT",
+    unknown_suite: "UNKNOWN_SUITE",
+    not_found: "NOT_FOUND",
+    not_ready: "NOT_READY",
+    invalid_artifacts: "INVALID_ARTIFACTS",
+  };
+  const benchCall = async <T>(run: () => T | Promise<T>): Promise<T> => {
+    try {
+      return await run();
+    } catch (error) {
+      const code = error instanceof BenchError ? BENCH_SERVICE_ERRORS[error.code] : undefined;
+      if (code) {
+        throw new BenchServiceError(code, { message: (error as Error).message });
+      }
+      throw error;
+    }
+  };
+  app.addHook("onReady", async () => {
+    try {
+      evaluationEngine.recoverInterruptedRuns();
+      evaluationEngine.wake();
+    } catch (error) {
+      app.log.warn({ event: "evaluation.recover", outcome: "error", err: error }, "evaluation recovery skipped");
+    }
+    void bench.recover().catch((error: unknown) => {
+      app.log.warn({ event: "bench.recover", outcome: "error", err: error }, "bench orphan cleanup skipped");
+    });
+  });
+  app.addHook("onClose", async () => {
+    evaluationEngine.stop();
+    await bench.shutdown();
+  });
+
   const buildRemoteApiBaseContext = (): Omit<
     RemoteApiContext,
     "requestId" | "logger"
@@ -3650,6 +3807,43 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
           return record as unknown as RemoteWorkspaceCapability;
         },
       },
+      evals: {
+        list: (input) => evalsCall(() => evaluationService.list(input) as never),
+        get: (input) => evalsCall(() => evaluationService.get(input) as never),
+        targets: () => evalsCall(() => evaluationService.targets() as never),
+        create: (input) => evalsCall(() => evaluationService.create(input) as never),
+        update: (input) => evalsCall(() => evaluationService.update(input) as never),
+        setPlan: (input) => evalsCall(() => evaluationService.setPlan(input) as never),
+        start: (input) => evalsCall(() => evaluationService.start(input) as never),
+        cancel: (input) => evalsCall(() => evaluationService.cancel(input) as never),
+        retryRun: (input) => evalsCall(() => evaluationService.retryRun(input) as never),
+        decideProposal: (input) => evalsCall(() => evaluationService.decideProposal(input) as never),
+        saveOpinion: (input) => evalsCall(() => evaluationService.saveOpinion(input) as never),
+        report: (input) => evalsCall(() => evaluationService.report(input) as never),
+        exportReport: (input) => evalsCall(() => evaluationService.exportReport(input) as never),
+        publish: (input) => evalsCall(() => evaluationService.publish(input) as never),
+        setReportUrl: (input) => evalsCall(() => evaluationService.setReportUrl(input) as never),
+        saveDistribution: (input) => evalsCall(() => evaluationService.saveDistribution(input) as never),
+        createVersion: (input) => evalsCall(() => evaluationService.createVersion(input) as never),
+        importReproduction: (input) => evalsCall(() => evaluationService.importReproduction(input) as never),
+        delete: (input) => evalsCall(() => evaluationService.delete(input) as never),
+      },
+      bench: {
+        start: (input) => benchCall(() => bench.start(input) as never),
+        get: (input) => benchCall(() => bench.get(input.run_id, input.after ?? 0) as never),
+        current: () => ({ run: bench.current() as never }),
+        cancel: (input) => benchCall(() => bench.cancel(input.run_id) as never),
+        record: (input) => benchCall(() => ({ record: bench.record(input.run_id) })),
+        list: (input) => ({ runs: bench.list(input.subject_id) }),
+        setArtifacts: (input) =>
+          benchCall(() => ({
+            record: bench.setArtifacts(input.run_id, {
+              recording: input.recording,
+              cards: input.cards,
+              recording_offset_s: input.recording_offset_s,
+            }),
+          })),
+      },
       skills: {
         // The skill catalog now lives in the marketplace (the single source of
         // truth), surfaced to the desktop via the directory gateway. The runtime
@@ -3865,6 +4059,7 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
   const durableMemoryWorker = resolveDurableMemoryWorker(options, app, store, memoryService);
   const queueWorker = resolveQueueWorker(options, app, store, memoryService, durableMemoryWorker);
   queueWorkerHolder.worker = queueWorker;
+  const publishApprovalGate = new PublishApprovalGate({ store });
   const runtimeAgentToolsService = new RuntimeAgentToolsService(store, {
     workspaceRoot: store.workspaceRoot,
     terminalSessionManager,
@@ -5068,6 +5263,8 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
       return sendError(reply, 500, error instanceof Error ? error.message : "runtime config update failed");
     }
   });
+
+  registerLocalModelRoutes(app);
 
   app.get("/api/v1/runtime/profile", async (request, reply) => {
     void reply;
@@ -6368,6 +6565,15 @@ export function buildRuntimeApiServer(options: BuildRuntimeApiServerOptions = {}
         toolSlug,
         connectedAccountId,
         arguments: args,
+        publishApproval: {
+          gate: publishApprovalGate,
+          workspaceId,
+          sessionId: capabilitySessionId({
+            headers: request.headers as Record<string, unknown>,
+            body: request.body,
+          }),
+          inputId: headerString(request.headers as Record<string, unknown>, "x-holaboss-input-id"),
+        },
       });
       app.log.info(
         {

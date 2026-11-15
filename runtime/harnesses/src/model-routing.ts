@@ -1,5 +1,7 @@
 import fs from "node:fs";
 
+import { isLocalModelEndpoint } from "./local-model-endpoint.js";
+
 export type HarnessModelApi =
   | "openai-completions"
   | "openai-responses"
@@ -40,6 +42,8 @@ export interface HarnessCatalogModelEntry {
   context_window?: unknown;
   maxTokens?: unknown;
   max_tokens?: unknown;
+  input?: unknown;
+  local?: boolean;
   cost?: {
     input?: unknown;
     output?: unknown;
@@ -79,6 +83,10 @@ export interface HarnessResolvedModelProfile {
 const DEFAULT_FALLBACK_CONTEXT_WINDOW = 500_000;
 const DEFAULT_FALLBACK_MAX_TOKENS = 128_000;
 const UNIFORM_MODEL_MAX_TOKENS = 128_000;
+const LOCAL_FALLBACK_CONTEXT_WINDOW = 32_768;
+const LOCAL_MAX_TOKENS_CAP = 16_384;
+const LOCAL_PROVIDER_KINDS = new Set(["local", "local_openai_compatible"]);
+const MODEL_PROXY_ROUTE_PATTERN = /model-proxy|\/(?:openai|anthropic|google)\/v1\/*$/i;
 let cachedRuntimeConfigModelCatalogPath: string | null = null;
 let cachedRuntimeConfigModelCatalogMtimeMs: number | null = null;
 let cachedRuntimeConfigModelCatalog:
@@ -115,9 +123,30 @@ function nonEmptyStringValue(value: unknown): string | null {
     : null;
 }
 
+function runtimeConfigLocalProviderIds(providersPayload: Record<string, unknown>): Set<string> {
+  const localProviderIds = new Set<string>();
+  for (const [providerId, rawProvider] of Object.entries(providersPayload)) {
+    if (!isRecord(rawProvider)) {
+      continue;
+    }
+    const options = isRecord(rawProvider.options) ? rawProvider.options : {};
+    const kind = (
+      nonEmptyStringValue(rawProvider.kind) ??
+      nonEmptyStringValue(rawProvider.type) ??
+      nonEmptyStringValue(options.kind) ??
+      ""
+    ).toLowerCase();
+    if (rawProvider.local === true || options.local === true || LOCAL_PROVIDER_KINDS.has(kind)) {
+      localProviderIds.add(providerId.trim().toLowerCase());
+    }
+  }
+  return localProviderIds;
+}
+
 function runtimeConfigCatalogEntryFromModelPayload(
   token: string,
   rawModel: unknown,
+  localProviderIds: Set<string>,
 ): { providerId: string; modelId: string; entry: HarnessCatalogModelEntry } | null {
   if (!isRecord(rawModel)) {
     return null;
@@ -148,6 +177,13 @@ function runtimeConfigCatalogEntryFromModelPayload(
     contextWindow: rawModel.contextWindow ?? rawModel.context_window,
     maxTokens: rawModel.maxTokens ?? rawModel.max_tokens,
   };
+  const inputModalities = rawModel.input_modalities ?? rawModel.input;
+  if (Array.isArray(inputModalities)) {
+    entry.input = inputModalities;
+  }
+  if (localProviderIds.has(providerId.toLowerCase())) {
+    entry.local = true;
+  }
   if (isRecord(rawModel.cost)) {
     entry.cost = {
       input: rawModel.cost.input,
@@ -189,10 +225,13 @@ export function runtimeConfigModelCatalog(): Record<
     const parsed = JSON.parse(rawText);
     const document = isRecord(parsed) ? parsed : {};
     const modelsPayload = isRecord(document.models) ? document.models : {};
+    const localProviderIds = runtimeConfigLocalProviderIds(
+      isRecord(document.providers) ? document.providers : {},
+    );
     const catalog = emptyHarnessModelCatalog();
 
     for (const [token, rawModel] of Object.entries(modelsPayload)) {
-      const normalized = runtimeConfigCatalogEntryFromModelPayload(token, rawModel);
+      const normalized = runtimeConfigCatalogEntryFromModelPayload(token, rawModel, localProviderIds);
       if (!normalized) {
         continue;
       }
@@ -464,12 +503,67 @@ function requestedOpenAiCompat(
   return openAiCompatForThinkingSelection(harnessThinkingSelection(request.thinking_value));
 }
 
-function openAiCompatForRequest(request: HarnessModelRoutingRequest): HarnessOpenAiCompat | undefined {
+function isLocalModelRequest(
+  request: Pick<HarnessModelRoutingRequest, "provider_id" | "model_client">,
+  modelCatalog: Record<string, Record<string, HarnessCatalogModelEntry>>,
+): boolean {
+  const baseUrl = firstNonEmptyString(request.model_client.base_url);
+  if (MODEL_PROXY_ROUTE_PATTERN.test(baseUrl)) {
+    return false;
+  }
+  if (isLocalModelEndpoint(baseUrl)) {
+    return true;
+  }
+  const providerBucket = modelCatalog[request.provider_id.trim().toLowerCase()];
+  return Boolean(providerBucket) && Object.values(providerBucket).some((entry) => entry?.local === true);
+}
+
+function localCatalogEntryForRequest(
+  request: Pick<HarnessModelRoutingRequest, "provider_id" | "model_id">,
+  modelCatalog: Record<string, Record<string, HarnessCatalogModelEntry>>,
+): HarnessCatalogModelEntry | null {
+  const providerBucket = modelCatalog[request.provider_id.trim().toLowerCase()];
+  if (!providerBucket) {
+    return null;
+  }
+  for (const modelId of catalogModelIdCandidates(request)) {
+    const entry = providerBucket[modelId];
+    if (entry) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function firstPositiveNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function localModelBudget(entry: HarnessCatalogModelEntry | null): HarnessModelBudget {
+  const contextWindow =
+    firstPositiveNumber(entry?.contextWindow, entry?.context_window) ?? LOCAL_FALLBACK_CONTEXT_WINDOW;
+  return {
+    contextWindow,
+    maxTokens:
+      firstPositiveNumber(entry?.maxTokens, entry?.max_tokens) ??
+      Math.min(LOCAL_MAX_TOKENS_CAP, Math.floor(contextWindow / 2)),
+  };
+}
+
+function openAiCompatForRequest(
+  request: HarnessModelRoutingRequest,
+  local: boolean,
+): HarnessOpenAiCompat | undefined {
   const modelProxyProvider = request.model_client.model_proxy_provider.trim().toLowerCase();
   const providerId = request.provider_id.trim().toLowerCase();
   const modelId = request.model_id.trim().toLowerCase();
   const baseUrl = firstNonEmptyString(request.model_client.base_url)?.toLowerCase() ?? "";
-  if (providerId.includes("ollama") || baseUrl.includes("localhost:11434") || baseUrl.includes("ollama")) {
+  if (local || providerId.includes("ollama") || baseUrl.includes("localhost:11434") || baseUrl.includes("ollama")) {
     return {
       supportsStore: false,
       supportsDeveloperRole: false,
@@ -521,7 +615,17 @@ function mergeOpenAiCompat(
   };
 }
 
-function inputModalitiesForRequest(request: HarnessModelRoutingRequest): Array<"text" | "image"> {
+function inputModalitiesForRequest(
+  request: HarnessModelRoutingRequest,
+  local: boolean,
+  localEntry: HarnessCatalogModelEntry | null,
+): Array<"text" | "image"> {
+  if (local) {
+    const declaresImage =
+      Array.isArray(localEntry?.input) &&
+      localEntry.input.some((modality) => typeof modality === "string" && modality.trim().toLowerCase() === "image");
+    return declaresImage ? ["text", "image"] : ["text"];
+  }
   const providerId = request.provider_id.trim().toLowerCase();
   const modelId = request.model_id.trim().toLowerCase();
   if (
@@ -791,6 +895,9 @@ export function resolveHarnessModelBudget(
     fallbackBudget?: HarnessModelBudget;
   },
 ): HarnessModelBudget {
+  if (isLocalModelRequest(request, options.modelCatalog)) {
+    return localModelBudget(localCatalogEntryForRequest(request, options.modelCatalog));
+  }
   const api = resolveHarnessModelApi(request);
   const budget =
     knownModelBudgetOverride(request, api) ??
@@ -835,7 +942,9 @@ export function resolveHarnessModelProfile(
     throw new Error(`Pi provider ${request.provider_id} is missing a model client base URL`);
   }
 
-  const compat = api === "openai-completions" ? openAiCompatForRequest(request) : undefined;
+  const local = isLocalModelRequest(request, options.modelCatalog);
+  const localEntry = local ? localCatalogEntryForRequest(request, options.modelCatalog) : null;
+  const compat = api === "openai-completions" ? openAiCompatForRequest(request, local) : undefined;
   const requestedThinkingLevel = requestedHarnessThinkingLevel(request);
   const requestedThinkingBudgets = requestedHarnessThinkingBudgets(request);
   const requestedCompat = api === "openai-completions" ? requestedOpenAiCompat(request) : undefined;
@@ -861,7 +970,7 @@ export function resolveHarnessModelProfile(
     reasoning: requestedThinkingLevel !== null,
     requestedThinkingLevel,
     ...(requestedThinkingBudgets ? { requestedThinkingBudgets } : {}),
-    input: inputModalitiesForRequest(request),
+    input: inputModalitiesForRequest(request, local, localEntry),
     cost,
     budget,
   };

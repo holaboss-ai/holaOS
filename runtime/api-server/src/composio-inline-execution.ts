@@ -2,6 +2,12 @@ import {
   ComposioToolExecutionError,
   type ComposioService,
 } from "./composio-service.js";
+import { classifyPublishAction } from "./publish-action-classifier.js";
+import {
+  publishApprovalUnavailable,
+  type PublishApprovalDecision,
+  type PublishApprovalGate,
+} from "./publish-approval-gate.js";
 
 export interface ComposioInlineExecuteResult {
   ok: boolean;
@@ -51,13 +57,72 @@ export function isComposioAuthFailure(
   return false;
 }
 
+export interface ComposioPublishApprovalContext {
+  gate: PublishApprovalGate;
+  workspaceId: string;
+  sessionId: string;
+  inputId?: string | null;
+}
+
+function publishApprovalBlock(params: {
+  toolkitSlug: string;
+  toolSlug: string;
+  connectedAccountId: string;
+  arguments: Record<string, unknown>;
+  publishApproval?: ComposioPublishApprovalContext | null;
+}): ComposioInlineExecuteResult | null {
+  const action = classifyPublishAction({
+    toolkitSlug: params.toolkitSlug,
+    toolSlug: params.toolSlug,
+  });
+  if (!action) {
+    return null;
+  }
+  let decision: PublishApprovalDecision = publishApprovalUnavailable();
+  if (params.publishApproval) {
+    try {
+      decision = params.publishApproval.gate.authorize({
+        workspaceId: params.publishApproval.workspaceId,
+        sessionId: params.publishApproval.sessionId,
+        inputId: params.publishApproval.inputId ?? null,
+        action,
+        toolkitSlug: params.toolkitSlug,
+        connectedAccountId: params.connectedAccountId,
+        arguments: params.arguments ?? {},
+      });
+    } catch {
+      decision = publishApprovalUnavailable();
+    }
+  }
+  if (decision.allowed) {
+    return null;
+  }
+  return {
+    ok: false,
+    data: null,
+    log_id: null,
+    error: {
+      code: decision.code,
+      message: decision.message,
+      toolkit_slug: params.toolkitSlug,
+    },
+    error_marker: `[composio_error:${decision.code}:${params.toolkitSlug}] ${decision.message}`,
+    auth_failure: false,
+  };
+}
+
 export async function executeComposioInlineTool(params: {
   composio: ComposioService;
   toolkitSlug: string;
   toolSlug: string;
   connectedAccountId: string;
   arguments: Record<string, unknown>;
+  publishApproval?: ComposioPublishApprovalContext | null;
 }): Promise<ComposioInlineExecuteResult> {
+  const blocked = publishApprovalBlock(params);
+  if (blocked) {
+    return blocked;
+  }
   try {
     const result = await params.composio.executeTool({
       toolSlug: params.toolSlug,

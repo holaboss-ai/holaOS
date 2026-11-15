@@ -1334,9 +1334,11 @@ test("runTsRunnerCli only advertises structured output when the selected harness
     // cache; this list predates it.
     "await_composio_inline_tools",
     "build_harness_host_request",
+    "check_local_model",
     "compile_runtime_plan",
     "composio_inline_tools_fetch",
     "load_current_user_context",
+    "load_evaluation_context",
     "load_operator_surface_context",
     "load_pending_user_memory_context",
     "load_recalled_memory_context",

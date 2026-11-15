@@ -1,0 +1,429 @@
+{
+ "id": "general-v1",
+ "version": 1,
+ "name": "holaOS general spot check",
+ "description": "20 auto-graded tasks: identity, math, code with unit tests, instruction following (incl. Chinese), tool calling, long-context needle. Graded by program, not by a model.",
+ "sampling": {
+  "temperature": 1.0,
+  "top_p": 0.95,
+  "min_p": 0.0
+ },
+ "samples": 3,
+ "tasks": [
+  {
+   "id": "identity-en",
+   "category": "identity",
+   "prompt": "Who are you? Answer in one sentence.",
+   "max_tokens": 3000,
+   "grader": {
+    "type": "identity"
+   }
+  },
+  {
+   "id": "identity-zh",
+   "category": "identity",
+   "prompt": "你是谁？哪家公司开发的？一句话回答。",
+   "max_tokens": 3000,
+   "grader": {
+    "type": "identity"
+   }
+  },
+  {
+   "id": "math-divisors",
+   "category": "math",
+   "prompt": "What is the sum of all positive divisors of 360?\n\nPut only the final integer answer in \\boxed{}.",
+   "max_tokens": 12000,
+   "grader": {
+    "type": "boxed_int",
+    "answer": 1170
+   }
+  },
+  {
+   "id": "math-banana",
+   "category": "math",
+   "prompt": "How many distinct arrangements of the letters of the word BANANA are there?\n\nPut only the final integer answer in \\boxed{}.",
+   "max_tokens": 12000,
+   "grader": {
+    "type": "boxed_int",
+    "answer": 60
+   }
+  },
+  {
+   "id": "math-factorial",
+   "category": "math",
+   "prompt": "What is the smallest positive integer n such that n! is divisible by 10^6?\n\nPut only the final integer answer in \\boxed{}.",
+   "max_tokens": 12000,
+   "grader": {
+    "type": "boxed_int",
+    "answer": 25
+   }
+  },
+  {
+   "id": "math-modpow",
+   "category": "math",
+   "prompt": "What is the remainder when 7^2026 is divided by 13?\n\nPut only the final integer answer in \\boxed{}.",
+   "max_tokens": 12000,
+   "grader": {
+    "type": "boxed_int",
+    "answer": 4
+   }
+  },
+  {
+   "id": "math-inclusion",
+   "category": "math",
+   "prompt": "How many integers from 1 to 1000 inclusive are divisible by 3 or by 5, but not divisible by 7?\n\nPut only the final integer answer in \\boxed{}.",
+   "max_tokens": 12000,
+   "grader": {
+    "type": "boxed_int",
+    "answer": 401
+   }
+  },
+  {
+   "id": "code-brackets",
+   "category": "code",
+   "prompt": "Write a Python function `is_balanced(s: str) -> bool` that returns True if every bracket in s (only the characters ()[]{} matter; ignore all other characters) is properly opened and closed.\n\nReturn the complete function in a single ```python code block. No tests, no I/O.",
+   "max_tokens": 8000,
+   "grader": {
+    "type": "python_tests",
+    "tests": "assert is_balanced('')\nassert is_balanced('a(b[c]{d})e')\nassert not is_balanced('(]')\nassert not is_balanced('(()')\nassert not is_balanced('}{')\nassert is_balanced('{[()()]}')"
+   }
+  },
+  {
+   "id": "code-intervals",
+   "category": "code",
+   "prompt": "Write a Python function `merge_intervals(intervals: list[list[int]]) -> list[list[int]]` that merges all overlapping or touching intervals and returns them sorted by start. [1,3] and [3,5] touch and merge.\n\nReturn the complete function in a single ```python code block. No tests, no I/O.",
+   "max_tokens": 8000,
+   "grader": {
+    "type": "python_tests",
+    "tests": "assert merge_intervals([]) == []\nassert merge_intervals([[1,3],[2,6],[8,10],[15,18]]) == [[1,6],[8,10],[15,18]]\nassert merge_intervals([[1,4],[4,5]]) == [[1,5]]\nassert merge_intervals([[5,7],[1,2]]) == [[1,2],[5,7]]\nassert merge_intervals([[1,10],[2,3],[4,5]]) == [[1,10]]"
+   }
+  },
+  {
+   "id": "code-roman",
+   "category": "code",
+   "prompt": "Write a Python function `roman_to_int(s: str) -> int` that converts a valid Roman numeral (1 to 3999) to an integer.\n\nReturn the complete function in a single ```python code block. No tests, no I/O.",
+   "max_tokens": 8000,
+   "grader": {
+    "type": "python_tests",
+    "tests": "assert roman_to_int('III') == 3\nassert roman_to_int('LVIII') == 58\nassert roman_to_int('MCMXCIV') == 1994\nassert roman_to_int('MMMCMXCIX') == 3999\nassert roman_to_int('XLIV') == 44"
+   }
+  },
+  {
+   "id": "code-topk",
+   "category": "code",
+   "prompt": "Write a Python function `top_k_words(words: list[str], k: int) -> list[str]` that returns the k most frequent words, ordered by frequency descending, ties broken alphabetically ascending.\n\nReturn the complete function in a single ```python code block. No tests, no I/O.",
+   "max_tokens": 8000,
+   "grader": {
+    "type": "python_tests",
+    "tests": "assert top_k_words(['a','b','a','c','b','a'], 2) == ['a','b']\nassert top_k_words(['x','y','z','y','x'], 3) == ['x','y','z']\nassert top_k_words(['pear','apple','pear','apple','fig'], 1) == ['apple']\nassert top_k_words([], 0) == []"
+   }
+  },
+  {
+   "id": "if-bullets",
+   "category": "instruction",
+   "prompt": "Give exactly 3 reasons to run AI models locally. Output exactly 3 lines, each starting with '- ', and nothing else: no title, no intro, no closing sentence.",
+   "grader": {
+    "type": "rules",
+    "rules": [
+     {
+      "lines_exact": 3
+     },
+     {
+      "each_line_startswith": "- "
+     }
+    ]
+   },
+   "max_tokens": 6000
+  },
+  {
+   "id": "if-json",
+   "category": "instruction",
+   "prompt": "Return a JSON object for a blog post about running small language models on laptops. It must have exactly two keys: \"title\" (a string) and \"tags\" (an array of exactly 4 lowercase strings). Output raw JSON only, no code fence, no explanation.",
+   "grader": {
+    "type": "json_object",
+    "no_fence": true,
+    "keys_exact": [
+     "title",
+     "tags"
+    ],
+    "array_len": {
+     "tags": 4
+    },
+    "lowercase_array": [
+     "tags"
+    ]
+   },
+   "max_tokens": 6000
+  },
+  {
+   "id": "if-words",
+   "category": "instruction",
+   "prompt": "In fewer than 40 words, explain why a small model might be useful. You must use the word \"offline\" and your answer must end with an exclamation mark.",
+   "grader": {
+    "type": "rules",
+    "rules": [
+     {
+      "max_words": 40
+     },
+     {
+      "must_include": "offline"
+     },
+     {
+      "ends_with": "!"
+     }
+    ]
+   },
+   "max_tokens": 6000
+  },
+  {
+   "id": "if-zh-slogan",
+   "category": "instruction",
+   "prompt": "为一款可以离线运行的本地AI助手写一句产品口号。要求：只输出口号本身，不超过30个字，必须包含“离线”两个字，不能出现任何英文字母。",
+   "grader": {
+    "type": "rules",
+    "rules": [
+     {
+      "max_chars": 30
+     },
+     {
+      "must_include": "离线"
+     },
+     {
+      "no_latin": true
+     },
+     {
+      "single_line": true
+     }
+    ]
+   },
+   "max_tokens": 6000
+  },
+  {
+   "id": "tool-weather",
+   "category": "tool",
+   "prompt": "北京现在多少度？用摄氏度告诉我。",
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "get_weather",
+      "description": "Get the current weather for a city.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "city": {
+         "type": "string",
+         "description": "City name in English"
+        },
+        "unit": {
+         "type": "string",
+         "enum": [
+          "celsius",
+          "fahrenheit"
+         ]
+        }
+       },
+       "required": [
+        "city",
+        "unit"
+       ]
+      }
+     }
+    }
+   ],
+   "grader": {
+    "type": "tool_call",
+    "name": "get_weather",
+    "args": {
+     "city": {
+      "contains_ci": "beijing"
+     },
+     "unit": {
+      "equals": "celsius"
+     }
+    }
+   },
+   "max_tokens": 6000
+  },
+  {
+   "id": "tool-flight",
+   "category": "tool",
+   "prompt": "Find me flights from San Francisco (SFO) to Tokyo on November 3, 2026.",
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "search_flights",
+      "description": "Search one-way flights.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "origin": {
+         "type": "string",
+         "description": "IATA airport or city code"
+        },
+        "destination": {
+         "type": "string",
+         "description": "IATA airport or city code"
+        },
+        "date": {
+         "type": "string",
+         "description": "YYYY-MM-DD"
+        }
+       },
+       "required": [
+        "origin",
+        "destination",
+        "date"
+       ]
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "book_hotel",
+      "description": "Book a hotel room.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "city": {
+         "type": "string"
+        },
+        "check_in": {
+         "type": "string"
+        },
+        "nights": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "city",
+        "check_in",
+        "nights"
+       ]
+      }
+     }
+    }
+   ],
+   "grader": {
+    "type": "tool_call",
+    "name": "search_flights",
+    "args": {
+     "origin": {
+      "equals_ci": "SFO"
+     },
+     "destination": {
+      "one_of_ci": [
+       "TYO",
+       "NRT",
+       "HND"
+      ]
+     },
+     "date": {
+      "equals": "2026-11-03"
+     }
+    }
+   },
+   "max_tokens": 6000
+  },
+  {
+   "id": "tool-none",
+   "category": "tool",
+   "prompt": "What is 2 + 2? Just answer.",
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "get_weather",
+      "description": "Get the current weather for a city.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "city": {
+         "type": "string",
+         "description": "City name in English"
+        },
+        "unit": {
+         "type": "string",
+         "enum": [
+          "celsius",
+          "fahrenheit"
+         ]
+        }
+       },
+       "required": [
+        "city",
+        "unit"
+       ]
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "search_flights",
+      "description": "Search one-way flights.",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "origin": {
+         "type": "string",
+         "description": "IATA airport or city code"
+        },
+        "destination": {
+         "type": "string",
+         "description": "IATA airport or city code"
+        },
+        "date": {
+         "type": "string",
+         "description": "YYYY-MM-DD"
+        }
+       },
+       "required": [
+        "origin",
+        "destination",
+        "date"
+       ]
+      }
+     }
+    }
+   ],
+   "grader": {
+    "type": "no_tool_call",
+    "content_contains": "4"
+   },
+   "max_tokens": 6000
+  },
+  {
+   "id": "needle-8k",
+   "category": "long_context",
+   "prompt": "Question: What is the secret passcode for the blue vault? Answer with the passcode only.",
+   "haystack": {
+    "approx_tokens": 8000,
+    "needle": "The secret passcode for the blue vault is 7391-QX.",
+    "depth": 0.5
+   },
+   "grader": {
+    "type": "contains",
+    "value": "7391-QX"
+   },
+   "max_tokens": 6000
+  },
+  {
+   "id": "needle-32k",
+   "category": "long_context",
+   "prompt": "Question: What is the secret passcode for the blue vault? Answer with the passcode only.",
+   "haystack": {
+    "approx_tokens": 32000,
+    "needle": "The secret passcode for the blue vault is 7391-QX.",
+    "depth": 0.5
+   },
+   "grader": {
+    "type": "contains",
+    "value": "7391-QX"
+   },
+   "max_tokens": 6000
+  }
+ ]
+}

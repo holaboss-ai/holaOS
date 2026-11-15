@@ -285,6 +285,70 @@ export interface ChannelConnectionRecord {
   updatedAt: string;
 }
 
+export interface EvaluationRecord {
+  evalId: string;
+  title: string;
+  questionType: string;
+  question: string;
+  status: string;
+  plan: Record<string, unknown> | null;
+  brainModel: string | null;
+  sessionId: string | null;
+  opinionMd: string;
+  opinionUpdatedAt: string | null;
+  distribution: Record<string, unknown> | null;
+  reportUrl: string | null;
+  includeRawData: boolean;
+  parentEvalId: string | null;
+  relation: string | null;
+  source: Record<string, unknown> | null;
+  snapshot: Record<string, unknown> | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationRunRecord {
+  runId: string;
+  evalId: string;
+  runKey: string;
+  kind: string;
+  label: string;
+  spec: Record<string, unknown>;
+  status: string;
+  progress: Record<string, unknown> | null;
+  summary: Record<string, unknown> | null;
+  error: string | null;
+  proposalId: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationProposalRecord {
+  proposalId: string;
+  evalId: string;
+  title: string;
+  rationale: string;
+  evidence: unknown[];
+  runs: unknown[];
+  estimateMinutes: number | null;
+  status: string;
+  createdBy: string;
+  decidedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationRevisionRecord {
+  revisionId: string;
+  evalId: string;
+  opinionMd: string;
+  author: string;
+  createdAt: string;
+}
+
 export interface IntegrationConnectionRecord {
   connectionId: string;
   providerId: string;
@@ -3478,6 +3542,430 @@ export class RuntimeStateStore {
       status: row.status == null ? "pending" : String(row.status),
       statusDetail: row.status_detail == null ? null : String(row.status_detail),
       config,
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  createEvaluation(params: {
+    workspaceId: string;
+    evalId?: string;
+    title: string;
+    questionType: string;
+    question: string;
+    status?: string;
+    plan?: Record<string, unknown> | null;
+    brainModel?: string | null;
+    sessionId?: string | null;
+    parentEvalId?: string | null;
+    relation?: string | null;
+    source?: Record<string, unknown> | null;
+  }): EvaluationRecord {
+    const now = utcNowIso();
+    const evalId = params.evalId?.trim() || `eval-${randomUUID()}`;
+    this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`
+        INSERT INTO evaluations (
+            eval_id, title, question_type, question, status, plan_json, brain_model,
+            session_id, parent_eval_id, relation, source_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        evalId,
+        this.requiredNormalizedText(params.title, "title"),
+        this.requiredNormalizedText(params.questionType, "questionType"),
+        this.requiredNormalizedText(params.question, "question"),
+        this.normalizedNullableText(params.status) ?? "draft",
+        params.plan ? JSON.stringify(params.plan) : null,
+        this.normalizedNullableText(params.brainModel),
+        this.normalizedNullableText(params.sessionId),
+        this.normalizedNullableText(params.parentEvalId),
+        this.normalizedNullableText(params.relation),
+        params.source ? JSON.stringify(params.source) : null,
+        now,
+        now,
+      );
+    const record = this.getEvaluation({ workspaceId: params.workspaceId, evalId });
+    if (!record) {
+      throw new Error("evaluation not found after insert");
+    }
+    return record;
+  }
+
+  getEvaluation(params: { workspaceId: string; evalId: string }): EvaluationRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare("SELECT * FROM evaluations WHERE eval_id = ? LIMIT 1")
+      .get(params.evalId) as Record<string, unknown> | undefined;
+    return row ? this.rowToEvaluation(row) : null;
+  }
+
+  getEvaluationBySessionId(params: { workspaceId: string; sessionId: string }): EvaluationRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare("SELECT * FROM evaluations WHERE session_id = ? ORDER BY updated_at DESC LIMIT 1")
+      .get(params.sessionId) as Record<string, unknown> | undefined;
+    return row ? this.rowToEvaluation(row) : null;
+  }
+
+  listEvaluations(params: { workspaceId: string; limit?: number }): EvaluationRecord[] {
+    const limit = Math.max(1, Math.min(500, params.limit ?? 200));
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare("SELECT * FROM evaluations ORDER BY updated_at DESC, created_at DESC LIMIT ?")
+      .all(limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToEvaluation(row));
+  }
+
+  updateEvaluation(params: {
+    workspaceId: string;
+    evalId: string;
+    title?: string;
+    status?: string;
+    plan?: Record<string, unknown> | null;
+    brainModel?: string | null;
+    sessionId?: string | null;
+    opinionMd?: string;
+    opinionUpdatedAt?: string | null;
+    distribution?: Record<string, unknown> | null;
+    reportUrl?: string | null;
+    includeRawData?: boolean;
+    snapshot?: Record<string, unknown> | null;
+    publishedAt?: string | null;
+  }): EvaluationRecord | null {
+    const assignments: string[] = [];
+    const values: Array<string | number | null> = [];
+    const set = (column: string, value: string | number | null) => {
+      assignments.push(`${column} = ?`);
+      values.push(value);
+    };
+    const json = (value: Record<string, unknown> | null) => (value ? JSON.stringify(value) : null);
+    if (params.title !== undefined) set("title", this.requiredNormalizedText(params.title, "title"));
+    if (params.status !== undefined) set("status", this.requiredNormalizedText(params.status, "status"));
+    if (params.plan !== undefined) set("plan_json", json(params.plan));
+    if (params.brainModel !== undefined) set("brain_model", this.normalizedNullableText(params.brainModel));
+    if (params.sessionId !== undefined) set("session_id", this.normalizedNullableText(params.sessionId));
+    if (params.opinionMd !== undefined) set("opinion_md", params.opinionMd);
+    if (params.opinionUpdatedAt !== undefined) set("opinion_updated_at", params.opinionUpdatedAt);
+    if (params.distribution !== undefined) set("distribution_json", json(params.distribution));
+    if (params.reportUrl !== undefined) set("report_url", this.normalizedNullableText(params.reportUrl));
+    if (params.includeRawData !== undefined) set("include_raw_data", params.includeRawData ? 1 : 0);
+    if (params.snapshot !== undefined) set("snapshot_json", json(params.snapshot));
+    if (params.publishedAt !== undefined) set("published_at", params.publishedAt);
+    set("updated_at", utcNowIso());
+    values.push(params.evalId);
+    const result = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`UPDATE evaluations SET ${assignments.join(", ")} WHERE eval_id = ?`)
+      .run(...values);
+    if (result.changes === 0) {
+      return null;
+    }
+    return this.getEvaluation({ workspaceId: params.workspaceId, evalId: params.evalId });
+  }
+
+  deleteEvaluation(params: { workspaceId: string; evalId: string }): boolean {
+    const db = this.workspaceRuntimeDb(params.workspaceId);
+    let removed = false;
+    db.transaction(() => {
+      db.prepare("DELETE FROM evaluation_runs WHERE eval_id = ?").run(params.evalId);
+      db.prepare("DELETE FROM evaluation_proposals WHERE eval_id = ?").run(params.evalId);
+      db.prepare("DELETE FROM evaluation_revisions WHERE eval_id = ?").run(params.evalId);
+      removed = db.prepare("DELETE FROM evaluations WHERE eval_id = ?").run(params.evalId).changes > 0;
+    })();
+    return removed;
+  }
+
+  createEvaluationRun(params: {
+    workspaceId: string;
+    evalId: string;
+    runKey: string;
+    kind: string;
+    label: string;
+    spec: Record<string, unknown>;
+    status?: string;
+    proposalId?: string | null;
+  }): EvaluationRunRecord {
+    const now = utcNowIso();
+    const runId = `evrun-${randomUUID()}`;
+    this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`
+        INSERT INTO evaluation_runs (
+            run_id, eval_id, run_key, kind, label, spec_json, status, proposal_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        runId,
+        params.evalId,
+        this.requiredNormalizedText(params.runKey, "runKey"),
+        this.requiredNormalizedText(params.kind, "kind"),
+        this.requiredNormalizedText(params.label, "label"),
+        JSON.stringify(params.spec),
+        this.normalizedNullableText(params.status) ?? "queued",
+        this.normalizedNullableText(params.proposalId),
+        now,
+        now,
+      );
+    const record = this.getEvaluationRun({ workspaceId: params.workspaceId, runId });
+    if (!record) {
+      throw new Error("evaluation run not found after insert");
+    }
+    return record;
+  }
+
+  getEvaluationRun(params: { workspaceId: string; runId: string }): EvaluationRunRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare("SELECT * FROM evaluation_runs WHERE run_id = ? LIMIT 1")
+      .get(params.runId) as Record<string, unknown> | undefined;
+    return row ? this.rowToEvaluationRun(row) : null;
+  }
+
+  listEvaluationRuns(params: {
+    workspaceId: string;
+    evalId?: string;
+    statuses?: string[];
+  }): EvaluationRunRecord[] {
+    const clauses: string[] = [];
+    const values: string[] = [];
+    if (params.evalId) {
+      clauses.push("eval_id = ?");
+      values.push(params.evalId);
+    }
+    if (params.statuses && params.statuses.length > 0) {
+      clauses.push(`status IN (${params.statuses.map(() => "?").join(", ")})`);
+      values.push(...params.statuses);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`SELECT * FROM evaluation_runs ${where} ORDER BY created_at ASC, rowid ASC`)
+      .all(...values) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToEvaluationRun(row));
+  }
+
+  updateEvaluationRun(params: {
+    workspaceId: string;
+    runId: string;
+    status?: string;
+    progress?: Record<string, unknown> | null;
+    summary?: Record<string, unknown> | null;
+    error?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+  }): EvaluationRunRecord | null {
+    const assignments: string[] = [];
+    const values: Array<string | null> = [];
+    const set = (column: string, value: string | null) => {
+      assignments.push(`${column} = ?`);
+      values.push(value);
+    };
+    if (params.status !== undefined) set("status", this.requiredNormalizedText(params.status, "status"));
+    if (params.progress !== undefined) set("progress_json", params.progress ? JSON.stringify(params.progress) : null);
+    if (params.summary !== undefined) set("summary_json", params.summary ? JSON.stringify(params.summary) : null);
+    if (params.error !== undefined) set("error", params.error);
+    if (params.startedAt !== undefined) set("started_at", params.startedAt);
+    if (params.finishedAt !== undefined) set("finished_at", params.finishedAt);
+    set("updated_at", utcNowIso());
+    values.push(params.runId);
+    const result = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`UPDATE evaluation_runs SET ${assignments.join(", ")} WHERE run_id = ?`)
+      .run(...values);
+    if (result.changes === 0) {
+      return null;
+    }
+    return this.getEvaluationRun({ workspaceId: params.workspaceId, runId: params.runId });
+  }
+
+  deleteEvaluationRuns(params: { workspaceId: string; evalId: string; statuses: string[] }): number {
+    if (params.statuses.length === 0) {
+      return 0;
+    }
+    return this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(
+        `DELETE FROM evaluation_runs WHERE eval_id = ? AND status IN (${params.statuses.map(() => "?").join(", ")})`,
+      )
+      .run(params.evalId, ...params.statuses).changes;
+  }
+
+  createEvaluationProposal(params: {
+    workspaceId: string;
+    evalId: string;
+    title: string;
+    rationale: string;
+    evidence: unknown[];
+    runs: unknown[];
+    estimateMinutes?: number | null;
+    createdBy: string;
+  }): EvaluationProposalRecord {
+    const now = utcNowIso();
+    const proposalId = `evprop-${randomUUID()}`;
+    this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(`
+        INSERT INTO evaluation_proposals (
+            proposal_id, eval_id, title, rationale, evidence_json, runs_json, estimate_minutes,
+            status, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+      `)
+      .run(
+        proposalId,
+        params.evalId,
+        this.requiredNormalizedText(params.title, "title"),
+        params.rationale.trim(),
+        JSON.stringify(params.evidence),
+        JSON.stringify(params.runs),
+        params.estimateMinutes == null ? null : Math.max(0, Math.round(params.estimateMinutes)),
+        this.requiredNormalizedText(params.createdBy, "createdBy"),
+        now,
+        now,
+      );
+    const record = this.getEvaluationProposal({ workspaceId: params.workspaceId, proposalId });
+    if (!record) {
+      throw new Error("evaluation proposal not found after insert");
+    }
+    return record;
+  }
+
+  getEvaluationProposal(params: { workspaceId: string; proposalId: string }): EvaluationProposalRecord | null {
+    const row = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare("SELECT * FROM evaluation_proposals WHERE proposal_id = ? LIMIT 1")
+      .get(params.proposalId) as Record<string, unknown> | undefined;
+    return row ? this.rowToEvaluationProposal(row) : null;
+  }
+
+  listEvaluationProposals(params: { workspaceId: string; evalId: string }): EvaluationProposalRecord[] {
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare("SELECT * FROM evaluation_proposals WHERE eval_id = ? ORDER BY created_at ASC, rowid ASC")
+      .all(params.evalId) as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToEvaluationProposal(row));
+  }
+
+  setEvaluationProposalStatus(params: {
+    workspaceId: string;
+    proposalId: string;
+    status: string;
+  }): EvaluationProposalRecord | null {
+    const now = utcNowIso();
+    const decided = params.status === "approved" || params.status === "rejected";
+    const result = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(
+        `UPDATE evaluation_proposals
+            SET status = ?, decided_at = CASE WHEN ? THEN ? ELSE decided_at END, updated_at = ?
+          WHERE proposal_id = ?`,
+      )
+      .run(this.requiredNormalizedText(params.status, "status"), decided ? 1 : 0, now, now, params.proposalId);
+    if (result.changes === 0) {
+      return null;
+    }
+    return this.getEvaluationProposal({ workspaceId: params.workspaceId, proposalId: params.proposalId });
+  }
+
+  addEvaluationRevision(params: {
+    workspaceId: string;
+    evalId: string;
+    opinionMd: string;
+    author: string;
+  }): EvaluationRevisionRecord {
+    const revisionId = `evrev-${randomUUID()}`;
+    const createdAt = utcNowIso();
+    this.workspaceRuntimeDb(params.workspaceId)
+      .prepare(
+        "INSERT INTO evaluation_revisions (revision_id, eval_id, opinion_md, author, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(revisionId, params.evalId, params.opinionMd, this.requiredNormalizedText(params.author, "author"), createdAt);
+    return { revisionId, evalId: params.evalId, opinionMd: params.opinionMd, author: params.author.trim(), createdAt };
+  }
+
+  listEvaluationRevisions(params: { workspaceId: string; evalId: string; limit?: number }): EvaluationRevisionRecord[] {
+    const limit = Math.max(1, Math.min(200, params.limit ?? 50));
+    const rows = this.workspaceRuntimeDb(params.workspaceId)
+      .prepare("SELECT * FROM evaluation_revisions WHERE eval_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?")
+      .all(params.evalId, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      revisionId: String(row.revision_id),
+      evalId: String(row.eval_id),
+      opinionMd: String(row.opinion_md ?? ""),
+      author: String(row.author),
+      createdAt: String(row.created_at),
+    }));
+  }
+
+  private parseJsonColumn(value: unknown): unknown {
+    if (typeof value !== "string" || !value.trim()) {
+      return null;
+    }
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
+  private jsonObjectColumn(value: unknown): Record<string, unknown> | null {
+    const parsed = this.parseJsonColumn(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  }
+
+  private jsonArrayColumn(value: unknown): unknown[] {
+    const parsed = this.parseJsonColumn(value);
+    return Array.isArray(parsed) ? parsed : [];
+  }
+
+  private nullableTextColumn(value: unknown): string | null {
+    return value == null ? null : String(value);
+  }
+
+  private rowToEvaluation(row: Record<string, unknown>): EvaluationRecord {
+    return {
+      evalId: String(row.eval_id),
+      title: String(row.title),
+      questionType: String(row.question_type),
+      question: String(row.question),
+      status: String(row.status),
+      plan: this.jsonObjectColumn(row.plan_json),
+      brainModel: this.nullableTextColumn(row.brain_model),
+      sessionId: this.nullableTextColumn(row.session_id),
+      opinionMd: String(row.opinion_md ?? ""),
+      opinionUpdatedAt: this.nullableTextColumn(row.opinion_updated_at),
+      distribution: this.jsonObjectColumn(row.distribution_json),
+      reportUrl: this.nullableTextColumn(row.report_url),
+      includeRawData: Number(row.include_raw_data) !== 0,
+      parentEvalId: this.nullableTextColumn(row.parent_eval_id),
+      relation: this.nullableTextColumn(row.relation),
+      source: this.jsonObjectColumn(row.source_json),
+      snapshot: this.jsonObjectColumn(row.snapshot_json),
+      publishedAt: this.nullableTextColumn(row.published_at),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToEvaluationRun(row: Record<string, unknown>): EvaluationRunRecord {
+    return {
+      runId: String(row.run_id),
+      evalId: String(row.eval_id),
+      runKey: String(row.run_key),
+      kind: String(row.kind),
+      label: String(row.label),
+      spec: this.jsonObjectColumn(row.spec_json) ?? {},
+      status: String(row.status),
+      progress: this.jsonObjectColumn(row.progress_json),
+      summary: this.jsonObjectColumn(row.summary_json),
+      error: this.nullableTextColumn(row.error),
+      proposalId: this.nullableTextColumn(row.proposal_id),
+      startedAt: this.nullableTextColumn(row.started_at),
+      finishedAt: this.nullableTextColumn(row.finished_at),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private rowToEvaluationProposal(row: Record<string, unknown>): EvaluationProposalRecord {
+    return {
+      proposalId: String(row.proposal_id),
+      evalId: String(row.eval_id),
+      title: String(row.title),
+      rationale: String(row.rationale ?? ""),
+      evidence: this.jsonArrayColumn(row.evidence_json),
+      runs: this.jsonArrayColumn(row.runs_json),
+      estimateMinutes: row.estimate_minutes == null ? null : Number(row.estimate_minutes),
+      status: String(row.status),
+      createdBy: String(row.created_by),
+      decidedAt: this.nullableTextColumn(row.decided_at),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     };
