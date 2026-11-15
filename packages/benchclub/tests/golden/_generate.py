@@ -9,6 +9,7 @@ desktop parity fixtures). Run after changing record.build_run_record:
 import json
 import sys
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent.parent / "src"))
@@ -25,6 +26,11 @@ def read(variant, name):
 
 def build(variant):
     inputs = read(variant, "inputs.json")
+    with mock.patch.object(record.pinned, "fingerprint", return_value="0" * 64):
+        return _build(variant, inputs)
+
+
+def _build(variant, inputs):
     return record.build_run_record(
         run_id=inputs["run_id"], job_id=f"local:{inputs['run_id']}", placement="local",
         bench=read(variant, "bench-output.json"), subject=read(variant, "subject.json"),

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import unittest
+from unittest import mock
 
 import support
 from benchclub import record
@@ -12,6 +13,8 @@ SUBJECT = {
 
 
 GOLDEN = support.PACKAGE / "tests" / "golden"
+# The goldens hold a fixed engine fingerprint so an engine edit doesn't rewrite them.
+GOLDEN_ENGINE = "0" * 64
 
 
 def read_golden(variant, name):
@@ -23,6 +26,10 @@ class GoldenTest(unittest.TestCase):
 
     def build(self, variant, client=None):
         inputs = read_golden(variant, "inputs.json")
+        with mock.patch.object(record.pinned, "fingerprint", return_value=GOLDEN_ENGINE):
+            return self._build(variant, inputs, client)
+
+    def _build(self, variant, inputs, client):
         return record.build_run_record(
             run_id=inputs["run_id"], job_id=f"local:{inputs['run_id']}", placement="local",
             bench=read_golden(variant, "bench-output.json"), subject=read_golden(variant, "subject.json"),

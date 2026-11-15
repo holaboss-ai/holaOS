@@ -1,6 +1,7 @@
 """The engine, packs, conditions and bundled subjects, byte for byte as the desktop ships them (see engine/MANIFEST.json)."""
 
 import functools
+import hashlib
 import json
 from pathlib import Path
 
@@ -38,6 +39,16 @@ def conditions():
 @functools.lru_cache(maxsize=None)
 def manifest():
     return json.loads((ENGINE / "MANIFEST.json").read_text(encoding="utf-8"))
+
+
+@functools.lru_cache(maxsize=None)
+def fingerprint():
+    """sha256 of the manifest the engine files on disk would have: the site counts runs only from engines it
+    knows, and a file edited after install changes this even when MANIFEST.json is left alone."""
+    files = {p.relative_to(ENGINE).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in sorted(ENGINE.rglob("*"))
+             if p.is_file() and "__pycache__" not in p.parts and p.name != "MANIFEST.json"}
+    return hashlib.sha256((json.dumps({"files": dict(sorted(files.items()))}, indent=2) + "\n").encode()).hexdigest()
 
 
 def bundled_subjects():
