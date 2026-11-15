@@ -56,14 +56,14 @@ class ItemTest(unittest.TestCase):
     def run_item(self, item, send, capabilities=("completion", "tools")):
         emit = FakeEmit()
         result = holaeval.item11("http://x", "m", item, {"temperature": 0}, {"think": False}, list(capabilities),
-                                 emit, suite11.grade, send=send)
+                                 emit, suite11.grade, send=send, unsupported=suite11.unsupported)
         return result, emit.events
 
-    def test_a_model_without_tools_is_a_format_error_not_a_request(self):
+    def test_a_model_without_tools_is_unsupported_not_a_request(self):
         def send(*_a, **_k):
             raise AssertionError("no request expected")
         result, events = self.run_item(first("bfcl"), send, capabilities=("completion",))
-        self.assertEqual((result["passed"], result["outcome"], result["kind"]), (False, "format_error", "item"))
+        self.assertEqual((result["passed"], result["outcome"], result["kind"]), (False, "unsupported", "item"))
         self.assertEqual([e["type"] for e in events], ["task_start", "sample_done"])
 
     def test_a_reply_cut_off_by_the_token_cap_is_unfinished(self):
@@ -74,7 +74,7 @@ class ItemTest(unittest.TestCase):
     def test_a_failed_request_is_an_error_and_the_run_goes_on(self):
         def send(*_a, **_k):
             raise OSError("connection refused")
-        result, events = self.run_item(first("simpleqa"), send)
+        result, events = self.run_item(first("ifeval"), send)
         self.assertEqual(result["outcome"], "error")
         self.assertTrue(events[-1]["reason"].startswith("request failed"))
 

@@ -6,9 +6,16 @@ verdict never depends on where it was computed. No grader executes, imports or e
 
 import importlib
 
-from .common import FORMAT_ERROR, OUTCOMES, PASS, UNFINISHED, WRONG, normalize_response
+from .common import FORMAT_ERROR, OUTCOMES, PASS, UNFINISHED, UNSUPPORTED, WRONG, normalize_response
 
 BENCHES = ("bfcl", "when2call", "ifbench", "ifeval", "jsonschema", "reasoning", "simpleqa")
+
+
+def unsupported(item, capabilities):
+    """A tool item the build can't take: left out of its scores rather than counted as failed."""
+    if item.get("tools") and "tools" not in (capabilities or []):
+        return {"passed": False, "outcome": UNSUPPORTED, "detail": "this model has no tool support in Ollama"}
+    return None
 
 
 def grade(item, response):

@@ -1,4 +1,4 @@
-"""Build scripts/suite11/out/ifbench.json: 30 single-turn IFBench items whose constraints have a stdlib port.
+"""Build scripts/suite11/out/ifbench.json: 20 single-turn IFBench items whose constraints have a stdlib port.
 
   uv run --python 3.11 --with pyarrow \
     --with "ifbench @ git+https://github.com/allenai/IFBench@488918665d53f867fa908a293769ec6e71e74aec" \
@@ -24,7 +24,7 @@ sys.path.insert(0, str(HERE.parent.parent / "src"))
 from benchclub.engine.suite11.ifbench import CHECKERS  # noqa: E402
 
 SEED = 20261113
-TOTAL = 30
+TOTAL = 20
 CODE_COMMIT = "488918665d53f867fa908a293769ec6e71e74aec"
 HF_REVISION = "ed7c12452594b7028b15807b86d3938150b663ae"
 DATA_URL = f"https://huggingface.co/datasets/allenai/IFBench_test/resolve/{HF_REVISION}/data/train-00000-of-00001.parquet"

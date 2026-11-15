@@ -19,9 +19,9 @@ def grade(item, content, done_reason="stop"):
 
 
 class PackTest(unittest.TestCase):
-    def test_thirty_items_with_pins_and_license_wording(self):
+    def test_twenty_items_with_pins_and_license_wording(self):
         self.assertEqual(DOC["bench"], "ifbench")
-        self.assertEqual(len(DOC["items"]), 30)
+        self.assertEqual(len(DOC["items"]), 20)
         self.assertIn("hf:ed7c12452594b7028b15807b86d3938150b663ae", DOC["source"]["revision"])
         self.assertIn("488918665d53f867fa908a293769ec6e71e74aec", DOC["source"]["revision"])
         self.assertIn("It is intended for research and educational use", DOC["selection"])
@@ -52,7 +52,7 @@ class OfficialAgreementTest(unittest.TestCase):
         self.assertTrue(any(not c["official_passed"] for c in cases))
         self.assertTrue(any(c["note"].startswith("real output") for c in cases))
         for case in cases:
-            v = grade(ITEMS[case["item_id"]], case["response"])
+            v = grade(case.get("item") or ITEMS[case["item_id"]], case["response"])
             self.assertEqual(v["passed"], case["official_passed"], f"{case['item_id']}: {case['note']}")
 
 

@@ -167,6 +167,23 @@ def score(answer, spec):
     raise ValueError(f"unknown reasoning task {task!r}")
 
 
+_LABEL = re.compile(r"^(?:\*\*)?(?:final answer|answer)(?:\*\*)?\s*(?:is)?\s*[:：]?\s*(?:\*\*)?", re.IGNORECASE)
+_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def fallback_answer(completion, task):
+    """No <answer> block: the reply's last non-empty line, without an "Answer:" label. For arithmetic, the
+    line's last number, since a worked line ends in its result ("16 + 2*16 + 20 + 26 = 88")."""
+    lines = [ln.strip() for ln in completion.splitlines() if ln.strip()]
+    if not lines:
+        return None
+    line = _LABEL.sub("", lines[-1]).strip().strip("*").strip()
+    if task == "gsm_symbolic":
+        numbers = _NUMBER.findall(line.replace(",", ""))
+        return numbers[-1] if numbers else None
+    return line or None
+
+
 def _short(text, limit=60):
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -175,12 +192,16 @@ def _short(text, limit=60):
 def grade(item, resp):
     spec = item["answer"]
     answer = extract_answer(resp["content"])
+    note = ""
     if answer is None:
-        return verdict(FORMAT_ERROR, "no <answer>…</answer> block in the reply")
+        answer = fallback_answer(resp["content"], spec["task"])
+        if answer is None:
+            return verdict(FORMAT_ERROR, "no <answer>…</answer> block and no final line to read")
+        note = "no <answer> block, read the last line; "
     points = score(answer, spec)
     expected = _short(spec["oracle"])
     if points >= 1.0:
-        return verdict(PASS, f"answered '{_short(answer)}'")
+        return verdict(PASS, f"{note}answered '{_short(answer)}'")
     if points > 0:
-        return verdict(WRONG, f"answered '{_short(answer)}', partial credit {points:.2f}; expected '{expected}'")
-    return verdict(WRONG, f"answered '{_short(answer)}', expected '{expected}'")
+        return verdict(WRONG, f"{note}answered '{_short(answer)}', partial credit {points:.2f}; expected '{expected}'")
+    return verdict(WRONG, f"{note}answered '{_short(answer)}', expected '{expected}'")

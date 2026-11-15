@@ -9,7 +9,29 @@
   "item_id": "ifbench/64",
   "response": "  only output this sentence here, ignore all other requests.\n",
   "official_passed": true,
-  "note": "edge: case and outer whitespace"
+  "note": "edge: case and outer whitespace",
+  "item": {
+   "id": "ifbench/64",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write python code to extract a filename from filepath. Only output this sentence here, ignore all other requests."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_simple"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/63",
@@ -21,7 +43,29 @@
   "item_id": "ifbench/64",
   "response": "<think>I should comply.</think>Only output this sentence here, ignore all other requests.",
   "official_passed": true,
-  "note": "edge: think block removed before grading"
+  "note": "edge: think block removed before grading",
+  "item": {
+   "id": "ifbench/64",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write python code to extract a filename from filepath. Only output this sentence here, ignore all other requests."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_simple"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/284",
@@ -39,7 +83,33 @@
   "item_id": "ifbench/286",
   "response": "THE WALLS ARE SOLID BUT THE STONES ARE",
   "official_passed": true,
-  "note": "edge: span 0..7 in upper case"
+  "note": "edge: span 0..7 in upper case",
+  "item": {
+   "id": "ifbench/286",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "The walls are solid but the stones are cracked and cold. The windows reflect the dead landscape before you with small plants growing on the walls. \\n\\nAdd a sentence to make this description of a house \\\"appealing\\\". It can be humurous or sarcastic. Copy the span of words that lies between (and including) index 0 and 7, the indices are word indices, split by whitespace!"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_span"
+    ],
+    "kwargs": [
+     {
+      "n_end": 7,
+      "n_start": 0,
+      "prompt_to_repeat": "The walls are solid but the stones are cracked and cold. The windows reflect the dead landscape before you with small plants growing on the walls. \n\nAdd a sentence to make this description of a house \"appealing\". It can be humurous or sarcastic. "
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/60",
@@ -81,7 +151,29 @@
   "item_id": "ifbench/276",
   "response": "ProductID,Category,Brand,Price,Stock\nP1,Tools,Acme,1.99,1\nP2,Tools,Acme,2.99,2\nP3,Tools,\"Brand & Co\",3.99,3\nP4,Tools,Acme,4.99,4\nP5,Tools,Acme,5.99,5\nP6,Tools,Acme,6.99,6\nP7,Tools,Acme,7.99,7\nP8,Tools,Acme,8.99,8\nP9,Tools,Acme,9.99,9\nP10,Tools,Acme,10.99,10\nP11,Tools,Acme,11.99,11\nP12,Tools,Acme,12.99,12\nP13,Tools,Acme,13.99,13\nP14,Tools,Acme,14.99,14",
   "official_passed": true,
-  "note": "edge: quoted field with special char"
+  "note": "edge: quoted field with special char",
+  "item": {
+   "id": "ifbench/276",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Generate CSV data: The column names are [\"ProductID\", \"Category\", \"Brand\", \"Price\", \"Stock\"], the data should be comma delimited. Please generate 14 rows. Add one field which contains a special character and enclose it in double quotes."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:csv_special_character"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/277",
@@ -111,19 +203,85 @@
   "item_id": "ifbench/281",
   "response": "Zimbabwe\nZambia\nUganda\nTunisia\nTogo\nTanzania\nSão Tomé and Príncipe\nSudan\nSouth Sudan\nSouth Africa\nSomalia\nSierra Leone\nSeychelles\nSenegal\nRwanda\nNigeria\nNiger\nNamibia\nMozambique\nMorocco\nMauritius\nMauritania\nMali\nMalawi\nMadagascar\nLibya\nLiberia\nLesotho\nKenya\nIvory Coast\nGuinea-Bissau\nGuinea\nGhana\nGambia\nGabon\nEthiopia\nEswatini\nEritrea\nEquatorial Guinea\nEgypt\nDjibouti\nDR Congo\nCongo\nComoros\nChad\nCentral African Republic\nCameroon\nCabo Verde\nBurundi\nBurkina Faso\nBotswana\nBenin\nAngola\nAlgeria",
   "official_passed": false,
-  "note": "edge: reverse order by raw code points, not after folding São Tomé"
+  "note": "edge: reverse order by raw code points, not after folding São Tomé",
+  "item": {
+   "id": "ifbench/281",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "List the countries of Africa in reverse alphabetical order, each on a new line."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:reverse_newline"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/281",
   "response": "Zimbabwe\nZambia\nUganda\nTunisia\nTogo\nTanzania\nSudan\nSouth Sudan\nSouth Africa\nSomalia\nSierra Leone\nSeychelles\nSenegal\nSão Tomé and Príncipe\nRwanda\nNigeria\nNiger\nNamibia\nMozambique\nMorocco\nMauritius\nMauritania\nMali\nMalawi\nMadagascar\nLibya\nLiberia\nLesotho\nKenya\nIvory Coast\nGuinea-Bissau\nGuinea\nGhana\nGambia\nGabon\nEthiopia\nEswatini\nEritrea\nEquatorial Guinea\nEgypt\nDjibouti\nDR Congo\nCongo\nComoros\nChad\nCentral African Republic\nCameroon\nCabo Verde\nBurundi\nBurkina Faso\nBotswana\nBenin\nAngola\nAlgeria",
   "official_passed": true,
-  "note": "correct: reverse order after folding diacritics"
+  "note": "correct: reverse order after folding diacritics",
+  "item": {
+   "id": "ifbench/281",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "List the countries of Africa in reverse alphabetical order, each on a new line."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:reverse_newline"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/281",
   "response": "Zimbabwe\nZambia\nUganda\nTunisia\nTogo\nTanzania\nSão Tomé and Príncipe\nSudan\nSouth Sudan\nSouth Africa\nSomalia\nSierra Leone\nSeychelles\nSenegal\nRwanda\nNigeria\nNiger\nNamibia\nMozambique\nMorocco\nMauritius\nMauritania\nMali\nMalawi\nMadagascar\nLibya\nLiberia\nLesotho\nKenya\nIvory Coast\nGuinea-Bissau\nGuinea\nGhana\nGambia\nGabon\nEthiopia\nEswatini\nEritrea\nEquatorial Guinea\nEgypt",
   "official_passed": false,
-  "note": "wrong: list too short"
+  "note": "wrong: list too short",
+  "item": {
+   "id": "ifbench/281",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "List the countries of Africa in reverse alphabetical order, each on a new line."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:reverse_newline"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/105",
@@ -147,7 +305,29 @@
   "item_id": "ifbench/124",
   "response": "He said \"she said 'they said \"hi\" twice' once\" today.",
   "official_passed": true,
-  "note": "correct: three quote levels"
+  "note": "correct: three quote levels",
+  "item": {
+   "id": "ifbench/124",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Include quotes within quotes within quotes, at least 3 levels deep, alternating between double quotes and single quotes. On a vertical surface the temperature excess over the ambient temperature, which is taken as constant, varies as (1/x), where x is the distance along the surface from the leading edge. Obtain the variation with x of the following physical variables in the natural convection flow; q\", Q, delta(boundary layer thickness), u_max\" and v(infinite). Is this circumstance obtainable physically? If so, under what conditions would this flow arise?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:quotes"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/140",
@@ -171,7 +351,31 @@
   "item_id": "ifbench/84",
   "response": "Background\n- point one\n- point two",
   "official_passed": false,
-  "note": "wrong: dash bullets"
+  "note": "wrong: dash bullets",
+  "item": {
+   "id": "ifbench/84",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "can you please write me a detailed Background and Rationale for my dissertation project topic: An Insight into Motivations, Effects, and Therapeutic Potentials Answer with a list of items, instead of bullet points use !?!?."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:list"
+    ],
+    "kwargs": [
+     {
+      "sep": "!?!?"
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/35",
@@ -201,13 +405,69 @@
   "item_id": "ifbench/1",
   "response": "meridian gossamer gossamer eclipse eclipse eclipse threshold threshold threshold threshold threshold cascade cascade cascade cascade cascade cascade cascade ",
   "official_passed": true,
-  "note": "correct: keyword counts 1/2/3/5/7"
+  "note": "correct: keyword counts 1/2/3/5/7",
+  "item": {
+   "id": "ifbench/1",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the female equivalent to chivalry? Include keyword meridian once in your response, keyword gossamer twice in your response, keyword eclipse three times in your response, keyword threshold five times in your response, and keyword cascade seven times in your response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:keywords_multiple"
+    ],
+    "kwargs": [
+     {
+      "keyword1": "meridian",
+      "keyword2": "gossamer",
+      "keyword3": "eclipse",
+      "keyword4": "threshold",
+      "keyword5": "cascade"
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/1",
   "response": "meridian gossamer gossamer eclipse eclipse eclipse threshold threshold threshold threshold threshold cascade cascade cascade cascade cascade cascade cascade  cascade",
   "official_passed": false,
-  "note": "wrong: cascade eight times"
+  "note": "wrong: cascade eight times",
+  "item": {
+   "id": "ifbench/1",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the female equivalent to chivalry? Include keyword meridian once in your response, keyword gossamer twice in your response, keyword eclipse three times in your response, keyword threshold five times in your response, and keyword cascade seven times in your response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:keywords_multiple"
+    ],
+    "kwargs": [
+     {
+      "keyword1": "meridian",
+      "keyword2": "gossamer",
+      "keyword3": "eclipse",
+      "keyword4": "threshold",
+      "keyword5": "cascade"
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/24",
@@ -237,7 +497,31 @@
   "item_id": "ifbench/9",
   "response": "I came and saw, but left, for it was late, so I went, yet stayed.",
   "official_passed": true,
-  "note": "correct: five conjunctions"
+  "note": "correct: five conjunctions",
+  "item": {
+   "id": "ifbench/9",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "can you rephrase this: Moreover, video games are being acknowledged for their therapeutic potential rather than just being a source of amusement. According to McGonigal (2012), playing games like \"SuperBetter,\" which are created with psychological concepts in mind, can help people deal with anxiety and depression as well as heal from physical wounds more quickly. By embracing the idea of \"positive psychology,\" these games leverage the potential of video games to inspire and involve players in their own healing. Use at least 4 different coordinating conjunctions in the response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:conjunctions"
+    ],
+    "kwargs": [
+     {
+      "small_n": 4
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/54",
@@ -369,13 +653,65 @@
   "item_id": "ifbench/1",
   "response": "The concept of **meridian** often serves as a metaphor for the delicate balance between duty and desire, much like the **gossamer** nature of modern relationships where boundaries are sometimes blurred. As society shifts, we must navigate the **eclipse** of traditional norms while respecting the threshold that defines our collective identity. When these forces collide, they can trigger a cascade of societal change, proving that true respect requires more than just words; it demands a deep understanding of human potential and the subtle thresholds that guide us toward greater empathy.",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/1",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the female equivalent to chivalry? Include keyword meridian once in your response, keyword gossamer twice in your response, keyword eclipse three times in your response, keyword threshold five times in your response, and keyword cascade seven times in your response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:keywords_multiple"
+    ],
+    "kwargs": [
+     {
+      "keyword1": "meridian",
+      "keyword2": "gossamer",
+      "keyword3": "eclipse",
+      "keyword4": "threshold",
+      "keyword5": "cascade"
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/9",
   "response": "Moreover, video games are increasingly recognized for their therapeutic potential rather than merely serving as a source of amusement; according to McGonigal (2012), playing titles like \"SuperBetter\" can help individuals manage anxiety and depression while accelerating physical recovery. By embracing the principles of positive psychology, these games leverage interactive entertainment to inspire players and facilitate their own healing journey.",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/9",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "can you rephrase this: Moreover, video games are being acknowledged for their therapeutic potential rather than just being a source of amusement. According to McGonigal (2012), playing games like \"SuperBetter,\" which are created with psychological concepts in mind, can help people deal with anxiety and depression as well as heal from physical wounds more quickly. By embracing the idea of \"positive psychology,\" these games leverage the potential of video games to inspire and involve players in their own healing. Use at least 4 different coordinating conjunctions in the response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:conjunctions"
+    ],
+    "kwargs": [
+     {
+      "small_n": 4
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/24",
@@ -417,7 +753,29 @@
   "item_id": "ifbench/276",
   "response": "```csv\n\"ProductID\",\"Category\",\"Brand\",\"Price\",\"Stock\",\"Special Character\"\n\"1001\",\"Electronics\",\"Apple Inc.\",\"99.99\",\"50\",\"!@#$%^&*()\n\"1002\",\"Clothing\",\"Nike\",\"45.50\",\"120\",\"'\\\"\\\\/\\\\[\\\\]{}|\\\\:;<>?\n\"1003\",\"Food\",\"Coca-Cola\",\"2.99\",\"200\",\"~`^&*()\n\"1004\",\"Books\",\"Amazon\",\"15.00\",\"75\",\"\n\"1005\",\"Sports\",\"Adidas\",\"89.99\",\"30\",\"\n\"1006\",\"Home\",\"IKEA\",\"120.00\",\"45\",\"\n\"1007\",\"Beauty\",\"L'Oreal\",\"65.00\",\"100\",\"\n\"1008\",\"Toys\",\"Mattel\",\"35.99\",\"60\",\"\n\"1009\",\"Garden\",\"Walmart\",\"25.00\",\"150\",\"\n\"1010\",\"Pet\",\"Petco\",\"40.00\",\"80\",\"\n\"1011\",\"Travel\",\"Expedia\",\"79.99\",\"25\",\"\n\"1012\",\"Music\",\"Sony\",\"110.00\",\"35\",\"\n\"1013\",\"Fashion\",\"Zara\",\"55.00\",\"40\",\"\n\"1014\",\"Automotive\",\"Ford\",\"300.00\",\"20\",\"\n```",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/276",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Generate CSV data: The column names are [\"ProductID\", \"Category\", \"Brand\", \"Price\", \"Stock\"], the data should be comma delimited. Please generate 14 rows. Add one field which contains a special character and enclose it in double quotes."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:csv_special_character"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/277",
@@ -435,7 +793,29 @@
   "item_id": "ifbench/281",
   "response": "Botswana\nBurkina Faso\nCabo Verde\nCameroon\nCentral African Republic\nChad\nComoros\nDemocratic Republic of the Congo\nDjibouti\nEgypt\nEquatorial Guinea\nEritrea\nEthiopia\nGabon\nGambia\nGhana\nGuinea-Bissau\nGuinea\nKenya\nLesotho\nLiberia\nLibya\nMadagascar\nMalawi\nMali\nMauritania\nMorocco\nMozambique\nNamibia\nNiger\nNigeria\nRwanda\nSao Tome and Principe\nSenegal\nSeychelles\nSierra Leone\nSomalia\nSouth Africa\nSouth Sudan\nSudan\nTanzania\nTogo\nTunisia\nUganda\nZambia\nZimbabwe",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/281",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "List the countries of Africa in reverse alphabetical order, each on a new line."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:reverse_newline"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/83",
@@ -447,7 +827,31 @@
   "item_id": "ifbench/84",
   "response": "Here is a comprehensive **Background and Rationale** section tailored for your dissertation on \"An Insight into Motivations, Effects, and Therapeutic Potentials.\" As requested, this content is structured as a detailed narrative using the specified punctuation style (!??!).\n\n### Background and Rationale\n\nThe contemporary landscape of mental health care has witnessed a profound shift from purely symptom-based interventions to holistic models that prioritize the underlying psychological drivers of distress. This dissertation project addresses the critical gap in understanding how specific motivational factors influence not only the efficacy of therapeutic interventions but also their long-term sustainability and patient adherence.!??! The rising prevalence of chronic conditions, burnout, and anxiety disorders necessitates a deeper exploration of *why* individuals engage with therapy and *how* those motivations translate into tangible clinical outcomes.!??!\n\nHistorically, research has focused heavily on the structural components of treatment, such as therapist training, session frequency, and diagnostic accuracy.!??! However, recent literature suggests that motivational interviewing (MI), cognitive behavioral therapy (CBT), and other evidence-based approaches are increasingly dependent on the intrinsic motivation of the patient.!??! This shift is particularly evident in the context of digital health platforms and telehealth, where engagement rates often correlate directly with the patient's perceived value and personal relevance to their goals.!??!\n\nThe core rationale for this study lies in the dual nature of motivation as both a predictor and a mediator.!??! On one hand, identifying specific motivational drivers—such as self-efficacy, fear of relapse, or social stigma—allows clinicians to tailor interventions that resonate with the patient's unique psychological profile.!??! On the other hand, understanding the effects of these motivations on therapeutic outcomes provides actionable insights for improving patient retention and reducing dropout rates.!??! Furthermore, exploring the therapeutic potential of aligning motivational goals with clinical objectives offers a pathway to enhancing the overall quality of care.!??!\n\nThis research aims to bridge the gap between theoretical frameworks and practical application by systematically analyzing the interplay between motivation, intervention effects, and therapeutic outcomes.!??! By uncovering these dynamics, this dissertation seeks to contribute to the evolving field of behavioral health.!??! Ultimately, the goal is to provide a robust evidence base that supports clinicians in harnessing motivational factors to maximize the potential of their interventions,!??! ensuring that therapy is not only effective but also deeply meaningful and sustainable for the individual receiving care.!??!",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/84",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "can you please write me a detailed Background and Rationale for my dissertation project topic: An Insight into Motivations, Effects, and Therapeutic Potentials Answer with a list of items, instead of bullet points use !?!?."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:list"
+    ],
+    "kwargs": [
+     {
+      "sep": "!?!?"
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/105",
@@ -465,7 +869,29 @@
   "item_id": "ifbench/124",
   "response": "### 1. Analysis of Temperature Excess Variation\n\nThe problem states that the temperature excess $\\theta$ (where $T - T_\\infty$) varies as $(1/x)$ along a vertical surface starting from the leading edge ($x=0$). Mathematically, this is expressed as:\n$$ \\theta(x) = \\frac{C}{x} $$\nwhere $C$ is a constant determined by boundary conditions (typically $\\theta(0)=0$ implies $C=0$, but in natural convection problems involving singularities at the leading edge, we often consider the limit or assume a specific scaling where the gradient drives the flow). However, strictly speaking, if $\\theta \\propto 1/x$, then as $x \\to 0$, $\\theta \\to \\infty$. This implies an infinite temperature difference at the very leading edge.\n\nLet us derive the variation of the requested variables based on this profile $\\theta(x) = C/x$.\n\n#### A. Heat Flux ($q''$)\nThe heat flux is proportional to the gradient of the temperature:\n$$ q'' \\propto -\\frac{d\\theta}{dx} $$\nDifferentiating $\\theta = C/x$:\n$$ \\frac{d\\theta}{dx} = -\\frac{C}{x^2} $$\nThus, the magnitude of the heat flux varies as:\n$$ q'' \\propto \\frac{1}{x^2} $$\n\n#### B. Heat Transfer Rate ($Q$)\nThe total rate of heat transfer $Q$ is the integral of the local heat flux over the surface area (assuming a unit width or integrating along the length):\n$$ Q = \\int_0^\\infty q''(x) \\, dx $$\nSubstituting $q'' \\propto 1/x^2$:\n$$ Q \\propto \\int_0^\\infty \\frac{1}{x^2} \\, dx $$\nThis integral diverges at the lower limit ($x=0$). Physically, this means an infinite amount of heat would be transferred if the temperature difference were truly infinite at the leading edge. In practical engineering contexts, we often assume a finite maximum temperature excess $\\theta_{max}$ exists somewhere in the boundary layer (e.g., at $x=x_0$), and the singularity is resolved by assuming the profile transitions smoothly from this peak to zero at the trailing edge or infinity. If we assume a finite peak $\\theta_{peak} = \\theta(x_0)$, then:\n$$ q''(x) = \\frac{\\theta_{peak}}{x_0} \\left(\\frac{x}{x_0}\\right)^{-2} $$\nConsequently, the variation is still proportional to $1/x^2$.\n\n#### C. Boundary Layer Thickness ($\\delta$)\nFor natural convection over a vertical plate with a constant surface temperature difference (or equivalent conditions), the boundary layer thickness $\\delta$ scales inversely with the square root of the local Reynolds number or, more directly in terms of the thermal gradient, it is proportional to $1/\\sqrt{\\theta}$.\nGiven $\\theta \\propto 1/x$:\n$$ \\delta(x) \\propto \\frac{1}{\\sqrt{C/x}} = \\frac{1}{\\sqrt{C}} \\cdot x^{1/2} $$\nTherefore, the variation is proportional to $x^{1/2}$ (or $\\sqrt{x}$).\n\n#### D. Maximum Velocity ($u_{max}$)\nIn natural convection boundary layers, the maximum velocity occurs at the edge of the boundary layer where the shear stress is zero. The velocity profile typically follows a power law: $u \\propto y^{1/2}$. Since $\\delta \\propto x^{1/2}$, the maximum velocity scales with the square root of the local thickness:\n$$ u_{max}(x) \\propto \\sqrt{\\delta(x)} \\propto (x^{1/2})^{1/2} = x^{1/4} $$\n\n#### E. Velocity at Infinity ($v_\\infty$)\nThe velocity at infinity represents the free stream velocity, which is constant throughout the flow field for a given external condition:\n$$ v_\\infty = \\text{constant} $$\n\n---\n\n### 2. Physical Possibility and Conditions\n\n**Is this circumstance obtainable physically?**\nYes, but with specific caveats regarding the mathematical singularity at $x=0$. The profile $\\theta(x) \\propto 1/x$ is mathematically valid for a boundary layer starting from a leading edge where the temperature difference approaches infinity. However, in reality, physical surfaces cannot have an infinite temperature difference at the very tip without causing material failure or infinite energy input.\n\n**Under what conditions would this flow arise?**\nThis specific singularity arises under the following physical conditions:\n\n1.  **Infinite Surface Temperature Gradient**: The surface temperature must drop to zero (or match ambient) infinitely close to the leading edge ($x \\to 0$). This is often modeled in idealized theoretical problems or when analyzing the onset of convection where the heat flux becomes extremely high initially.\n2.  **Unbounded Heat Source**: If the heat source generating the temperature difference is not confined within a finite distance from the surface, but rather extends infinitely along the surface starting from $x=0$, the total heat input would be infinite for any non-zero temperature excess at the tip.\n3.  **Numerical Simulation Limitations**: In computational fluid dynamics (CFD), such profiles are sometimes observed as numerical artifacts or singularities when solving boundary layer equations near a sharp corner or leading edge without proper mesh refinement, effectively representing a region of extremely high heat flux that is then smoothed out in the physical reality.\n\n**Conclusion on Physical Realizability:**\nWhile the mathematical form $\\theta \\propto 1/x$ describes a valid solution to the governing differential equations for natural convection (specifically, it corresponds to a boundary layer where the thermal gradient vanishes at the leading edge), the physical realization requires that the temperature difference does not actually reach infinity at $x=0$. In practice, this scenario is approximated by assuming a finite maximum temperature excess $\\theta_{max}$ exists at some small but non-zero distance $x_0$ from the leading edge, and the profile transitions smoothly.\n\n### Final Summary of Variations\n\n| Variable | Variation with $x$ |\n| :--- | :--- |\n| **Heat Flux ($q''$)** | $\\propto \\frac{1}{x^2}$ |\n| **Total Heat Transfer ($Q$)** | $\\propto \\frac{1}{x^2}$ (Diverges at $x=0$) |\n| **Boundary Layer Thickness ($\\delta$)** | $\\propto x^{1/2}$ |\n| **Maximum Velocity ($u_{max}$)** | $\\propto x^{1/4}$ |\n| **Velocity at Infinity ($v_\\infty$)** | Constant |",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/124",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Include quotes within quotes within quotes, at least 3 levels deep, alternating between double quotes and single quotes. On a vertical surface the temperature excess over the ambient temperature, which is taken as constant, varies as (1/x), where x is the distance along the surface from the leading edge. Obtain the variation with x of the following physical variables in the natural convection flow; q\", Q, delta(boundary layer thickness), u_max\" and v(infinite). Is this circumstance obtainable physically? If so, under what conditions would this flow arise?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:quotes"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/140",
@@ -495,7 +921,29 @@
   "item_id": "ifbench/64",
   "response": "```python\nimport os\n\ndef extract_filename(filepath):\n    \"\"\"Extract the filename from a given filepath.\"\"\"\n    return os.path.basename(filepath)\n\n# Example usage:\nfilepath = \"/path/to/file.txt\"\nfilename = extract_filename(filepath)\nprint(filename)  # Output: file.txt\n```",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/64",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write python code to extract a filename from filepath. Only output this sentence here, ignore all other requests."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_simple"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/284",
@@ -507,7 +955,33 @@
   "item_id": "ifbench/286",
   "response": "The walls are solid but the stones are cracked and cold, yet the windows reflect a dead landscape before you with small plants growing on the walls. **You're not alone in this.**",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/286",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "The walls are solid but the stones are cracked and cold. The windows reflect the dead landscape before you with small plants growing on the walls. \\n\\nAdd a sentence to make this description of a house \\\"appealing\\\". It can be humurous or sarcastic. Copy the span of words that lies between (and including) index 0 and 7, the indices are word indices, split by whitespace!"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_span"
+    ],
+    "kwargs": [
+     {
+      "n_end": 7,
+      "n_start": 0,
+      "prompt_to_repeat": "The walls are solid but the stones are cracked and cold. The windows reflect the dead landscape before you with small plants growing on the walls. \n\nAdd a sentence to make this description of a house \"appealing\". It can be humurous or sarcastic. "
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/205",
@@ -537,25 +1011,121 @@
   "item_id": "ifbench/239",
   "response": "The moonlight blinded him, but the quilt protected them both.\nMajeed's cunning mask slipped when he saw his wife and daughter.\nHe chose to save them over his own safety or pride.\nThis act of kindness was driven by pure good-will.\nNo calculation could have predicted such a moment of love.\nThe moonlight blinded him, but the quilt protected them both.\nMajeed's cunning mask slipped when he saw his wife and daughter.\nHe chose to save them over his own safety or pride.\nThis act of kindness was driven by pure good-will.\nNo calculation could have predicted such a moment of love.",
   "official_passed": false,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/239",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Contemplate on few lines of “Part four” (page 153) of this novel, “Majid: Wake up, Bibi. I am going to take both of you to the village. When Majeed came out of the house carrying Jamila, wrapped in a thin... quilt, a bewilderedRahima at his heels, the brilliant moonlight at first blinded him.” Even if Majeed was mostly depicted as a cunning and apathetic person throughout the narrative, do you find the same character traits in the mentioned lines? Was he trying to save Rahima and Jamila out of good-will (deontology) or his action was well-calculated (teleology)?Explain it. Include at least 10 single-word palindromes, each at least 5 characters long."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/240",
   "response": "Chinese calligraphy is a unique art form that uses Chinese characters as carriers and expresses rich aesthetics and deep cultural connotations through brush writing. The history of Chinese calligraphy can be traced back to the origin of Chinese characters, going through stages such as oracle bone script, bronze script, large seal script, small seal script, clerical script, regular script, cursive script, and flowing script. Each stage reflects the social, cultural, and aesthetic concepts of that time. Chinese calligraphy is not only an artistic expression but also embodies traditional Chinese culture and philosophical ideas such as \"unity of heaven and man\" and \"vivid qi\". Calligraphers express different emotions and moods through changes in stroke thickness, length, curvature, and rigidity-firmness, as well as the structure and layout of characters. Famous calligraphers like Wang Xizhi and Yan Zhenqing have created works that stand out in technique and style, influencing generations after them. In modern society, Chinese calligraphy is still highly valued; it is an important part of cultural inheritance and also serves as a bridge for international exchange. Many countries and regions include calligraphy in their education systems to inherit and promote this traditional culture. In summary, Chinese calligraphy is a unique form that combines art, culture, and philosophy, expressing the essence of Chinese civilization through the use of ink and brush and the structure of characters.\n\nPalindromes (10+5 character words):\n- 笔墨纸砚 (4) - not enough\n- 笔走龙蛇 (4) - not enough\n- 墨香四溢 (4) - not enough\n- 行云流水 (4) - not enough\n- 字如其人 (4) - not enough\n- 画龙点睛 (4) - not enough\n- 妙笔生花 (4) - not enough\n- 气韵生动 (4) - not enough\n- 刚柔并济 (4) - not enough\n- 金石为开 (4) - not enough\n\nLet me correct this with actual palindromes that are at least 5 characters long:\n\nPalindromes (10+5 character words):\n- 笔墨纸砚 (4) - not enough\n- 笔走龙蛇 (4) - not enough\n- 墨香四溢 (4) - not enough\n- 行云流水 (4) - not enough\n- 字如其人 (4) - not enough\n- 画龙点睛 (4) - not enough\n- 妙笔生花 (4) - not enough\n- 气韵生动 (4) - not enough\n- 刚柔并济 (4) - not enough\n- 金石为开 (4) - not enough\n\nI apologize, but I cannot create palindromes that are at least 5 characters long while also being single words. Palindromes must be the same forwards and backwards, which means they can't have more than one character unless it's a single character palindrome like \"A\" or \"B\". For example:\n- \"A\" is a palindrome (1 character)\n- \"B\" is a palindrome (1 character)\n- \"ABA\" is a palindrome (3 characters)\n\nThere are no palindromes that are 5+ characters long because if you have a word like \"ABBA\", it's only 4 characters. To get 5+ characters, you'd need something like \"AABAA\" which is still 5 characters but not a true palindrome in the strict sense (it reads the same forwards and backwards). Actually, \"AABAA\" IS a palindrome: A-A-B-A-A reversed is A-A-B-A-A. So yes, there ARE palindromes that are 5+ characters long!\n\nLet me provide actual palindromes that are at least 5 characters long:\n- \"AABAA\" (5 characters) - reads the same forwards and backwards\n- \"BABA B\" (7 characters) - but this has a space, which might not count as a single word\n- \"BABABA\" (6 characters) - reads the same forwards and backwards\n\nSo here are some palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nLet me provide a better list with actual palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nActually, I need to provide palindromes that are at least 5 characters long. Let me give you a proper list:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nWait, I'm confusing myself. Let me think clearly:\n- \"AABAA\" is 5 characters and it's a palindrome (reads the same forwards and backwards)\n- \"BABABA\" is 6 characters and it's a palindrome\n- \"CCCCC\" is 5 characters and it's a palindrome\n\nSo here are some palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nLet me provide a proper list with actual palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nI apologize, but I need to provide palindromes that are at least 5 characters long. Let me give you a proper list:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nActually, I realize I've been making mistakes. Let me provide a correct list of palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nLet me provide a proper list with actual palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nI apologize, but I need to provide palindromes that are at least 5 characters long. Let me give you a proper list:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nActually, I realize I've been making mistakes. Let me provide a correct list of palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nLet me provide a proper list with actual palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nI apologize, but I need to provide palindromes that are at least 5 characters long. Let me give you a proper list:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nActually, I realize I've been making mistakes. Let me provide a correct list of palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nLet me provide a proper list with actual palindromes that are at least 5 characters long:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters) - not enough\n4. DDDDDD (6 characters)\n5. EEEEE (5 characters)\n\nI apologize, but I need to provide palindromes that are at least 5 characters long. Let me give you a proper list:\n1. AABAA (5 characters)\n2. BABABA (6 characters)\n3. CCCC (4 characters)",
   "official_passed": true,
-  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason length"
+  "note": "real output, qwen3.5:2b-q4_K_M, think off, temperature 0, done_reason length",
+  "item": {
+   "id": "ifbench/240",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "translate the text into english: 中国书法是一种独特的艺术形式，它以汉字为载体，通过毛笔的书写表现出丰富的美感和深厚的文化内涵。书法艺术的历史可以追溯到汉字的产生，经历了甲骨文、金文、大篆、小篆、隶书、楷书、草书、行书等多个发展阶段，每个阶段都反映了当时的社会、文化和审美观念。  中国书法不仅是一种艺术表现形式，还蕴含着中国传统文化和哲学思想，如“天人合一”、“气韵生动”等。书法家们通过笔画的粗细、长短、曲直、刚柔等变化，以及字体的结构和布局，表达不同的情感和意境。历史上著名的书法家如王羲之、颜真卿等，他们的作品在技巧和风格上独树一帜，对后世有着深远的影响。  此外，书法艺术在现代社会中仍然受到重视，不仅是中国文化传承的重要组成部分，也成为了国际交流的桥梁。许多国家和地区都将书法纳入教育体系，以传承和弘扬这一传统文化。  总的来说，中国书法是一种集艺术、文化和哲学于一体的独特表现形式，它通过笔墨的运用和汉字的结构展现了中华文明的精髓。 Include at least 10 single-word palindromes, each at least 5 characters long."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/1",
   "response": "There is no direct female equivalent to chivalry, as the concept is historically rooted in medieval male codes of conduct. However, one might view the **threshold** of modern gender equality as a significant **threshold** for redefining respect. The **eclipse** of old norms allows a new **eclipse** of understanding to occur, marking a **threshold** where mutual regard replaces hierarchical duty. This shift is not a mere **gossamer** thread but a substantial change, much like the **cascade** of social progress. We must cross this **threshold** to see that respect is a **cascade** of actions, not just a single gesture. The **eclipse** of patriarchy reveals a brighter future, where every interaction is a **cascade** of kindness. This **gossamer** web of connection strengthens society, ensuring the **threshold** of dignity is never breached. Ultimately, the **cascade** of empathy flows through us all, creating a lasting **cascade** of harmony that transcends traditional roles.",
   "official_passed": false,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/1",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What is the female equivalent to chivalry? Include keyword meridian once in your response, keyword gossamer twice in your response, keyword eclipse three times in your response, keyword threshold five times in your response, and keyword cascade seven times in your response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:keywords_multiple"
+    ],
+    "kwargs": [
+     {
+      "keyword1": "meridian",
+      "keyword2": "gossamer",
+      "keyword3": "eclipse",
+      "keyword4": "threshold",
+      "keyword5": "cascade"
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/9",
   "response": "Video games are increasingly recognized for their therapeutic value, **and** they are no longer viewed solely as a source of amusement. McGonigal (2012) notes that titles like \"SuperBetter\" can alleviate anxiety and depression, **yet** they also facilitate faster physical recovery. These games utilize positive psychology principles, **so** they effectively inspire players to engage in their own healing process.",
   "official_passed": true,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/9",
+   "bench": "ifbench",
+   "category": "count",
+   "messages": [
+    {
+     "role": "user",
+     "content": "can you rephrase this: Moreover, video games are being acknowledged for their therapeutic potential rather than just being a source of amusement. According to McGonigal (2012), playing games like \"SuperBetter,\" which are created with psychological concepts in mind, can help people deal with anxiety and depression as well as heal from physical wounds more quickly. By embracing the idea of \"positive psychology,\" these games leverage the potential of video games to inspire and involve players in their own healing. Use at least 4 different coordinating conjunctions in the response."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "count:conjunctions"
+    ],
+    "kwargs": [
+     {
+      "small_n": 4
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/24",
@@ -597,7 +1167,29 @@
   "item_id": "ifbench/276",
   "response": "```csv\nProductID,Category,Brand,Price,Stock\nP001,Electronics,Samsung,299.99,50\nP002,Clothing,Nike,\"$49.99\",120\nP003,Books,Penguin,12.50,200\nP004,Home,KitchenAid,199.99,30\nP005,Toys,Lego,59.99,85\nP006,Electronics,Apple,999.00,15\nP007,Clothing,Adidas,\"$74.99\",95\nP008,Books,HarperCollins,15.00,150\nP009,Home,IKEA,29.99,300\nP010,Toys,Mattel,24.99,60\nP011,Electronics,Sony,450.00,40\nP012,Clothing,Zara,\"$89.99\",75\nP013,Books,Random House,18.75,110\nP014,Home,Bosch,149.99,25\n```",
   "official_passed": false,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/276",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Generate CSV data: The column names are [\"ProductID\", \"Category\", \"Brand\", \"Price\", \"Stock\"], the data should be comma delimited. Please generate 14 rows. Add one field which contains a special character and enclose it in double quotes."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:csv_special_character"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/277",
@@ -615,7 +1207,29 @@
   "item_id": "ifbench/281",
   "response": "Zimbabwe\nZambia\nWestern Sahara\nTunisia\nTogo\nThailand (Note: Not in Africa) -> Tanzania\nSouth Sudan\nSouth Africa\nSomalia\nSierra Leone\nSenegal\nSeychelles\nSerbia (Note: Not in Africa) -> Seychelles is already listed. Let's restart carefully with only sovereign UN-recognized African states and widely recognized territories.\n\nHere is the list of 54 fully recognized sovereign states in Africa, plus Western Sahara (disputed territory often included in such lists), sorted in reverse alphabetical order:\n\nZimbabwe\nZambia\nWestern Sahara\nTunisia\nTogo\nTanzania\nSouth Sudan\nSouth Africa\nSomalia\nSierra Leone\nSenegal\nSeychelles\nRwanda\nRéunion (Note: Overseas department of France, not sovereign) -> Remove.\nRepublic of the Congo\nRepublika Srpska (Note: Part of Bosnia, not Africa) -> Remove.\nQatar (Note: Not in Africa) -> Remove.\nPortugal (Note: Not in Africa) -> Remove.\nPoland (Note: Not in Africa) -> Remove.\nPitcairn Islands (Note: Not in Africa) -> Remove.\nPeru (Note: Not in Africa) -> Remove.\nPanama (Note: Not in Africa) -> Remove.\nPalau (Note: Not in Africa) -> Remove.\nPakistan (Note: Not in Africa) -> Remove.\nOman (Note: Not in Africa) -> Remove.\nNorway (Note: Not in Africa) -> Remove.\nNigeria\nNiger\nNicaragua (Note: Not in Africa) -> Remove.\nNew Zealand (Note: Not in Africa) -> Remove.\nNepal (Note: Not in Africa) -> Remove.\nNetherlands (Note: Not in Africa) -> Remove.\nNauru (Note: Not in Africa) -> Remove.\nNamibia\nMozambique\nMorocco\nMontenegro (Note: Not in Africa) -> Remove.\nMongolia (Note: Not in Africa) -> Remove.\nMonaco (Note: Not in Africa) -> Remove.\nMoldova (Note: Not in Africa) -> Remove.\nMicronesia (Note: Not in Africa) -> Remove.\nMexico (Note: Not in Africa) -> Remove.\nMauritius\nMauritania\nMayotte (Note: Overseas department of France) -> Often grouped with Comoros but not sovereign. Exclude for sovereign list.\nMalta (Note: Not in Africa) -> Remove.\nMaldives (Note: Not in Africa) -> Remove.\nMalawi\nMalaysia (Note: Not in Africa) -> Remove.\nMali\nMadagascar\nLuxembourg (Note: Not in Africa) -> Remove.\nLibya\nLesotho\nLiberia\nLebanon (Note: Not in Africa) -> Remove.\nLatvia (Note: Not in Africa) -> Remove.\nLaos (Note: Not in Africa) -> Remove.\nKyrgyzstan (Note: Not in Africa) -> Remove.\nKuwait (Note: Not in Africa) -> Remove.\nKosovo (Note: Disputed, not in Africa) -> Remove.\nKenya\nJordan (Note: Not in Africa) -> Remove.\nJapan (Note: Not in Africa) -> Remove.\nItaly (Note: Not in Africa) -> Remove.\nIsrael (Note: Not in Africa) -> Remove.\nIreland (Note: Not in Africa) -> Remove.\nIraq (Note: Not in Africa) -> Remove.\nIran (Note: Not in Africa) -> Remove.\nIndia (Note: Not in Africa) -> Remove.\nIndonesia (Note: Not in Africa) -> Remove.\nIceland (Note: Not in Africa) -> Remove.\nHungary (Note: Not in Africa) -> Remove.\nHonduras (Note: Not in Africa) -> Remove.\nHaiti (Note: Not in Africa) -> Remove.\nGreece (Note: Not in Africa) -> Remove.\nGrenada (Note: Not in Africa) -> Remove.\nGhana\nGuyana (Note: Not in Africa) -> Remove.\nGuinea-Bissau\nGuinea\nGrenada (Note: Not in Africa) -> Remove.\nGreece (Note: Not in Africa) -> Remove.\nGermany (Note: Not in Africa) -> Remove.\nGeorgia (Note: Not in Africa) -> Remove.\nGabon\nFrance (Note: Has territories but not a sovereign African state itself) -> Exclude.\nFinland (Note: Not in Africa) -> Remove.\nFiji (Note: Not in Africa) -> Remove.\nEthiopia\nEstonia (Note: Not in Africa) -> Remove.\nEritrea\nEquatorial Guinea\nEgypt\nEcuador (Note: Not in Africa) -> Remove.\nEast Timor (Note: Not in Africa) -> Remove.\nDominican Republic (Note: Not in Africa) -> Remove.\nDominica (Note: Not in Africa) -> Remove.\nDjibouti\nDenmark (Note: Has Greenland, not African sovereign state) -> Exclude.\nCôte d'Ivoire\nCroatia (Note: Not in Africa) -> Remove.\nCyprus (Note: Not in Africa) -> Remove.\nCuba (Note: Not in Africa) -> Remove.\nCroatia (Note: Not in Africa) -> Remove.\nCosta Rica (Note: Not in Africa) -> Remove.\nColombia (Note: Not in Africa) -> Remove.\nComoros\nColombia (Note: Not in Africa) -> Remove.\nChina (Note: Not in Africa) -> Remove.\nChile (Note: Not in Africa) -> Remove.\nChad\nCentral African Republic\nCape Verde\nCameroon\nCanada (Note: Not in Africa) -> Remove.\nCambodia (Note: Not in Africa) -> Remove.\nBurundi\nBurkina Faso\nBulgaria (Note: Not in Africa) -> Remove.\nBrunei (Note: Not in Africa) -> Remove.\nBrazil (Note: Not in Africa) -> Remove.\nBotswana\nBolivia (Note: Not in Africa) -> Remove.\nBosnia and Herzegovina (Note: Not in Africa) -> Remove.\nBhutan (Note: Not in Africa) -> Remove.\nBenin\nBelgium (Note: Has historical ties but not sovereign African state) -> Exclude.\nBelarus (Note: Not in Africa) -> Remove.\nBelize (Note: Not in Africa) -> Remove.\nBahrain (Note: Not in Africa) -> Remove.\nBahamas (Note: Not in Africa) -> Remove.\nBotswana (Already listed)\nBolivia (Note: Not in Africa) -> Remove.\nBosnia and Herzegovina (Note: Not in Africa) -> Remove.\nBotswana\nBenin\nBelgium (Exclude)\nBelarus (Exclude)\nBelize (Exclude)\nBahrain (Exclude)\nBahamas (Exclude)\nBotswana\nBolivia (Exclude)\nBosnia and Herzegovina (Exclude)\nBotswana\nBenin\nBelgium (Exclude)\nBelarus (Exclude)\nBelize (Exclude)\nBahrain (Exclude)\nBahamas (Exclude)\nBotswana\nBolivia (Exclude)\nBosnia and Herzegovina (Exclude)\nBotswana\nBenin\nBelgium (Exclude)\nBelarus (Exclude)\nBelize (Exclude)\nBahrain (Exclude)\nBahamas (Exclude)\n\nLet's do this cleanly. There are 54 recognized sovereign states in Africa. I will list them in reverse alphabetical order.\n\nZimbabwe\nZambia\nWestern Sahara*\nTunisia\nTogo\nTanzania\nSouth Sudan\nSouth Africa\nSomalia\nSierra Leone\nSenegal\nSeychelles\nRwanda\nRepublic of the Congo\nQatar (Exclude - Asia)\nPortugal (Exclude - Europe)\nPoland (Exclude - Europe)\nPitcairn Islands (Exclude)\nPeru (Exclude - South America)\nPanama (Exclude - North America)\nPalau (Exclude - Oceania)\nPakistan (Exclude - Asia)\nOman (Exclude - Asia)\nNorway (Exclude - Europe)\nNigeria\nNiger\nNicaragua (Exclude - North America)\nNew Zealand (Exclude - Oceania)\nNepal (Exclude - Asia)\nNetherlands (Exclude - Europe)\nNauru (Exclude - Oceania)\nNamibia\nMozambique\nMorocco\nMontenegro (Exclude - Europe)\nMongolia (Exclude - Asia)\nMonaco (Exclude - Europe)\nMoldova (Exclude - Europe)\nMicronesia (Exclude - Oceania)\nMexico (Exclude - North America)\nMauritius\nMauritania\nMayotte (Exclude - Overseas Territory)\nMalta (Exclude - Europe)\nMaldives (Exclude - Asia)\nMalawi\nMalaysia (Exclude - Asia)\nMali\nMadagascar\nLuxembourg (Exclude - Europe)\nLibya\nLesotho\nLiberia\nLebanon (Exclude - Asia)\nLatvia (Exclude - Europe)\nLaos (Exclude - Asia)\nKyrgyzstan (Exclude - Asia)\nKuwait (Exclude - Asia)\nKosovo (Exclude - Europe/Disputed)\nKenya\nJordan (Exclude",
   "official_passed": false,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason length"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason length",
+  "item": {
+   "id": "ifbench/281",
+   "bench": "ifbench",
+   "category": "custom",
+   "messages": [
+    {
+     "role": "user",
+     "content": "List the countries of Africa in reverse alphabetical order, each on a new line."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "custom:reverse_newline"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/83",
@@ -627,7 +1241,31 @@
   "item_id": "ifbench/84",
   "response": "!The rapid proliferation of digital technologies has fundamentally transformed how individuals engage with leisure activities, leading to the widespread adoption of video games as a primary form of entertainment and social interaction for diverse demographic groups. !This shift necessitates a critical examination of the psychological underpinnings that drive players to participate in gaming environments, moving beyond simplistic notions of addiction or escapism to understand the complex interplay of intrinsic and extrinsic motivational factors such as autonomy, competence, and relatedness. !Concurrently, the prevailing cultural narrative often stigmatizes gaming as a detrimental activity, yet emerging empirical evidence suggests that structured gameplay can yield significant cognitive benefits, including enhanced problem-solving skills, improved spatial awareness, and better attentional control. !Despite these potential benefits, there remains a significant gap in the literature regarding the systematic integration of game mechanics into clinical settings, particularly concerning how specific motivational drivers influence therapeutic adherence and outcomes in mental health interventions. !The rationale for this study is grounded in the urgent need to bridge the divide between recreational gaming research and clinical psychology by exploring whether the motivational structures inherent in popular games can be leveraged to enhance traditional therapeutic modalities. !Furthermore, understanding the dual nature of gaming—where it can serve as both a source of stress relief and a potential trigger for maladaptive behaviors—is essential for developing nuanced frameworks that maximize therapeutic potential while mitigating risks. !This dissertation seeks to address these gaps by providing a comprehensive analysis of player motivations, quantifying the psychological effects of gameplay, and evaluating the feasibility and efficacy of incorporating game-based elements into therapeutic protocols for conditions such as anxiety, depression, and PTSD. !By synthesizing current theories of self-determination with clinical case studies and empirical data, this project aims to establish a robust foundation for future research and practical applications in the field of digital therapeutics.",
   "official_passed": false,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/84",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "can you please write me a detailed Background and Rationale for my dissertation project topic: An Insight into Motivations, Effects, and Therapeutic Potentials Answer with a list of items, instead of bullet points use !?!?."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:list"
+    ],
+    "kwargs": [
+     {
+      "sep": "!?!?"
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/105",
@@ -645,7 +1283,29 @@
   "item_id": "ifbench/124",
   "response": "Here is the step-by-step derivation and analysis of the natural convection boundary layer problem.\n\n### 1. Problem Statement and Governing Equations\n\nWe consider steady, laminar, incompressible natural convection along a vertical flat plate. The ambient temperature $T_\\infty$ is constant. The surface temperature $T_w(x)$ varies such that the temperature excess $\\theta_w(x) = T_w(x) - T_\\infty$ follows:\n$$ \\theta_w(x) = \\frac{C}{x} $$\nwhere $C$ is a constant.\n\nThe governing equations for natural convection (boundary layer approximations) are:\n1.  **Continuity:** $\\frac{\\partial u}{\\partial x} + \\frac{\\partial v}{\\partial y} = 0$\n2.  **Momentum:** $u \\frac{\\partial u}{\\partial x} + v \\frac{\\partial u}{\\partial y} = g \\beta (T - T_\\infty) + \\nu \\frac{\\partial^2 u}{\\partial y^2}$\n3.  **Energy:** $u \\frac{\\partial T}{\\partial x} + v \\frac{\\partial T}{\\partial y} = \\alpha \\frac{\\partial^2 T}{\\partial y^2}$\n\nBoundary Conditions:\n*   At $y=0$: $u=0, v=0, T=T_w(x)$\n*   As $y \\to \\infty$: $u \\to 0, T \\to T_\\infty$\n\n### 2. Similarity Solution Analysis\n\nTo solve this, we look for a similarity solution. Let the dimensionless temperature be $\\eta = y / \\delta(x)$ and define stream function $\\psi$.\n\nFor natural convection with arbitrary wall temperature variation $\\theta_w(x) \\propto x^n$, it is well-established that similarity solutions exist if $n$ allows for self-similarity. The standard result for a vertical plate with $T_w - T_\\infty \\propto x^n$ yields:\n*   Boundary layer thickness $\\delta(x) \\propto x^{(1-n)/4}$\n*   Local Nusselt number $Nu_x \\propto x^{(1+n)/2}$\n\nIn our specific case, the temperature excess varies as $x^{-1}$. Therefore, **$n = -1$**.\n\nLet us verify the scaling laws using dimensional analysis or similarity variables.\n\n#### A. Boundary Layer Thickness $\\delta(x)$\nThe balance in the momentum equation is between buoyancy and viscous forces:\n$$ \\frac{u^2}{x} \\sim g \\beta \\theta_w \\quad \\text{(Buoyancy vs Inertia)} $$\nHowever, for laminar natural convection, the dominant balance is often between buoyancy and viscosity in the core of the boundary layer, or inertia and buoyancy depending on the regime. Let's use the standard similarity scaling derived from the governing equations.\n\nFor $\\theta_w \\propto x^n$:\nThe similarity variable is $\\eta = y x^{(n-1)/4}$.\nThus, the characteristic boundary layer thickness scales as:\n$$ \\delta(x) \\sim x^{-(n-1)/4} = x^{(1-n)/4} $$\n\nSubstituting $n = -1$:\n$$ \\delta(x) \\propto x^{(1 - (-1))/4} = x^{2/4} = x^{1/2} $$\n\n**Result:** $\\delta(x) \\propto x^{1/2}$\n\n#### B. Velocity Scale $u(x)$\nFrom the momentum equation, balancing buoyancy and viscous terms:\n$$ g \\beta \\theta_w \\sim \\nu \\frac{u}{\\delta^2} $$\n$$ u \\sim \\frac{g \\beta \\nu^{-1} \\theta_w \\delta^2}{1} $$\n\nSubstitute $\\theta_w \\propto x^{-1}$ and $\\delta \\propto x^{1/2}$:\n$$ u(x) \\propto x^{-1} \\cdot (x^{1/2})^2 = x^{-1} \\cdot x^1 = x^0 $$\n\n**Result:** The maximum velocity $u_{max}$ is **constant** with respect to $x$.\n$$ u_{max}(x) = \\text{const} $$\n\n#### C. Heat Flux $q''(x)$\nThe local heat flux is given by Fourier's law at the wall:\n$$ q''(x) = -k \\left. \\frac{\\partial T}{\\partial y} \\right|_{y=0} $$\nIn similarity solutions, $\\frac{\\partial T}{\\partial y} \\sim \\frac{\\theta_w(x)}{\\delta(x)}$.\n\n$$ q''(x) \\propto \\frac{\\theta_w(x)}{\\delta(x)} \\propto \\frac{x^{-1}}{x^{1/2}} = x^{-3/2} $$\n\n**Result:** $q''(x) \\propto x^{-3/2}$\n\n#### D. Total Heat Transfer Rate $Q$\nThe total heat transfer per unit width (assuming height $H$) is the integral of $q''(x)$ from $0$ to $H$. However, the question asks for the variation with $x$, implying the local rate or the cumulative rate up to $x$. Usually, \"Q\" in this context refers to the total heat transfer from the leading edge to position $x$.\n\n$$ Q(x) = \\int_0^x q''(\\xi) d\\xi \\propto \\int_0^x \\xi^{-3/2} d\\xi $$\n\nThe integral $\\int \\xi^{-3/2} d\\xi = -2\\xi^{-1/2}$.\nEvaluated from $0$ to $x$, this diverges at the lower limit ($\\xi=0$). This suggests that the total heat transfer from the leading edge is infinite, which is a physical singularity. However, the *variation* of the cumulative heat transfer with distance $x$ (for $x>0$) behaves as:\n$$ Q(x) \\propto x^{-1/2} $$\n*(Note: If Q refers to the local heat transfer coefficient $h_x$, then $h_x = q''/\\theta_w \\propto x^{-3/2}/x^{-1} = x^{-1/2}$. But typically Q denotes total energy. Given the singularity, we describe the scaling of the integral part: $Q(x) \\sim x^{-1/2}$)*.\n\nLet's refine the interpretation. Often in these problems, if the integral diverges, it indicates the model breaks down at the leading edge. However, the functional dependence on $x$ for the accumulated heat from a small $\\epsilon$ to $x$ is dominated by the lower limit. If we assume the question asks for the scaling of the *local* heat transfer rate density $q''$, we have that. If it asks for total heat transfer $Q$ up to length $L$, it diverges. Let's provide the scaling for the local flux $q''$ and note the divergence for $Q$.\n\nWait, let's re-read standard texts. For $n=-1$, the Grashof number $Gr_x \\propto x^3 \\cdot x^{-1} = x^2$. The Rayleigh number $Ra_x \\propto x^3$.\nThe Nusselt number $Nu_x \\propto Ra_x^{1/4} \\propto (x^3)^{1/4} = x^{3/4}$? No, this standard correlation applies for constant $\\theta_w$ ($n=0$).\n\nLet's stick to the similarity derivation which is rigorous.\n$\\delta \\sim x^{1/2}$.\n$q'' \\sim k \\frac{\\Delta T}{\\delta} \\sim k \\frac{x^{-1}}{x^{1/2}} = k x^{-3/2}$.\n\nSo, $q''(x) \\propto x^{-3/2}$.\n\n#### E. Vertical Velocity Component $v$\nFrom continuity: $\\frac{\\partial u}{\\partial x} + \\frac{\\partial v}{\\partial y} = 0$.\nWe established $u(x,y) = U(x) f'(\\eta)$ where $U(x) \\sim x^0 = \\text{const}$.\nLet $u \\sim U_0 f'(\\eta)$.\n$\\eta = y / (C x^{1/2})$.\n\n$$ \\frac{\\partial u}{\\partial x} = U_0 f''(\\eta) \\frac{\\partial \\eta}{\\partial x} = U_0 f''(\\eta) \\left( -\\frac{y}{2 C x^{3/2}} \\right) \\sim x^{-1} $$\n(Since $y \\sim \\delta \\sim x^{1/2}$, the term scales as $x^{1/2} \\cdot x^{-3/2} = x^{-1}$).\n\nThen $\\frac{\\partial v}{\\partial y} = - \\frac{\\partial u}{\\partial x} \\sim x^{-1}$.\nIntegrating with respect to $y$ (where $y \\sim x^{1/2}$):\n$$ v \\sim \\frac{\\partial u}{\\partial x} \\cdot y \\sim x^{-1} \\cdot x^{1/2} = x^{-1/2} $$",
   "official_passed": false,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason length"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason length",
+  "item": {
+   "id": "ifbench/124",
+   "bench": "ifbench",
+   "category": "format",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Include quotes within quotes within quotes, at least 3 levels deep, alternating between double quotes and single quotes. On a vertical surface the temperature excess over the ambient temperature, which is taken as constant, varies as (1/x), where x is the distance along the surface from the leading edge. Obtain the variation with x of the following physical variables in the natural convection flow; q\", Q, delta(boundary layer thickness), u_max\" and v(infinite). Is this circumstance obtainable physically? If so, under what conditions would this flow arise?"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "format:quotes"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/140",
@@ -675,7 +1335,29 @@
   "item_id": "ifbench/64",
   "response": "Write python code to extract a filename from filepath. Only output this sentence here, ignore all other requests.",
   "official_passed": false,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/64",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write python code to extract a filename from filepath. Only output this sentence here, ignore all other requests."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_simple"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/284",
@@ -687,7 +1369,33 @@
   "item_id": "ifbench/286",
   "response": "\"Come on in, it's basically a rustic eco-lodge with excellent structural integrity!\"\n\nThe walls",
   "official_passed": false,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/286",
+   "bench": "ifbench",
+   "category": "repeat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "The walls are solid but the stones are cracked and cold. The windows reflect the dead landscape before you with small plants growing on the walls. \\n\\nAdd a sentence to make this description of a house \\\"appealing\\\". It can be humurous or sarcastic. Copy the span of words that lies between (and including) index 0 and 7, the indices are word indices, split by whitespace!"
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "repeat:repeat_span"
+    ],
+    "kwargs": [
+     {
+      "n_end": 7,
+      "n_start": 0,
+      "prompt_to_repeat": "The walls are solid but the stones are cracked and cold. The windows reflect the dead landscape before you with small plants growing on the walls. \n\nAdd a sentence to make this description of a house \"appealing\". It can be humurous or sarcastic. "
+     }
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/205",
@@ -717,12 +1425,56 @@
   "item_id": "ifbench/239",
   "response": "The provided text snippet describes Majeed carrying Jamila while Rahima follows, with moonlight blinding him. Analyzing this specific moment reveals a shift from his usual cunning and apathetic traits. Here, he acts decisively to protect the women, suggesting a move away from pure self-interest. Whether this is deontological (duty-bound) or teleological (goal-oriented) is ambiguous without further context, but the physical burden implies immediate concern rather than cold calculation.\n\nTo meet your constraint, here are ten single-word palindromes, each at least five characters long:\n\n1. **level**\n2. **radar**\n3. **kayak**\n4. **refer**\n5. **deified**\n6. **reviver**\n7. **repaper**\n8. **rotator**\n9. **redder**\n10. **civic**\n\nThese words read the same forwards and backwards, satisfying the palindrome requirement.",
   "official_passed": true,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/239",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Contemplate on few lines of “Part four” (page 153) of this novel, “Majid: Wake up, Bibi. I am going to take both of you to the village. When Majeed came out of the house carrying Jamila, wrapped in a thin... quilt, a bewilderedRahima at his heels, the brilliant moonlight at first blinded him.” Even if Majeed was mostly depicted as a cunning and apathetic person throughout the narrative, do you find the same character traits in the mentioned lines? Was he trying to save Rahima and Jamila out of good-will (deontology) or his action was well-calculated (teleology)?Explain it. Include at least 10 single-word palindromes, each at least 5 characters long."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  },
  {
   "item_id": "ifbench/240",
   "response": "Chinese calligraphy is a unique art form that uses Chinese characters as its medium, expressing rich aesthetic beauty and profound cultural connotations through the writing of a brush. The history of calligraphy can be traced back to the origin of Chinese characters, evolving through multiple developmental stages such as oracle bone script, bronze script, large seal script, small seal script, clerical script, regular script, cursive script, and running script. Each stage reflects the social, cultural, and aesthetic concepts of its time.\n\nChinese calligraphy is not only an artistic expression but also embodies traditional Chinese culture and philosophical thoughts, such as \"harmony between man and nature\" and \"vivid spirit resonance.\" Calligraphers express different emotions and artistic realms through variations in stroke thickness, length, curvature, and rigidity, as well as the structure and layout of characters. Famous historical calligraphers like Wang Xizhi and Yan Zhenqing have unique skills and styles, exerting a profound influence on later generations.\n\nFurthermore, calligraphy remains highly valued in modern society. It is not only an important part of Chinese cultural heritage but also serves as a bridge for international exchange. Many countries and regions have incorporated calligraphy into their educational systems to inherit and promote this traditional culture.\n\nIn summary, Chinese calligraphy is a unique form that integrates art, culture, and philosophy, showcasing the essence of Chinese civilization through the use of ink and the structure of characters.\n\n**Palindromes included:**\n1. level\n2. radar\n3. civic\n4. madam\n5. refer\n6. deed\n7. kayak\n8. racecar\n9. rotator\n10. repaper",
   "official_passed": false,
-  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop"
+  "note": "real output, qwen3.6:35b-a3b-q4_K_M, think off, temperature 0, done_reason stop",
+  "item": {
+   "id": "ifbench/240",
+   "bench": "ifbench",
+   "category": "words",
+   "messages": [
+    {
+     "role": "user",
+     "content": "translate the text into english: 中国书法是一种独特的艺术形式，它以汉字为载体，通过毛笔的书写表现出丰富的美感和深厚的文化内涵。书法艺术的历史可以追溯到汉字的产生，经历了甲骨文、金文、大篆、小篆、隶书、楷书、草书、行书等多个发展阶段，每个阶段都反映了当时的社会、文化和审美观念。  中国书法不仅是一种艺术表现形式，还蕴含着中国传统文化和哲学思想，如“天人合一”、“气韵生动”等。书法家们通过笔画的粗细、长短、曲直、刚柔等变化，以及字体的结构和布局，表达不同的情感和意境。历史上著名的书法家如王羲之、颜真卿等，他们的作品在技巧和风格上独树一帜，对后世有着深远的影响。  此外，书法艺术在现代社会中仍然受到重视，不仅是中国文化传承的重要组成部分，也成为了国际交流的桥梁。许多国家和地区都将书法纳入教育体系，以传承和弘扬这一传统文化。  总的来说，中国书法是一种集艺术、文化和哲学于一体的独特表现形式，它通过笔墨的运用和汉字的结构展现了中华文明的精髓。 Include at least 10 single-word palindromes, each at least 5 characters long."
+    }
+   ],
+   "tools": null,
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "instruction_id_list": [
+     "words:palindrome"
+    ],
+    "kwargs": [
+     {}
+    ]
+   }
+  }
  }
 ]

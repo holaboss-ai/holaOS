@@ -43,10 +43,18 @@ class PackTest(unittest.TestCase):
 class OfficialAgreementTest(unittest.TestCase):
     def test_fixtures_match_official_scorer(self):
         cases = json.loads(FIXTURES.read_text(encoding="utf-8"))
-        self.assertGreaterEqual(len(cases), 40)
-        for case in cases:
+        tagged = [c for c in cases if reasoning.extract_answer(c["response"]) is not None]
+        self.assertGreaterEqual(len(tagged), 40)
+        for case in tagged:
             v = grade(ITEMS[case["item_id"]], case["response"])
             self.assertEqual(v["passed"], case["official_passed"], f"{case['item_id']}: {case['note']}")
+
+    def test_without_a_block_we_read_the_last_line_where_upstream_scores_zero(self):
+        cases = json.loads(FIXTURES.read_text(encoding="utf-8"))
+        for case in (c for c in cases if reasoning.extract_answer(c["response"]) is None):
+            self.assertFalse(case["official_passed"])
+            v = grade(ITEMS[case["item_id"]], case["response"])
+            self.assertTrue(v["detail"].startswith("no <answer>"), v["detail"])
 
 
 class ExtractTest(unittest.TestCase):
@@ -67,9 +75,17 @@ class AdversarialTest(unittest.TestCase):
                             question, f"<answer>{question}</answer>", "<answer></answer>"):
                 self.assertFalse(grade(item, content)["passed"], f"{item['id']}: {content[:40]!r}")
 
-    def test_missing_tags_is_a_format_error(self):
+    def test_missing_tags_reads_the_last_line(self):
         item = first("gsm_symbolic")
-        self.assertEqual(grade(item, item["answer"]["oracle"])["outcome"], "format_error")
+        oracle = item["answer"]["oracle"]
+        v = grade(item, f"Adding it up.\n\nSo the total is 3 + {oracle} - 3 = {oracle}")
+        self.assertEqual(v["outcome"], "pass")
+        self.assertTrue(v["detail"].startswith("no <answer> block"))
+        kk = first("knights_knaves")
+        self.assertTrue(grade(kk, f"Working...\nAnswer: {kk['answer']['oracle']}")["passed"])
+
+    def test_no_block_and_nothing_to_read_is_a_format_error(self):
+        self.assertEqual(grade(first("gsm_symbolic"), "   \n  ")["outcome"], "format_error")
 
     def test_cut_off_reply_is_unfinished(self):
         self.assertEqual(grade(first("gsm_symbolic"), "Let me think", "length")["outcome"], "unfinished")

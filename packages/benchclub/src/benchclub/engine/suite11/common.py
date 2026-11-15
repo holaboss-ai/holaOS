@@ -9,6 +9,8 @@ UNFINISHED = "unfinished"
 FORMAT_ERROR = "format_error"
 ABSTAINED = "abstained"
 OUTCOMES = (PASS, WRONG, UNFINISHED, FORMAT_ERROR, ABSTAINED)
+# Not a grader verdict: the model can't take the item at all (a tool item on a build without tool support).
+UNSUPPORTED = "unsupported"
 
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 

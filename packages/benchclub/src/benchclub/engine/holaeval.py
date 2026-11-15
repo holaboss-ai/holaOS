@@ -1364,13 +1364,13 @@ def speed11_test(root, model, name, cfg, base_options, extra, emit, load):
             "tokens": sum(run["completion_tokens"] for run in runs), "time": round(sum(run["seconds"] for run in runs), 1)}
 
 
-def item11(root, model, item, options, extra, capabilities, emit, grade, send=ollama_chat):
+def item11(root, model, item, options, extra, capabilities, emit, grade, send=ollama_chat, unsupported=None):
     """One public-benchmark item, sampled once. The sample_done event carries the answer itself (content with
     thinking removed, tool calls, why it stopped) so the site re-grades exactly what was graded here."""
     emit.task = item["id"]
     emit("task_start", task=item["id"], kind="item", sample=0, bench=item["bench"], category=item["category"])
-    if item.get("tools") and "tools" not in capabilities:
-        verdict = {"passed": False, "outcome": "format_error", "detail": "this Ollama model has no tools capability"}
+    verdict = unsupported(item, capabilities) if unsupported else None
+    if verdict:
         emit("sample_done", task=item["id"], sample=0, passed=False, outcome=verdict["outcome"],
              reason=verdict["detail"], response=None)
         return {"task": item["id"], "kind": "item", "bench": item["bench"], **verdict, "tokens": 0, "time": 0}
@@ -1435,7 +1435,7 @@ def cmd_bench_items(args, pack_path):
     for item in pack["items"]:
         if not only or item["id"] in only or item["bench"] in only:
             results.append(item11(root, model, item, dict(base_options, **sampling), extra, capabilities, emit,
-                                  suite11.grade))
+                                  suite11.grade, unsupported=suite11.unsupported))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     record = {
