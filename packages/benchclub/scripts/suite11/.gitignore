@@ -1,0 +1,2 @@
+# Selected items are reviewed in diffs, unlike the repo-wide build output this overrides.
+!out/

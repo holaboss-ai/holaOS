@@ -1,0 +1,2671 @@
+{
+ "bench": "when2call",
+ "source": {
+  "name": "NVIDIA When2Call (test, llm_judge split)",
+  "url": "https://huggingface.co/datasets/nvidia/When2Call/tree/0582f7749df63a96fdc3070932e83e72396ace53",
+  "revision": "0582f7749df63a96fdc3070932e83e72396ace53",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/legalcode"
+ },
+ "selection": "Seed 20261113, stratified sample of the 300-item llm_judge test split: tool_call 7, request_for_info 7, cannot_answer 6 (the test set has no 'answer directly' gold label); items with an absolute calendar date dropped (56) and cannot_answer items offering no tools skipped; question unchanged, tools wrapped as When2Call's run_openai_inference.py does (NVIDIA/When2Call@ecc8d42388e9). NOT the official When2Call score, which uses log-prob MCQ or an LLM judge: this grades only whether the model called a tool and, when a call is expected, whether the first call names the right function.",
+ "items": [
+  {
+   "id": "when2call/47a917c4-d56b-43be-b13b-44c31d4607fa",
+   "bench": "when2call",
+   "category": "tool_call",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Hi, could you get me movies to watch directed by Herbert Ross and featuring James Shapkoff III?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "Movies_3_FindMovies",
+      "description": "Retrieve a list of movies based on director, genre, and cast preferences.",
+      "parameters": {
+       "type": "object",
+       "required": [],
+       "properties": {
+        "directed_by": {
+         "type": "string",
+         "description": "Name of the director to filter the movies. Use 'dontcare' to include all directors.",
+         "default": "dontcare"
+        },
+        "genre": {
+         "type": "string",
+         "description": "Genre of the movies to filter. Use 'dontcare' to include all genres.",
+         "enum": [
+          "Offbeat",
+          "Fantasy",
+          "World",
+          "Mystery",
+          "Thriller",
+          "Comedy",
+          "Comedy-drama",
+          "Horror",
+          "Animation",
+          "Sci-fi",
+          "Cult",
+          "Drama",
+          "Anime",
+          "Family",
+          "Action",
+          "dontcare"
+         ],
+         "default": "dontcare"
+        },
+        "cast": {
+         "type": "string",
+         "description": "Names of the main actors to filter the movies. Use 'dontcare' to include all casts.",
+         "default": "dontcare"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Restaurants_2_ReserveRestaurant",
+      "description": "Make a table reservation at a specified restaurant for a certain number of guests on a given date and time.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "restaurant_name",
+        "location",
+        "time",
+        "number_of_seats"
+       ],
+       "properties": {
+        "restaurant_name": {
+         "type": "string",
+         "description": "The name of the restaurant where the reservation is to be made."
+        },
+        "location": {
+         "type": "string",
+         "description": "The location of the restaurant in the format of 'City, State', such as 'Berkeley, CA' or 'New York, NY'."
+        },
+        "time": {
+         "type": "string",
+         "description": "The tentative time for the reservation in 24-hour format (e.g., '18:30' for 6:30 PM)."
+        },
+        "number_of_seats": {
+         "type": "string",
+         "description": "The number of seats to reserve at the restaurant. Must be a positive string."
+        },
+        "date": {
+         "type": "string",
+         "description": "The tentative date for the reservation in ISO format (YYYY-MM-DD). Defaults to today's date if not provided.",
+         "default": null
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Restaurants_2_FindRestaurants",
+      "description": "Finds restaurants within a specified location and filtered by category, price range, and vegetarian options availability. The search can also be extended to include restaurants with outdoor seating.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "category",
+        "location"
+       ],
+       "properties": {
+        "category": {
+         "type": "string",
+         "description": "The type of cuisine or food category offered by the restaurant, such as 'Italian', 'Chinese', or 'Vegetarian'.",
+         "enum": [
+          "Mexican",
+          "Bistro",
+          "Izakaya",
+          "Brunch",
+          "Thai",
+          "Sandwich",
+          "Seafood",
+          "Barbecue",
+          "European",
+          "Steakhouse",
+          "Vietnamese",
+          "Asian",
+          "Coffeehouse",
+          "American",
+          "Gastropub",
+          "Austrian",
+          "Italian",
+          "Indian",
+          "Spanish",
+          "Vegetarian",
+          "Brasserie",
+          "Chinese",
+          "Breakfast",
+          "Greek",
+          "California",
+          "Tapas",
+          "Take-out",
+          "Japanese"
+         ]
+        },
+        "location": {
+         "type": "string",
+         "description": "The city where the restaurant is located, in the format of 'City, State', such as 'San Francisco, CA'."
+        },
+        "price_range": {
+         "type": "string",
+         "description": "The price category of the restaurant's offerings. The default is 'dontcare', indicating no preference.",
+         "enum": [
+          "cheap",
+          "moderate",
+          "pricey",
+          "ultra high-end",
+          "dontcare"
+         ],
+         "default": "dontcare"
+        },
+        "has_vegetarian_options": {
+         "type": "string",
+         "description": "Indicates whether the restaurant provides adequate vegetarian options. The default is 'dontcare', indicating no preference.",
+         "default": "dontcare"
+        },
+        "has_seating_outdoors": {
+         "type": "string",
+         "description": "Denotes if the restaurant has outdoor seating available. The default is 'dontcare', indicating no preference.",
+         "default": "dontcare"
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "tool_call",
+    "tool": "Movies_3_FindMovies"
+   }
+  },
+  {
+   "id": "when2call/05b9c962-3a77-4646-809d-04455d1561ca",
+   "bench": "when2call",
+   "category": "tool_call",
+   "messages": [
+    {
+     "role": "user",
+     "content": "If I have 100$ and I donated 40. How much do I have now?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "multiply",
+      "description": "Multiplies two given strings and returns the product.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "a",
+        "b"
+       ],
+       "properties": {
+        "a": {
+         "type": "string",
+         "description": "The first string to multiply."
+        },
+        "b": {
+         "type": "string",
+         "description": "The second string to multiply."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "add",
+      "description": "Calculate the sum of two strings.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "a",
+        "b"
+       ],
+       "properties": {
+        "a": {
+         "type": "string",
+         "description": "The first string to be added."
+        },
+        "b": {
+         "type": "string",
+         "description": "The second string to be added."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "sub",
+      "description": "Subtracts the second string from the first string and returns the result.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "a",
+        "b"
+       ],
+       "properties": {
+        "a": {
+         "type": "string",
+         "description": "The minuend, an string from which another string (subtrahend) is to be subtracted."
+        },
+        "b": {
+         "type": "string",
+         "description": "The subtrahend, an string to be subtracted from the first string (minuend)."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "fahrenheit_to_celsius",
+      "description": "Converts a temperature from Fahrenheit to Celsius.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "fahrenheit"
+       ],
+       "properties": {
+        "fahrenheit": {
+         "type": "string",
+         "description": "The temperature in degrees Fahrenheit to be converted to Celsius."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "celsius_to_fahrenheit",
+      "description": "Converts a temperature given in Celsius to Fahrenheit.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "celsius"
+       ],
+       "properties": {
+        "celsius": {
+         "type": "string",
+         "description": "Temperature in degrees Celsius that needs to be converted to Fahrenheit."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "duck_duck_go_search",
+      "description": "Performs a search using the Duck Duck Go Search API. It is useful for retrieving answers to questions about current events. The input is a search query string, and the output is a JSON array containing the search results.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "query"
+       ],
+       "properties": {
+        "query": {
+         "type": "string",
+         "description": "The search query string to be submitted to the Duck Duck Go Search API."
+        },
+        "format": {
+         "type": "string",
+         "description": "The desired response format.",
+         "enum": [
+          "json",
+          "xml"
+         ],
+         "default": "json"
+        },
+        "no_redirect": {
+         "type": "string",
+         "description": "A flag to prevent redirection to external websites. Set to true if the redirection should be skipped.",
+         "default": false
+        },
+        "no_html": {
+         "type": "string",
+         "description": "A flag to prevent HTML content in the response. Set to true if HTML should be stripped from the results.",
+         "default": false
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "tool_call",
+    "tool": "sub"
+   }
+  },
+  {
+   "id": "when2call/2f167186-d36b-4d2d-b108-fbb14f7a96bb",
+   "bench": "when2call",
+   "category": "tool_call",
+   "messages": [
+    {
+     "role": "user",
+     "content": "say hi"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "reverse_input",
+      "description": "Reverses the given input, returning the opposite or inverted form. For strings, it returns the characters in reverse order. For booleans, it returns the negation. For numbers, it returns the negative value.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "input_value"
+       ],
+       "properties": {
+        "input_value": {
+         "type": "string",
+         "description": "The value to be reversed. Can be a string, boolean, or number (string or string)."
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "tool_call",
+    "tool": "reverse_input"
+   }
+  },
+  {
+   "id": "when2call/87bbc40c-eaf7-4fe3-9f70-c8fd4e0d500b",
+   "bench": "when2call",
+   "category": "tool_call",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Since long back i didn't do my hair cut. will you find me a salon in Fremont?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "Restaurants_2_ReserveRestaurant",
+      "description": "Make a table reservation at a restaurant by specifying the restaurant name, location, reservation time, number of seats, and date.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "restaurant_name",
+        "location",
+        "time",
+        "date"
+       ],
+       "properties": {
+        "restaurant_name": {
+         "type": "string",
+         "description": "The full name of the restaurant where the reservation is to be made."
+        },
+        "location": {
+         "type": "string",
+         "description": "The location of the restaurant in the format of 'City, State', such as 'San Francisco, CA'."
+        },
+        "time": {
+         "type": "string",
+         "description": "The reservation time in 24-hour format, e.g., '18:30' for 6:30 PM."
+        },
+        "number_of_seats": {
+         "type": "string",
+         "description": "The number of seats to reserve at the restaurant.",
+         "default": 2
+        },
+        "date": {
+         "type": "string",
+         "description": "The reservation date in ISO 8601 format, e.g., 'YYYY-MM-DD'."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Restaurants_2_FindRestaurants",
+      "description": "Finds restaurants based on a specified location and preferred food category, with optional filters for price range, vegetarian options, and outdoor seating availability.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "category",
+        "location"
+       ],
+       "properties": {
+        "category": {
+         "type": "string",
+         "description": "The type of cuisine or food category offered by the restaurant.",
+         "enum": [
+          "Mexican",
+          "Bistro",
+          "Izakaya",
+          "Brunch",
+          "Thai",
+          "Sandwich",
+          "Seafood",
+          "Barbecue",
+          "European",
+          "Steakhouse",
+          "Vietnamese",
+          "Asian",
+          "Coffeehouse",
+          "American",
+          "Gastropub",
+          "Austrian",
+          "Italian",
+          "Indian",
+          "Spanish",
+          "Vegetarian",
+          "Brasserie",
+          "Chinese",
+          "Breakfast",
+          "Greek",
+          "California",
+          "Tapas",
+          "Take-out",
+          "Japanese"
+         ]
+        },
+        "location": {
+         "type": "string",
+         "description": "The location of the restaurant, in the format of 'City, State', such as 'Berkeley, CA' and 'New York, NY'."
+        },
+        "price_range": {
+         "type": "string",
+         "description": "The general price range for dining at the restaurant.",
+         "enum": [
+          "cheap",
+          "moderate",
+          "pricey",
+          "ultra high-end"
+         ],
+         "default": "dontcare"
+        },
+        "has_vegetarian_options": {
+         "type": "string",
+         "description": "Indicates whether the restaurant offers a selection of vegetarian dishes.",
+         "default": null
+        },
+        "has_seating_outdoors": {
+         "type": "string",
+         "description": "Specifies if the restaurant provides outdoor seating for customers.",
+         "default": null
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Services_1_BookAppointment",
+      "description": "This function books an appointment with a specified hair stylist or salon for hairdressing services. It requires the name of the stylist or salon, as well as the desired time and date for the appointment.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "stylist_name",
+        "appointment_time",
+        "appointment_date"
+       ],
+       "properties": {
+        "stylist_name": {
+         "type": "string",
+         "description": "The full name of the hair stylist or the name of the salon where the appointment will be booked."
+        },
+        "appointment_time": {
+         "type": "string",
+         "description": "The specific time for the appointment, in 24-hour format 'HH:MM'."
+        },
+        "appointment_date": {
+         "type": "string",
+         "description": "The date for the appointment, in the format 'YYYY-MM-DD'."
+        },
+        "service_type": {
+         "type": "string",
+         "description": "The type of service requested for the appointment.",
+         "enum": [
+          "haircut",
+          "coloring",
+          "styling",
+          "treatment"
+         ],
+         "default": "haircut"
+        },
+        "contact_number": {
+         "type": "string",
+         "description": "The contact phone number for appointment confirmation, in the format '123-456-7890'.",
+         "default": null
+        },
+        "confirmation_email": {
+         "type": "string",
+         "description": "Whether a confirmation email should be sent. If true, an email is sent to the provided email address.",
+         "default": true
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Services_1_FindProvider",
+      "description": "Search for a hair stylist within a specified city, with the option to filter by whether the salon accommodates all genders.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "city"
+       ],
+       "properties": {
+        "city": {
+         "type": "string",
+         "description": "The city where the search for a hair stylist is targeted, in the format 'City, State', such as 'New York, NY' or 'Los Angeles, CA'."
+        },
+        "is_unisex": {
+         "type": "string",
+         "description": "Indicates if the salon should be unisex or not. A value of 'true' searches for unisex salons, 'false' for non-unisex salons.",
+         "default": false
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "tool_call",
+    "tool": "Services_1_FindProvider"
+   }
+  },
+  {
+   "id": "when2call/f1d7a6f4-5c1c-4c7f-830f-addbc74debcf",
+   "bench": "when2call",
+   "category": "tool_call",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Could you provide the current weather data for London in the UK, including the temperature, wind speed, and precipitation levels?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "weather_get_weather_data",
+      "description": "Retrieves current weather data including temperature, wind speed, and precipitation levels for a specified city and country.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "city",
+        "country"
+       ],
+       "properties": {
+        "city": {
+         "type": "string",
+         "description": "The name of the city for which weather data is being requested, e.g., 'San Francisco'."
+        },
+        "country": {
+         "type": "string",
+         "description": "The country in which the city is located, using ISO 3166-1 alpha-2 country codes, e.g., 'US' for the United States."
+        },
+        "units": {
+         "type": "string",
+         "description": "The unit system for the temperature (Celsius or Fahrenheit) and wind speed (m/s or mph).",
+         "enum": [
+          "metric",
+          "imperial"
+         ],
+         "default": "metric"
+        },
+        "language": {
+         "type": "string",
+         "description": "The language code for the response data, such as 'en' for English or 'es' for Spanish.",
+         "enum": [
+          "en",
+          "es",
+          "fr",
+          "de"
+         ],
+         "default": "en"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "stock_price_get",
+      "description": "Retrieve the current stock price for a specified ticker symbol from the stock market.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "ticker"
+       ],
+       "properties": {
+        "ticker": {
+         "type": "string",
+         "description": "The stock ticker symbol for which the price is being requested, such as 'AAPL' for Apple Inc."
+        },
+        "exchange": {
+         "type": "string",
+         "description": "The stock exchange where the ticker is listed, such as 'NASDAQ' or 'NYSE'.",
+         "enum": [
+          "NASDAQ",
+          "NYSE",
+          "AMEX"
+         ],
+         "default": "NASDAQ"
+        },
+        "date": {
+         "type": "string",
+         "description": "The date for which the stock price is requested, in the format 'YYYY-MM-DD'. If not provided, the latest available price is returned.",
+         "default": null
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "tool_call",
+    "tool": "weather_get_weather_data"
+   }
+  },
+  {
+   "id": "when2call/04f596a9-c595-454d-864f-0816910ad47c",
+   "bench": "when2call",
+   "category": "tool_call",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you retrieve the most recent readings for each metric from the sensors in my organization? Let's limit the results to 10 entries per page."
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "get_sensor_alerts",
+      "description": "Retrieve a paginated list of sensor alerts within a specified timespan and optionally filtered by various criteria such as network IDs or sensor metrics.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "perPage"
+       ],
+       "properties": {
+        "perPage": {
+         "type": "string",
+         "description": "The number of entries per page returned. Acceptable range is 3 - 100."
+        },
+        "startingAfter": {
+         "type": "string",
+         "description": "A server-generated token indicating the start of the page, such as a timestamp or an ID.",
+         "default": null
+        },
+        "endingBefore": {
+         "type": "string",
+         "description": "A server-generated token indicating the end of the page, such as a timestamp or an ID.",
+         "default": null
+        },
+        "t0": {
+         "type": "string",
+         "description": "The start of the timespan for the data, formatted as an ISO 8601 timestamp (e.g., '2023-01-01T00:00:00Z'). The maximum lookback period is 365 days from today.",
+         "default": null
+        },
+        "t1": {
+         "type": "string",
+         "description": "The end of the timespan for the data, formatted as an ISO 8601 timestamp (e.g., '2023-12-31T23:59:59Z'). t1 can be a maximum of 365 days after t0.",
+         "default": null
+        },
+        "networkId": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "A list of network IDs to filter the returned data.",
+         "default": []
+        },
+        "timespan": {
+         "type": "string",
+         "description": "The timespan for which the information will be fetched in seconds. Do not specify if t0 and t1 are provided. Must be less than or equal to 31,536,000 seconds (365 days).",
+         "default": 31536000
+        },
+        "sensorSerial": {
+         "type": "string",
+         "description": "The sensor serial number to filter the returned data.",
+         "default": null
+        },
+        "triggerMetric": {
+         "type": "string",
+         "description": "Filter alerts triggered by a specific metric.",
+         "enum": [
+          "apparentPower",
+          "co2",
+          "current",
+          "door",
+          "frequency",
+          "humidity",
+          "indoorAirQuality",
+          "noise",
+          "pm25",
+          "powerFactor",
+          "realPower",
+          "temperature",
+          "tvoc",
+          "upstreamPower",
+          "voltage",
+          "water"
+         ],
+         "default": null
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "get_sensor_readings_latest",
+      "description": "Retrieves the most recent readings for each metric from each sensor, organized by the sensor's serial number.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "perPage"
+       ],
+       "properties": {
+        "perPage": {
+         "type": "string",
+         "description": "Specifies the number of entries per page. Must be within the range of 3 to 100."
+        },
+        "startingAfter": {
+         "type": "string",
+         "description": "The server-generated token marking the start of the page. Typically a timestamp or ID. If omitted, the server will provide the default starting point.",
+         "default": null
+        },
+        "endingBefore": {
+         "type": "string",
+         "description": "The server-generated token marking the end of the page. Typically a timestamp or ID. Optional; if omitted, the server will provide the default ending point.",
+         "default": null
+        },
+        "networkId": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Filters the returned data by network IDs. If omitted, data for all networks is returned.",
+         "default": []
+        },
+        "serials": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Filters readings by sensor serial numbers. If omitted, readings for all sensors are returned.",
+         "default": []
+        },
+        "metrics": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Specifies the types of sensor readings to retrieve, such as 'temperature', 'humidity', or 'co2'. If omitted, all available types of readings are retrieved.",
+         "enum": [
+          "temperature",
+          "humidity",
+          "co2",
+          "battery",
+          "noise",
+          "pm2.5"
+         ],
+         "default": []
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "get_sensor_readings_history_by_interval",
+      "description": "Retrieves historical sensor readings within a specified timespan, summarized in intervals, and returns them sorted by the start time of each interval in descending order.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "timespan"
+       ],
+       "properties": {
+        "perPage": {
+         "type": "string",
+         "description": "Number of entries per page, within the range of 3 to 100.",
+         "default": 10
+        },
+        "startingAfter": {
+         "type": "string",
+         "description": "Server-generated token indicating the start of the page, typically a timestamp or ID.",
+         "default": null
+        },
+        "endingBefore": {
+         "type": "string",
+         "description": "Server-generated token indicating the end of the page, typically a timestamp or ID.",
+         "default": null
+        },
+        "networkId": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Filter data by the specified network IDs.",
+         "default": []
+        },
+        "serials": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Filter readings by sensor serial numbers.",
+         "default": []
+        },
+        "metrics": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Specify sensor reading types to retrieve, such as 'temperature', 'humidity', 'pressure'. Defaults to all available types if not supplied.",
+         "default": []
+        },
+        "timespan": {
+         "type": "string",
+         "description": "The timespan for fetching data, in seconds. The maximum is equivalent to 730 days and 12 hours."
+        },
+        "t0": {
+         "type": "string",
+         "description": "Start of the data timespan, in the ISO 8601 format 'YYYY-MM-DDTHH:MM:SSZ'. The maximum lookback period is 730 days and 12 hours.",
+         "default": null
+        },
+        "t1": {
+         "type": "string",
+         "description": "End of the data timespan, in the ISO 8601 format 'YYYY-MM-DDTHH:MM:SSZ'. This can be a maximum of 730 days and 12 hours after t0.",
+         "default": null
+        },
+        "interval": {
+         "type": "string",
+         "description": "The time interval in seconds for the data returned. Valid values are 15, 120, 300, 900, 3600, 14400, 86400, or 604800.",
+         "enum": [
+          "15",
+          "120",
+          "300",
+          "900",
+          "3600",
+          "14400",
+          "86400",
+          "604800"
+         ],
+         "default": 86400
+        },
+        "models": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Filter readings by one or more sensor models. Available models include 'MT10', 'MT11', 'MT12', 'MT14', 'MT20', 'MT30'.",
+         "enum": [
+          "MT10",
+          "MT11",
+          "MT12",
+          "MT14",
+          "MT20",
+          "MT30"
+         ],
+         "default": []
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "get_sensor_readings_history",
+      "description": "Return all reported readings from sensors within a specified timespan, sorted by timestamp. This can include various types of sensor data across different networks and devices.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "timespan"
+       ],
+       "properties": {
+        "perPage": {
+         "type": "string",
+         "description": "The number of entries per page returned. Must be within the range of 3 to 100.",
+         "default": 10
+        },
+        "startingAfter": {
+         "type": "string",
+         "description": "A server-side token that represents the start of the page, such as a timestamp in the format 'YYYY-MM-DDTHH:MM:SSZ'. This should not be manually set by the client.",
+         "default": null
+        },
+        "endingBefore": {
+         "type": "string",
+         "description": "A server-side token that represents the end of the page, such as a timestamp in the format 'YYYY-MM-DDTHH:MM:SSZ'. This should not be manually set by the client.",
+         "default": null
+        },
+        "networkId": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "The network IDs to filter the returned data. If omitted, data from all networks will be included.",
+         "default": []
+        },
+        "serials": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Sensor serial numbers to filter the readings by. If omitted, readings from all sensors will be included.",
+         "default": []
+        },
+        "metrics": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "Types of sensor readings to retrieve, such as 'temperature', 'humidity', 'co2'. If omitted, all available types will be retrieved.",
+         "default": []
+        },
+        "timespan": {
+         "type": "string",
+         "description": "The duration for which sensor data will be fetched, specified in seconds. Maximum value corresponds to 730 days and 12 hours."
+        },
+        "t0": {
+         "type": "string",
+         "description": "The start of the timespan for the data, in the format 'YYYY-MM-DDTHH:MM:SSZ'. Maximum lookback is 365 days and 6 hours from today.",
+         "default": null
+        },
+        "t1": {
+         "type": "string",
+         "description": "The end of the timespan for the data, in the format 'YYYY-MM-DDTHH:MM:SSZ'. 't1' can be at most 7 days after 't0'.",
+         "default": null
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "tool_call",
+    "tool": "get_sensor_readings_latest"
+   }
+  },
+  {
+   "id": "when2call/aca425e9-a4cb-486d-810d-3e59ff4ee6bd",
+   "bench": "when2call",
+   "category": "tool_call",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you find a unisex hair salon in Berkeley for me?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "Movies_1_BuyMovieTickets",
+      "description": "Purchase tickets for a specific movie showtime at a designated theater location.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "movie_name",
+        "number_of_tickets",
+        "show_date",
+        "location",
+        "show_time"
+       ],
+       "properties": {
+        "movie_name": {
+         "type": "string",
+         "description": "The title of the movie for which tickets are being purchased."
+        },
+        "number_of_tickets": {
+         "type": "string",
+         "description": "The quantity of tickets to buy.",
+         "enum": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9"
+         ]
+        },
+        "show_date": {
+         "type": "string",
+         "description": "The date of the movie show, in the format 'MM/DD/YYYY'."
+        },
+        "location": {
+         "type": "string",
+         "description": "The city of the theater, in the format of 'City, State', such as 'Los Angeles, CA'."
+        },
+        "show_time": {
+         "type": "string",
+         "description": "The start time of the movie, in 24-hour format 'HH:MM'."
+        },
+        "show_type": {
+         "type": "string",
+         "description": "The format of the movie showing.",
+         "enum": [
+          "regular",
+          "3d",
+          "imax"
+         ],
+         "default": "regular"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Movies_1_FindMovies",
+      "description": "Search for movies by specified criteria such as location, genre, and show type.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "location"
+       ],
+       "properties": {
+        "location": {
+         "type": "string",
+         "description": "The city where the theater is located, in the format of 'City, State' such as 'Los Angeles, CA'."
+        },
+        "theater_name": {
+         "type": "string",
+         "description": "The name of the theater. If unspecified, all theaters are considered.",
+         "default": "All Theaters"
+        },
+        "genre": {
+         "type": "string",
+         "description": "The genre of the movie. If unspecified, all genres are considered.",
+         "enum": [
+          "World",
+          "Offbeat",
+          "Mystery",
+          "Supernatural",
+          "Horror",
+          "Animation",
+          "Sci-fi",
+          "Documentary",
+          "Drama",
+          "War",
+          "Family",
+          "Action"
+         ],
+         "default": "All Genres"
+        },
+        "show_type": {
+         "type": "string",
+         "description": "The type of movie show such as regular, 3D, or IMAX. If unspecified, all types are considered.",
+         "enum": [
+          "regular",
+          "3d",
+          "imax"
+         ],
+         "default": "All Show Types"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Movies_1_GetTimesForMovie",
+      "description": "Retrieve a list of showtimes for a specific movie at a particular theater location on a specified date.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "movie_name",
+        "location",
+        "show_date"
+       ],
+       "properties": {
+        "movie_name": {
+         "type": "string",
+         "description": "The title of the movie for which showtimes are requested."
+        },
+        "location": {
+         "type": "string",
+         "description": "The city where the theater is located, in the format of 'City, State' such as 'Berkeley, CA' and 'New York, NY'."
+        },
+        "show_date": {
+         "type": "string",
+         "description": "The date for which to find showtimes, formatted as 'MM/DD/YYYY'."
+        },
+        "theater_name": {
+         "type": "string",
+         "description": "The name of the theater. If unspecified, any theater is considered.",
+         "default": "Any"
+        },
+        "show_type": {
+         "type": "string",
+         "description": "The format of the show (e.g., standard, 3D, IMAX).",
+         "enum": [
+          "regular",
+          "3d",
+          "imax"
+         ],
+         "default": "regular"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Services_1_BookAppointment",
+      "description": "Books an appointment with a specified hair stylist or salon on a given date and time.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "stylist_name",
+        "appointment_time",
+        "appointment_date"
+       ],
+       "properties": {
+        "stylist_name": {
+         "type": "string",
+         "description": "The full name of the hair stylist or the name of the salon."
+        },
+        "appointment_time": {
+         "type": "string",
+         "description": "The time for the appointment in 24-hour format, e.g., '14:00' for 2 PM."
+        },
+        "appointment_date": {
+         "type": "string",
+         "description": "The date for the appointment in the format 'YYYY-MM-DD', e.g., '2023-04-15'."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Services_1_FindProvider",
+      "description": "Search for a hair stylist by city and optionally filter by whether the salon is unisex.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "city"
+       ],
+       "properties": {
+        "city": {
+         "type": "string",
+         "description": "The city where the salon is located, in the format of 'City, State', such as 'Berkeley, CA' or 'New York, NY'."
+        },
+        "is_unisex": {
+         "type": "string",
+         "description": "Flag indicating if the salon is unisex. A value of 'True' means the salon is unisex, 'False' means it is not.",
+         "default": false
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "tool_call",
+    "tool": "Services_1_FindProvider"
+   }
+  },
+  {
+   "id": "when2call/12e5a40a-2741-4118-8b8c-9464bfb94efb",
+   "bench": "when2call",
+   "category": "request_for_info",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Can you initiate a private payment transaction for me to send money from my savings account to Amelia's email amelia@example.com?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "Payment_1_RequestPayment",
+      "description": "Initiates a payment request to a specified receiver with an optional privacy setting.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "receiver",
+        "amount"
+       ],
+       "properties": {
+        "receiver": {
+         "type": "string",
+         "description": "The identifier for the contact or account to receive the payment request, such as an email or account number."
+        },
+        "amount": {
+         "type": "string",
+         "description": "The monetary value to be requested, specified in the currency's smallest unit (e.g., cents for USD)."
+        },
+        "private_visibility": {
+         "type": "string",
+         "description": "Indicates if the transaction should be private (true) or public (false).",
+         "default": false
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Payment_1_MakePayment",
+      "description": "Initiates a payment transaction to send money to a specified receiver using a selected payment method.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "payment_method",
+        "amount",
+        "receiver"
+       ],
+       "properties": {
+        "payment_method": {
+         "type": "string",
+         "description": "The source of funds for the payment. Choose from the available options.",
+         "enum": [
+          "app balance",
+          "debit card",
+          "credit card"
+         ]
+        },
+        "amount": {
+         "type": "string",
+         "description": "The monetary value to be sent, specified in USD."
+        },
+        "receiver": {
+         "type": "string",
+         "description": "The identifier for the recipient, such as an account number or a contact name."
+        },
+        "private_visibility": {
+         "type": "string",
+         "description": "Determines if the transaction will be visible to others or kept private.",
+         "default": false
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "request_for_info",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/d752d08c-628c-4f0f-8f20-46526cd16b40",
+   "bench": "when2call",
+   "category": "request_for_info",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Could you stop the washing machine?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "OpenWeatherMap_get_current_weather",
+      "description": "Fetches the current weather information for a specified location using the OpenWeatherMap API.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "location"
+       ],
+       "properties": {
+        "location": {
+         "type": "string",
+         "description": "The location for which current weather information is requested, specified in the format of 'City, Country' in English. For example: 'Seoul, South Korea'.",
+         "enum": [
+          "New York, USA",
+          "London, UK",
+          "Seoul, South Korea",
+          "Sydney, Australia",
+          "Tokyo, Japan"
+         ]
+        },
+        "units": {
+         "type": "string",
+         "description": "The unit system used for the weather data. Can be 'metric' for Celsius, 'imperial' for Fahrenheit, or 'standard' for Kelvin.",
+         "enum": [
+          "metric",
+          "imperial",
+          "standard"
+         ],
+         "default": "metric"
+        },
+        "api_key": {
+         "type": "string",
+         "description": "The API key used to authenticate requests to the OpenWeatherMap API. This key should be kept secret.",
+         "default": "YOUR_API_KEY_HERE"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "ControlAppliance_execute",
+      "description": "This function is designed for controlling a home appliance, checking its current status and settings, as well as monitoring indoor air properties like air quality and temperature. For control commands, the input must clearly specify 'power on' or 'start'. To check the status, the input must include the keyword '확인'. Note that this tool is not intended for describing, creating, deleting, or removing modes or routines.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "command"
+       ],
+       "properties": {
+        "command": {
+         "type": "string",
+         "description": "The command must be specified as a string in Korean, consisting of the room name, appliance name (or alias), and operation command, separated by commas. Examples: '거실, 에어컨, 실행' for turning on the air conditioner in the living room, ', 에어컨, 냉방 실행' for activating cooling without specifying the room, '다용도실, 통돌이, 중지' for stopping the washing machine (alias '통돌이') in the utility room.",
+         "enum": [
+          "거실, 에어컨, 실행",
+          ", 에어컨, 냉방 실행",
+          "다용도실, 통돌이, 중지"
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "HNA_WQA_search",
+      "description": "Retrieve up-to-date information by searching the web using keywords. This is particularly useful for queries regarding topics that change frequently, such as the current president, recent movies, or popular songs.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "keyword"
+       ],
+       "properties": {
+        "keyword": {
+         "type": "string",
+         "description": "The search term used by the HNA WQA to find relevant information on the web."
+        },
+        "result_format": {
+         "type": "string",
+         "description": "The desired format of the search results.",
+         "enum": [
+          "text",
+          "json",
+          "xml"
+         ],
+         "default": "text"
+        },
+        "language": {
+         "type": "string",
+         "description": "The language preference for the search results.",
+         "enum": [
+          "EN",
+          "ES",
+          "FR",
+          "DE"
+         ],
+         "default": "EN"
+        },
+        "max_results": {
+         "type": "string",
+         "description": "Maximum number of search results to return.",
+         "default": 10
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "HNA_NEWS_search",
+      "description": "Searches for recent events and news based on the specified keyword.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "keyword"
+       ],
+       "properties": {
+        "keyword": {
+         "type": "string",
+         "description": "The key term used to search for relevant news articles."
+        },
+        "category": {
+         "type": "string",
+         "description": "The category to filter news articles by.",
+         "enum": [
+          "General",
+          "Politics",
+          "Economy",
+          "Sports",
+          "Technology",
+          "Entertainment"
+         ],
+         "default": "General"
+        },
+        "date_range": {
+         "type": "string",
+         "description": "The date range for the news search, formatted as 'YYYY-MM-DD to YYYY-MM-DD'.",
+         "default": "null"
+        },
+        "sort_by": {
+         "type": "string",
+         "description": "The sorting order of the search results.",
+         "enum": [
+          "date",
+          "relevance"
+         ],
+         "default": "date"
+        },
+        "language": {
+         "type": "string",
+         "description": "The language of the news articles to retrieve.",
+         "enum": [
+          "EN",
+          "FR",
+          "ES",
+          "DE",
+          "IT"
+         ],
+         "default": "EN"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "cookbook_search_recipe",
+      "description": "Searches for cooking recipes based on a provided keyword. Returns a list of recipes that contain the keyword in their title or ingredients list.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "keyword"
+       ],
+       "properties": {
+        "keyword": {
+         "type": "string",
+         "description": "The keyword to search for in the recipe titles or ingredients."
+        },
+        "cuisine": {
+         "type": "string",
+         "description": "The cuisine type to narrow down the search results.",
+         "enum": [
+          "Italian",
+          "Chinese",
+          "Indian",
+          "French",
+          "Mexican"
+         ],
+         "default": "Italian"
+        },
+        "max_results": {
+         "type": "string",
+         "description": "The maximum number of recipe results to return.",
+         "default": 10
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "request_for_info",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/28436671-879f-4a7a-be5e-6b12fa3437e4",
+   "bench": "when2call",
+   "category": "request_for_info",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Is there a size XL available for Shimmer?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "search_products",
+      "description": "Search for products based on various criteria such as color, size, category, price range, and brand, to find specific Stock Keeping Units (SKUs) or general Stock Production Units (SPUs).",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "category"
+       ],
+       "properties": {
+        "color": {
+         "type": "string",
+         "description": "The color of the product. This is an optional parameter that can be used to refine SKU searches.",
+         "default": null
+        },
+        "size": {
+         "type": "string",
+         "description": "The size of the product. This is an optional parameter that can be used to refine SKU searches.",
+         "default": null
+        },
+        "category": {
+         "type": "string",
+         "description": "The category of the product, such as 'electronics', 'clothing', or 'furniture'. This parameter is required for both SPU and SKU level searches."
+        },
+        "price_min": {
+         "type": "string",
+         "description": "The minimum price of the product search. Enter a string value representing the lowest price in dollars.",
+         "default": 0.0
+        },
+        "price_max": {
+         "type": "string",
+         "description": "The maximum price of the product search. Enter a string value representing the highest price in dollars.",
+         "default": null
+        },
+        "brand": {
+         "type": "string",
+         "description": "The brand of the product. This is an optional parameter for searching within a specific brand.",
+         "default": null
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "get_product_details",
+      "description": "Retrieve detailed information about a specific product, including options for size, color, material, and care instructions.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "item_id"
+       ],
+       "properties": {
+        "item_id": {
+         "type": "string",
+         "description": "The unique identifier of the product, required to fetch specific product details."
+        },
+        "color": {
+         "type": "string",
+         "description": "The color of the product. Specify this parameter to filter product details by color.",
+         "default": "any"
+        },
+        "size": {
+         "type": "string",
+         "description": "The size of the product. Specify this parameter to filter product details by size.",
+         "default": "any"
+        },
+        "detailLevel": {
+         "type": "string",
+         "description": "The level of detail required for the product information. Use 'SKU' for size and color details.",
+         "enum": [
+          "SKU",
+          "Basic"
+         ],
+         "default": "Basic"
+        },
+        "material": {
+         "type": "string",
+         "description": "The material of the product. This parameter is optional and can be used to filter product details.",
+         "default": "all"
+        },
+        "care_instructions": {
+         "type": "string",
+         "description": "Whether to include care instructions in the product details. If true, care instructions will be included.",
+         "default": false
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "request_for_info",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/19e84158-cf09-4c81-bfa6-b0eb20669b7d",
+   "bench": "when2call",
+   "category": "request_for_info",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I am going on vacation and will be traveling. Will you search for a house that is rated 3.8 or higher? It will be for one person."
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "Hotels_2_BookHouse",
+      "description": "Books a selected house for a specified duration and number of adults.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "where_to",
+        "number_of_adults",
+        "check_in_date",
+        "check_out_date"
+       ],
+       "properties": {
+        "where_to": {
+         "type": "string",
+         "description": "The location of the house to book, in the format of 'City, State', such as 'San Francisco, CA'."
+        },
+        "number_of_adults": {
+         "type": "string",
+         "description": "The number of adults to include in the reservation."
+        },
+        "check_in_date": {
+         "type": "string",
+         "description": "The check-in date for the reservation in the format 'MM/DD/YYYY'."
+        },
+        "check_out_date": {
+         "type": "string",
+         "description": "The check-out date for the reservation in the format 'MM/DD/YYYY'."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Hotels_2_SearchHouse",
+      "description": "Search for a house accommodation at a specific location, optionally filtering by laundry service availability, number of adults, and review rating.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "where_to"
+       ],
+       "properties": {
+        "where_to": {
+         "type": "string",
+         "description": "The destination where the house is searched for, in the format of 'City, State' or 'City, Country', such as 'Austin, TX', 'Paris, France', or 'San Francisco, CA'."
+        },
+        "has_laundry_service": {
+         "type": "string",
+         "description": "Indicates if the house should have laundry service available.",
+         "enum": [
+          "True",
+          "False",
+          "dontcare"
+         ],
+         "default": "dontcare"
+        },
+        "number_of_adults": {
+         "type": "string",
+         "description": "The number of adults for the reservation. Use 0 to indicate 'dontcare'.",
+         "default": 0
+        },
+        "rating": {
+         "type": "string",
+         "description": "The minimum review rating of the house on a scale from 1.0 to 5.0, with 5.0 being the highest. Use 0 to indicate 'dontcare'.",
+         "default": 0.0
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "request_for_info",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/0e25cbd9-325e-4bba-94b4-e671cd1fe228",
+   "bench": "when2call",
+   "category": "request_for_info",
+   "messages": [
+    {
+     "role": "user",
+     "content": "When is my upcoming gym session?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "EventQuery",
+      "description": "Search for calendar events that match a given text query within a user's calendar. The search considers both the title and description of the events.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "search_string"
+       ],
+       "properties": {
+        "search_string": {
+         "type": "string",
+         "description": "The text to search for within the title and description of an event."
+        },
+        "start_date": {
+         "type": "string",
+         "description": "The start date for the range of events to search, in the format 'YYYY-MM-DD'.",
+         "default": "null"
+        },
+        "end_date": {
+         "type": "string",
+         "description": "The end date for the range of events to search, in the format 'YYYY-MM-DD'.",
+         "default": "null"
+        },
+        "include_recurring": {
+         "type": "string",
+         "description": "A flag to indicate whether to include recurring events in the search.",
+         "default": false
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "reschedule_event",
+      "description": "Reschedule an event by assigning it a new date or time based on the provided ISO-8601 datetime string.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "event_identifier",
+        "new_datetime"
+       ],
+       "properties": {
+        "event_identifier": {
+         "type": "string",
+         "description": "A unique identifier for the event, such as a UUID."
+        },
+        "new_datetime": {
+         "type": "string",
+         "description": "The new date and time to which the event is being rescheduled, in ISO-8601 format (e.g., 'YYYY-MM-DDTHH:MM:SSZ')."
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "request_for_info",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/9d749b36-3530-42a2-9137-00dc581e77e6",
+   "bench": "when2call",
+   "category": "request_for_info",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I want to listen to music. Rumor has it Alec Benjamin's music is awesome. I really like to listen to POP songs."
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "Music_3_PlayMedia",
+      "description": "Plays the specified track on the designated device, optionally filtering by artist and album.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "track"
+       ],
+       "properties": {
+        "track": {
+         "type": "string",
+         "description": "The title of the track to be played."
+        },
+        "artist": {
+         "type": "string",
+         "description": "The name of the artist performing the track. If not specified, any artist is considered acceptable.",
+         "default": "any"
+        },
+        "device": {
+         "type": "string",
+         "description": "The designated media player device where the music will be played.",
+         "enum": [
+          "Living room",
+          "Kitchen",
+          "Patio"
+         ],
+         "default": "Living room"
+        },
+        "album": {
+         "type": "string",
+         "description": "The album where the track is from. If not specified, tracks from any album are considered.",
+         "default": "any"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Music_3_LookupMusic",
+      "description": "Retrieve a list of songs that align with the user's musical preferences based on the specified artist, album, genre, and release year.",
+      "parameters": {
+       "type": "object",
+       "required": [],
+       "properties": {
+        "artist": {
+         "type": "string",
+         "description": "The name of the performer. Use 'dontcare' to ignore the artist filter.",
+         "default": "dontcare"
+        },
+        "album": {
+         "type": "string",
+         "description": "The title of the album. Use 'dontcare' to ignore the album filter.",
+         "default": "dontcare"
+        },
+        "genre": {
+         "type": "string",
+         "description": "The musical style or category. Use 'dontcare' if genre is not a filtering criterion.",
+         "enum": [
+          "Reggae",
+          "Holiday",
+          "Electropop",
+          "Pop",
+          "Asia",
+          "House",
+          "Electronica",
+          "Funk",
+          "Rock",
+          "Metal",
+          "Dubstep",
+          "Country",
+          "dontcare"
+         ],
+         "default": "dontcare"
+        },
+        "year": {
+         "type": "string",
+         "description": "The year the song was originally released, formatted as 'YYYY'. Use 'dontcare' to ignore the year filter.",
+         "enum": [
+          "2010",
+          "2011",
+          "2012",
+          "2013",
+          "2014",
+          "2015",
+          "2016",
+          "2017",
+          "2018",
+          "2019",
+          "dontcare"
+         ],
+         "default": "dontcare"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Weather_1_GetWeather",
+      "description": "Retrieves the weather forecast for a specified city on a given date.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "city"
+       ],
+       "properties": {
+        "city": {
+         "type": "string",
+         "description": "The name of the city for which to retrieve the weather, such as 'New York, NY' or 'London, UK'."
+        },
+        "date": {
+         "type": "string",
+         "description": "The date for which to retrieve the weather, in the format 'YYYY-MM-DD'. If not provided, defaults to the current date.",
+         "default": "2019-03-01"
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "request_for_info",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/ea7006e3-9a2c-4074-9afd-d13f145addd7",
+   "bench": "when2call",
+   "category": "request_for_info",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I need to set up a connection to our company's database. The server is called 'EnterpriseDB', the database name is 'sales_data', my username is 'dbadmin', and the password is 'secure*pwd123'."
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "get_current_weather",
+      "description": "Retrieves the current weather conditions for a specified location.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "location"
+       ],
+       "properties": {
+        "location": {
+         "type": "string",
+         "description": "The location for which to get the weather, in the format of 'City, State', such as 'San Francisco, CA' or 'New York, NY'."
+        },
+        "unit": {
+         "type": "string",
+         "description": "The unit of temperature to be returned by the weather API.",
+         "enum": [
+          "celsius",
+          "fahrenheit"
+         ],
+         "default": "fahrenheit"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "add_postgres_server",
+      "description": "Add or create a new Postgres server configuration to connect to a database.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "nickname",
+        "host",
+        "database",
+        "username",
+        "password"
+       ],
+       "properties": {
+        "nickname": {
+         "type": "string",
+         "description": "A unique nickname to identify the server configuration."
+        },
+        "host": {
+         "type": "string",
+         "description": "The hostname or IP address of the Postgres server, such as 'localhost' or '192.168.1.100'."
+        },
+        "port": {
+         "type": "string",
+         "description": "The port number on which the Postgres server is running. The default is the standard Postgres port.",
+         "default": 5432
+        },
+        "database": {
+         "type": "string",
+         "description": "The name of the database to connect to, typically 'postgres' for the default database."
+        },
+        "username": {
+         "type": "string",
+         "description": "The username for authenticating with the Postgres server, often 'postgres' by default."
+        },
+        "password": {
+         "type": "string",
+         "description": "The password associated with the username for authentication. Ensure this is kept secure."
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "request_for_info",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/1e333361-f2cd-4ea9-8ce6-8bb89d6824ac",
+   "bench": "when2call",
+   "category": "cannot_answer",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Set an reminder for meeting in a minute"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "set_alarm",
+      "description": "Set an alarm to trigger at a specified time, optionally with a designated purpose.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "alarm_time"
+       ],
+       "properties": {
+        "alarm_time": {
+         "type": "string",
+         "description": "The alarm time in the format 'YYYY-MM-DD HH:MM:SS', for example, '2023-04-01 07:30:00'."
+        },
+        "purpose": {
+         "type": "string",
+         "description": "A brief description of the alarm's purpose.",
+         "default": "General reminder"
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "cannot_answer",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/8750943a-0388-43c3-b083-757cd2a4a9ba",
+   "bench": "when2call",
+   "category": "cannot_answer",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Help find a bathroom cleaning service provider in Bangkok, Phaya Thai District. Good past history"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "view_service_provider_profile",
+      "description": "Retrieve the detailed profile information of a specified service provider.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "professional_id"
+       ],
+       "properties": {
+        "professional_id": {
+         "type": "string",
+         "description": "The unique identifier of the service provider whose profile is to be viewed."
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "cannot_answer",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/2b3590cd-7433-434a-921a-f238ade89d5c",
+   "bench": "when2call",
+   "category": "cannot_answer",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What API version is Instana using? Today is Tuesday."
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "EventSettingsApi_create_website_alert_config",
+      "description": "This API endpoint creates a configuration for website alerts, allowing users to define the conditions under which an alert is triggered and optionally create an associated incident.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "name",
+        "description",
+        "severity",
+        "websiteId"
+       ],
+       "properties": {
+        "name": {
+         "type": "string",
+         "description": "The name for the website alert configuration."
+        },
+        "description": {
+         "type": "string",
+         "description": "A brief description of the website alert configuration."
+        },
+        "severity": {
+         "type": "string",
+         "description": "The severity level of the alert when triggered. Can be either 5 for a Warning or 10 for Critical.",
+         "enum": [
+          "5",
+          "10"
+         ]
+        },
+        "triggering": {
+         "type": "string",
+         "description": "A flag indicating whether an Incident is also triggered when the alert is triggered.",
+         "default": false
+        },
+        "websiteId": {
+         "type": "string",
+         "description": "The unique identifier of the website for which the alert configuration is created."
+        },
+        "tagFilterExpression": {
+         "type": "string",
+         "description": "A boolean expression of tag filters used to define the scope of relevant website beacons.",
+         "default": ""
+        },
+        "granularity": {
+         "type": "string",
+         "description": "The evaluation granularity in minutes, defining the size of the tumbling window used for detection of threshold violations.",
+         "default": 1
+        },
+        "rule": {
+         "type": "string",
+         "description": "The type of rule this alert configuration represents, such as 'traffic spike' or 'downtime'.",
+         "default": "traffic spike"
+        },
+        "threshold": {
+         "type": "string",
+         "description": "The value of the threshold this alert rule is evaluated against.",
+         "default": 0.0
+        },
+        "timeThreshold": {
+         "type": "string",
+         "description": "The time period in minutes for which the threshold must be violated to trigger the alert.",
+         "default": 5
+        },
+        "alertChannelIds": {
+         "type": "string",
+         "items": {
+          "type": "string"
+         },
+         "description": "A list of unique identifiers for alert channels defined in Instana to which the alert notifications will be sent.",
+         "default": []
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "events_api_EventsApi_agent_monitoring_events",
+      "description": "Retrieves all agent monitoring events within a specified timeframe. It allows for querying historical events and can filter events based on their state updates. Users can define the timeframe using 'to', 'from', and 'windowSize' parameters.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "to"
+       ],
+       "properties": {
+        "to": {
+         "type": "string",
+         "description": "The end of the requested timeframe as a Unix timestamp in seconds. If not provided, defaults to the current service time."
+        },
+        "_from": {
+         "type": "string",
+         "description": "The start of the requested timeframe as a Unix timestamp in seconds, defining a range [from, to). This is an alternative to 'windowSize'. If neither 'from' nor 'windowSize' is provided, defaults to 10 minutes before the 'to' timestamp.",
+         "default": null
+        },
+        "windowSize": {
+         "type": "string",
+         "description": "The size of the requested timeframe in milliseconds, relative to the 'to' parameter. If neither 'windowSize' nor 'from' is provided, defaults to 600000 milliseconds (10 minutes).",
+         "default": 600000
+        },
+        "excludeTriggeredBefore": {
+         "type": "string",
+         "description": "Excludes events triggered before the requested timeframe. Useful for integrations that require only new events starting within the timeframe.",
+         "default": false
+        },
+        "filterEventUpdates": {
+         "type": "string",
+         "description": "Filters the results to include only event updates. Events are included only if their state changed within the requested timeframe. Suitable for integrations that are interested in event state updates.",
+         "default": false
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "cannot_answer",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/0545ad69-158c-4eae-991d-a360dee7f49c",
+   "bench": "when2call",
+   "category": "cannot_answer",
+   "messages": [
+    {
+     "role": "user",
+     "content": "최근 임진왜란에 대한 정보를 찾고 싶어요. 인터넷에서 '임진왜란'이라는 키워드로 검색해 주세요. 결과는 텍스트 형식으로, 최대 10개까지만 보여주세요."
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "OpenWeatherMap_get_current_weather",
+      "description": "Fetches the current weather information for a specified location using the OpenWeatherMap API.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "location"
+       ],
+       "properties": {
+        "location": {
+         "type": "string",
+         "description": "The location for which current weather information is requested, specified in the format of 'City, Country' in English. For example: 'Seoul, South Korea'.",
+         "enum": [
+          "New York, USA",
+          "London, UK",
+          "Seoul, South Korea",
+          "Sydney, Australia",
+          "Tokyo, Japan"
+         ]
+        },
+        "units": {
+         "type": "string",
+         "description": "The unit system used for the weather data. Can be 'metric' for Celsius, 'imperial' for Fahrenheit, or 'standard' for Kelvin.",
+         "enum": [
+          "metric",
+          "imperial",
+          "standard"
+         ],
+         "default": "metric"
+        },
+        "api_key": {
+         "type": "string",
+         "description": "The API key used to authenticate requests to the OpenWeatherMap API. This key should be kept secret.",
+         "default": "YOUR_API_KEY_HERE"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "ControlAppliance_execute",
+      "description": "This function is designed for controlling a home appliance, checking its current status and settings, as well as monitoring indoor air properties like air quality and temperature. For control commands, the input must clearly specify 'power on' or 'start'. To check the status, the input must include the keyword '확인'. Note that this tool is not intended for describing, creating, deleting, or removing modes or routines.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "command"
+       ],
+       "properties": {
+        "command": {
+         "type": "string",
+         "description": "The command must be specified as a string in Korean, consisting of the room name, appliance name (or alias), and operation command, separated by commas. Examples: '거실, 에어컨, 실행' for turning on the air conditioner in the living room, ', 에어컨, 냉방 실행' for activating cooling without specifying the room, '다용도실, 통돌이, 중지' for stopping the washing machine (alias '통돌이') in the utility room.",
+         "enum": [
+          "거실, 에어컨, 실행",
+          ", 에어컨, 냉방 실행",
+          "다용도실, 통돌이, 중지"
+         ]
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "HNA_NEWS_search",
+      "description": "Searches for recent events and news based on the specified keyword.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "keyword"
+       ],
+       "properties": {
+        "keyword": {
+         "type": "string",
+         "description": "The key term used to search for relevant news articles."
+        },
+        "category": {
+         "type": "string",
+         "description": "The category to filter news articles by.",
+         "enum": [
+          "General",
+          "Politics",
+          "Economy",
+          "Sports",
+          "Technology",
+          "Entertainment"
+         ],
+         "default": "General"
+        },
+        "date_range": {
+         "type": "string",
+         "description": "The date range for the news search, formatted as 'YYYY-MM-DD to YYYY-MM-DD'.",
+         "default": "null"
+        },
+        "sort_by": {
+         "type": "string",
+         "description": "The sorting order of the search results.",
+         "enum": [
+          "date",
+          "relevance"
+         ],
+         "default": "date"
+        },
+        "language": {
+         "type": "string",
+         "description": "The language of the news articles to retrieve.",
+         "enum": [
+          "EN",
+          "FR",
+          "ES",
+          "DE",
+          "IT"
+         ],
+         "default": "EN"
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "cookbook_search_recipe",
+      "description": "Searches for cooking recipes based on a provided keyword. Returns a list of recipes that contain the keyword in their title or ingredients list.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "keyword"
+       ],
+       "properties": {
+        "keyword": {
+         "type": "string",
+         "description": "The keyword to search for in the recipe titles or ingredients."
+        },
+        "cuisine": {
+         "type": "string",
+         "description": "The cuisine type to narrow down the search results.",
+         "enum": [
+          "Italian",
+          "Chinese",
+          "Indian",
+          "French",
+          "Mexican"
+         ],
+         "default": "Italian"
+        },
+        "max_results": {
+         "type": "string",
+         "description": "The maximum number of recipe results to return.",
+         "default": 10
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "cannot_answer",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/f0f4e87e-6a0b-4054-978c-15b483b35ce7",
+   "bench": "when2call",
+   "category": "cannot_answer",
+   "messages": [
+    {
+     "role": "user",
+     "content": "What are the synthetic locations, give me 5?"
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "SyntheticSettingsApi_get_synthetic_location",
+      "description": "Retrieve the configuration details of a specific synthetic location by its unique identifier.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "id"
+       ],
+       "properties": {
+        "id": {
+         "type": "string",
+         "description": "The unique identifier of the synthetic location."
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "SyntheticSettingsApi_get_synthetic_tests",
+      "description": "Retrieves a list of all synthetic tests associated with a specified application and location.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "applicationId",
+        "locationId"
+       ],
+       "properties": {
+        "applicationId": {
+         "type": "string",
+         "description": "The unique identifier of the application for which synthetic tests are fetched."
+        },
+        "locationId": {
+         "type": "string",
+         "description": "The unique identifier of the location for which synthetic tests are fetched."
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "cannot_answer",
+    "tool": null
+   }
+  },
+  {
+   "id": "when2call/d07e1726-29c2-424b-8316-18d488547de3",
+   "bench": "when2call",
+   "category": "cannot_answer",
+   "messages": [
+    {
+     "role": "user",
+     "content": "I'm looking for a movie that features Daniel Camp in the cast."
+    }
+   ],
+   "tools": [
+    {
+     "type": "function",
+     "function": {
+      "name": "Restaurants_2_ReserveRestaurant",
+      "description": "Make a table reservation at a specified restaurant for a certain number of guests on a given date and time.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "restaurant_name",
+        "location",
+        "time",
+        "number_of_seats"
+       ],
+       "properties": {
+        "restaurant_name": {
+         "type": "string",
+         "description": "The name of the restaurant where the reservation is to be made."
+        },
+        "location": {
+         "type": "string",
+         "description": "The location of the restaurant in the format of 'City, State', such as 'Berkeley, CA' or 'New York, NY'."
+        },
+        "time": {
+         "type": "string",
+         "description": "The tentative time for the reservation in 24-hour format (e.g., '18:30' for 6:30 PM)."
+        },
+        "number_of_seats": {
+         "type": "string",
+         "description": "The number of seats to reserve at the restaurant. Must be a positive string."
+        },
+        "date": {
+         "type": "string",
+         "description": "The tentative date for the reservation in ISO format (YYYY-MM-DD). Defaults to today's date if not provided.",
+         "default": null
+        }
+       }
+      }
+     }
+    },
+    {
+     "type": "function",
+     "function": {
+      "name": "Restaurants_2_FindRestaurants",
+      "description": "Finds restaurants within a specified location and filtered by category, price range, and vegetarian options availability. The search can also be extended to include restaurants with outdoor seating.",
+      "parameters": {
+       "type": "object",
+       "required": [
+        "category",
+        "location"
+       ],
+       "properties": {
+        "category": {
+         "type": "string",
+         "description": "The type of cuisine or food category offered by the restaurant, such as 'Italian', 'Chinese', or 'Vegetarian'.",
+         "enum": [
+          "Mexican",
+          "Bistro",
+          "Izakaya",
+          "Brunch",
+          "Thai",
+          "Sandwich",
+          "Seafood",
+          "Barbecue",
+          "European",
+          "Steakhouse",
+          "Vietnamese",
+          "Asian",
+          "Coffeehouse",
+          "American",
+          "Gastropub",
+          "Austrian",
+          "Italian",
+          "Indian",
+          "Spanish",
+          "Vegetarian",
+          "Brasserie",
+          "Chinese",
+          "Breakfast",
+          "Greek",
+          "California",
+          "Tapas",
+          "Take-out",
+          "Japanese"
+         ]
+        },
+        "location": {
+         "type": "string",
+         "description": "The city where the restaurant is located, in the format of 'City, State', such as 'San Francisco, CA'."
+        },
+        "price_range": {
+         "type": "string",
+         "description": "The price category of the restaurant's offerings. The default is 'dontcare', indicating no preference.",
+         "enum": [
+          "cheap",
+          "moderate",
+          "pricey",
+          "ultra high-end",
+          "dontcare"
+         ],
+         "default": "dontcare"
+        },
+        "has_vegetarian_options": {
+         "type": "string",
+         "description": "Indicates whether the restaurant provides adequate vegetarian options. The default is 'dontcare', indicating no preference.",
+         "default": "dontcare"
+        },
+        "has_seating_outdoors": {
+         "type": "string",
+         "description": "Denotes if the restaurant has outdoor seating available. The default is 'dontcare', indicating no preference.",
+         "default": "dontcare"
+        }
+       }
+      }
+     }
+    }
+   ],
+   "format": null,
+   "max_tokens": 2048,
+   "answer": {
+    "expected": "cannot_answer",
+    "tool": null
+   }
+  }
+ ]
+}

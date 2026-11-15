@@ -1,0 +1,2411 @@
+[
+ {
+  "item_id": "when2call/47a917c4-d56b-43be-b13b-44c31d4607fa",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Movies_3_FindMovies",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: calls the target tool"
+ },
+ {
+  "item_id": "when2call/47a917c4-d56b-43be-b13b-44c31d4607fa",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Restaurants_2_ReserveRestaurant",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a different tool"
+ },
+ {
+  "item_id": "when2call/47a917c4-d56b-43be-b13b-44c31d4607fa",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Restaurants_2_ReserveRestaurant",
+       "arguments": {}
+      }
+     },
+     {
+      "function": {
+       "name": "Movies_3_FindMovies",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target only as the second call"
+ },
+ {
+  "item_id": "when2call/47a917c4-d56b-43be-b13b-44c31d4607fa",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Sure, I can help with that. Do you have a specific genre in mind for these movies?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: asks a follow-up instead"
+ },
+ {
+  "item_id": "when2call/47a917c4-d56b-43be-b13b-44c31d4607fa",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Movies_3_FindMovies",
+       "arguments": "{bad"
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target tool with arguments that are not JSON"
+ },
+ {
+  "item_id": "when2call/05b9c962-3a77-4646-809d-04455d1561ca",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "sub",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: calls the target tool"
+ },
+ {
+  "item_id": "when2call/05b9c962-3a77-4646-809d-04455d1561ca",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "multiply",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a different tool"
+ },
+ {
+  "item_id": "when2call/05b9c962-3a77-4646-809d-04455d1561ca",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "multiply",
+       "arguments": {}
+      }
+     },
+     {
+      "function": {
+       "name": "sub",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target only as the second call"
+ },
+ {
+  "item_id": "when2call/05b9c962-3a77-4646-809d-04455d1561ca",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To help you with that, I need to know if you had any other transactions apart from the donation."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: asks a follow-up instead"
+ },
+ {
+  "item_id": "when2call/05b9c962-3a77-4646-809d-04455d1561ca",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "sub",
+       "arguments": "{bad"
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target tool with arguments that are not JSON"
+ },
+ {
+  "item_id": "when2call/2f167186-d36b-4d2d-b108-fbb14f7a96bb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "reverse_input",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: calls the target tool"
+ },
+ {
+  "item_id": "when2call/2f167186-d36b-4d2d-b108-fbb14f7a96bb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "reverse_input_v2",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a different tool"
+ },
+ {
+  "item_id": "when2call/2f167186-d36b-4d2d-b108-fbb14f7a96bb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "reverse_input_v2",
+       "arguments": {}
+      }
+     },
+     {
+      "function": {
+       "name": "reverse_input",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target only as the second call"
+ },
+ {
+  "item_id": "when2call/2f167186-d36b-4d2d-b108-fbb14f7a96bb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Before I proceed, could you please provide me with the input value you'd like me to reverse?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: asks a follow-up instead"
+ },
+ {
+  "item_id": "when2call/2f167186-d36b-4d2d-b108-fbb14f7a96bb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "reverse_input",
+       "arguments": "{bad"
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target tool with arguments that are not JSON"
+ },
+ {
+  "item_id": "when2call/87bbc40c-eaf7-4fe3-9f70-c8fd4e0d500b",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Services_1_FindProvider",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: calls the target tool"
+ },
+ {
+  "item_id": "when2call/87bbc40c-eaf7-4fe3-9f70-c8fd4e0d500b",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Restaurants_2_ReserveRestaurant",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a different tool"
+ },
+ {
+  "item_id": "when2call/87bbc40c-eaf7-4fe3-9f70-c8fd4e0d500b",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Restaurants_2_ReserveRestaurant",
+       "arguments": {}
+      }
+     },
+     {
+      "function": {
+       "name": "Services_1_FindProvider",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target only as the second call"
+ },
+ {
+  "item_id": "when2call/87bbc40c-eaf7-4fe3-9f70-c8fd4e0d500b",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Sure, I can help with that. To provide the best options, do you prefer a unisex salon?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: asks a follow-up instead"
+ },
+ {
+  "item_id": "when2call/87bbc40c-eaf7-4fe3-9f70-c8fd4e0d500b",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Services_1_FindProvider",
+       "arguments": "{bad"
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target tool with arguments that are not JSON"
+ },
+ {
+  "item_id": "when2call/f1d7a6f4-5c1c-4c7f-830f-addbc74debcf",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "weather_get_weather_data",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: calls the target tool"
+ },
+ {
+  "item_id": "when2call/f1d7a6f4-5c1c-4c7f-830f-addbc74debcf",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "stock_price_get",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a different tool"
+ },
+ {
+  "item_id": "when2call/f1d7a6f4-5c1c-4c7f-830f-addbc74debcf",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "stock_price_get",
+       "arguments": {}
+      }
+     },
+     {
+      "function": {
+       "name": "weather_get_weather_data",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target only as the second call"
+ },
+ {
+  "item_id": "when2call/f1d7a6f4-5c1c-4c7f-830f-addbc74debcf",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "In which unit system would you like the temperature and wind speed, metric or imperial?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: asks a follow-up instead"
+ },
+ {
+  "item_id": "when2call/f1d7a6f4-5c1c-4c7f-830f-addbc74debcf",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "weather_get_weather_data",
+       "arguments": "{bad"
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target tool with arguments that are not JSON"
+ },
+ {
+  "item_id": "when2call/04f596a9-c595-454d-864f-0816910ad47c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "get_sensor_readings_latest",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: calls the target tool"
+ },
+ {
+  "item_id": "when2call/04f596a9-c595-454d-864f-0816910ad47c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "get_sensor_alerts",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a different tool"
+ },
+ {
+  "item_id": "when2call/04f596a9-c595-454d-864f-0816910ad47c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "get_sensor_alerts",
+       "arguments": {}
+      }
+     },
+     {
+      "function": {
+       "name": "get_sensor_readings_latest",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target only as the second call"
+ },
+ {
+  "item_id": "when2call/04f596a9-c595-454d-864f-0816910ad47c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To provide the most relevant data, could you please specify the network IDs or sensor serial numbers you're interested in?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: asks a follow-up instead"
+ },
+ {
+  "item_id": "when2call/04f596a9-c595-454d-864f-0816910ad47c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "get_sensor_readings_latest",
+       "arguments": "{bad"
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target tool with arguments that are not JSON"
+ },
+ {
+  "item_id": "when2call/aca425e9-a4cb-486d-810d-3e59ff4ee6bd",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Services_1_FindProvider",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: calls the target tool"
+ },
+ {
+  "item_id": "when2call/aca425e9-a4cb-486d-810d-3e59ff4ee6bd",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Movies_1_BuyMovieTickets",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a different tool"
+ },
+ {
+  "item_id": "when2call/aca425e9-a4cb-486d-810d-3e59ff4ee6bd",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Movies_1_BuyMovieTickets",
+       "arguments": {}
+      }
+     },
+     {
+      "function": {
+       "name": "Services_1_FindProvider",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target only as the second call"
+ },
+ {
+  "item_id": "when2call/aca425e9-a4cb-486d-810d-3e59ff4ee6bd",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Sure, I can help with that. To provide the best options, could you please specify if you prefer a particular type of service or stylist specialty?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: asks a follow-up instead"
+ },
+ {
+  "item_id": "when2call/aca425e9-a4cb-486d-810d-3e59ff4ee6bd",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Services_1_FindProvider",
+       "arguments": "{bad"
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: target tool with arguments that are not JSON"
+ },
+ {
+  "item_id": "when2call/12e5a40a-2741-4118-8b8c-9464bfb94efb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To proceed, I'll need to know the exact amount you wish to send to Amelia's email. Could you please provide that?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream request_for_info answer"
+ },
+ {
+  "item_id": "when2call/12e5a40a-2741-4118-8b8c-9464bfb94efb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To proceed, I'll need to verify your identity for security purposes. Once verified, I can initiate the transaction from your savings account to Amelia's email. Please confirm."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/12e5a40a-2741-4118-8b8c-9464bfb94efb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Payment_1_RequestPayment",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/12e5a40a-2741-4118-8b8c-9464bfb94efb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/12e5a40a-2741-4118-8b8c-9464bfb94efb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Can you initiate a private payment transaction for me to send money from my savings account to Amelia's email amelia@example.com?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/d752d08c-628c-4f0f-8f20-46526cd16b40",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To proceed, I need the specific command including the room name and the operation command. Could you please provide that?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream request_for_info answer"
+ },
+ {
+  "item_id": "when2call/d752d08c-628c-4f0f-8f20-46526cd16b40",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I'm sorry for the inconvenience, but as a text-based assistant, I don't have the ability to physically interact with devices. However, you can stop the washing machine by pressing the \"Power\" or \"Stop\" button on the control panel."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/d752d08c-628c-4f0f-8f20-46526cd16b40",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "OpenWeatherMap_get_current_weather",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/d752d08c-628c-4f0f-8f20-46526cd16b40",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/d752d08c-628c-4f0f-8f20-46526cd16b40",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Could you stop the washing machine?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/28436671-879f-4a7a-be5e-6b12fa3437e4",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To assist you better, could you please specify the category of the product \"Shimmer\"? It could be electronics, clothing, or furniture, for instance."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream request_for_info answer"
+ },
+ {
+  "item_id": "when2call/28436671-879f-4a7a-be5e-6b12fa3437e4",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Yes, we do have the Kak Rok Shimmer in size XL. You can find it on our website or in our physical store."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/28436671-879f-4a7a-be5e-6b12fa3437e4",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "search_products",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/28436671-879f-4a7a-be5e-6b12fa3437e4",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/28436671-879f-4a7a-be5e-6b12fa3437e4",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Is there a size XL available for Shimmer?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/19e84158-cf09-4c81-bfa6-b0eb20669b7d",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To assist you better, could you please specify the location or city where you're looking to find this house?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream request_for_info answer"
+ },
+ {
+  "item_id": "when2call/19e84158-cf09-4c81-bfa6-b0eb20669b7d",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Absolutely, I found a highly-rated house in Kuala Lumpur for you. It's a cozy, single occupancy accommodation with a rating of 4.2. Enjoy your vacation!"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/19e84158-cf09-4c81-bfa6-b0eb20669b7d",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Hotels_2_BookHouse",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/19e84158-cf09-4c81-bfa6-b0eb20669b7d",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/19e84158-cf09-4c81-bfa6-b0eb20669b7d",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I am going on vacation and will be traveling. Will you search for a house that is rated 3.8 or higher? It will be for one person."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/0e25cbd9-325e-4bba-94b4-e671cd1fe228",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To help you with that, could you please specify any keywords or details about your gym session in your calendar?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream request_for_info answer"
+ },
+ {
+  "item_id": "when2call/0e25cbd9-325e-4bba-94b4-e671cd1fe228",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Your next gym session is scheduled for tomorrow at 6 PM. Please ensure you're well-rested and hydrated before your workout."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/0e25cbd9-325e-4bba-94b4-e671cd1fe228",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "EventQuery",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/0e25cbd9-325e-4bba-94b4-e671cd1fe228",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/0e25cbd9-325e-4bba-94b4-e671cd1fe228",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "When is my upcoming gym session?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/9d749b36-3530-42a2-9137-00dc581e77e6",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "That's great! To help you better, could you please specify which track by Alec Benjamin you'd like to listen to?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream request_for_info answer"
+ },
+ {
+  "item_id": "when2call/9d749b36-3530-42a2-9137-00dc581e77e6",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Absolutely, \"Narrated For You\" is a great album by Alec Benjamin. It's a mix of pop and indie-pop. I'm sure you'll enjoy it. Let's start playing it for you."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/9d749b36-3530-42a2-9137-00dc581e77e6",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Music_3_PlayMedia",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/9d749b36-3530-42a2-9137-00dc581e77e6",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/9d749b36-3530-42a2-9137-00dc581e77e6",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I want to listen to music. Rumor has it Alec Benjamin's music is awesome. I really like to listen to POP songs."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/ea7006e3-9a2c-4074-9afd-d13f145addd7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To complete the setup, I need the host information. Could you please provide the hostname or IP address of the 'EnterpriseDB' server?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream request_for_info answer"
+ },
+ {
+  "item_id": "when2call/ea7006e3-9a2c-4074-9afd-d13f145addd7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "To connect to your company's database, use the following details: Server - 'EnterpriseDB', Host - 'db.company.com', Database - 'sales_data', Username - 'dbadmin', Password - 'secure*pwd123'. Ensure you have the necessary permissions and software to establish the connection."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/ea7006e3-9a2c-4074-9afd-d13f145addd7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "get_current_weather",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/ea7006e3-9a2c-4074-9afd-d13f145addd7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/ea7006e3-9a2c-4074-9afd-d13f145addd7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I need to set up a connection to our company's database. The server is called 'EnterpriseDB', the database name is 'sales_data', my username is 'dbadmin', and the password is 'secure*pwd123'."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/1e333361-f2cd-4ea9-8ce6-8bb89d6824ac",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I'm sorry for the inconvenience, but I'm currently unable to set reminders. Please use a dedicated reminder app or feature for this task."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream cannot_answer answer"
+ },
+ {
+  "item_id": "when2call/1e333361-f2cd-4ea9-8ce6-8bb89d6824ac",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Sure, your reminder for the meeting is set for one minute from now."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/1e333361-f2cd-4ea9-8ce6-8bb89d6824ac",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "set_alarm",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/1e333361-f2cd-4ea9-8ce6-8bb89d6824ac",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/1e333361-f2cd-4ea9-8ce6-8bb89d6824ac",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Set an reminder for meeting in a minute"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/8750943a-0388-43c3-b083-757cd2a4a9ba",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I'm sorry, I can't provide specific service recommendations. I suggest searching online for bathroom cleaning services in Bangkok, Phaya Thai District, and checking their reviews for a good past history."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream cannot_answer answer"
+ },
+ {
+  "item_id": "when2call/8750943a-0388-43c3-b083-757cd2a4a9ba",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Sure, consider \"Bright Cleaning Services\". They have a strong reputation for bathroom cleaning in the Phaya Thai District of Bangkok. You can reach them at +66 2 1234 5678."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/8750943a-0388-43c3-b083-757cd2a4a9ba",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "view_service_provider_profile",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/8750943a-0388-43c3-b083-757cd2a4a9ba",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/8750943a-0388-43c3-b083-757cd2a4a9ba",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Help find a bathroom cleaning service provider in Bangkok, Phaya Thai District. Good past history"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/2b3590cd-7433-434a-921a-f238ade89d5c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I'm sorry, I can't provide the API version for Instana as I don't have real-time access to such specific details."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream cannot_answer answer"
+ },
+ {
+  "item_id": "when2call/2b3590cd-7433-434a-921a-f238ade89d5c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Instana currently uses API version 1.2. The day of the week does not affect this information."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/2b3590cd-7433-434a-921a-f238ade89d5c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "EventSettingsApi_create_website_alert_config",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/2b3590cd-7433-434a-921a-f238ade89d5c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/2b3590cd-7433-434a-921a-f238ade89d5c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "What API version is Instana using? Today is Tuesday."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/0545ad69-158c-4eae-991d-a360dee7f49c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I'm sorry for the inconvenience, but I'm currently unable to perform web searches. I recommend using a search engine for the most accurate and up-to-date information on the topic."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream cannot_answer answer"
+ },
+ {
+  "item_id": "when2call/0545ad69-158c-4eae-991d-a360dee7f49c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "The Imjin War, also known as the Japanese invasions of Korea, took place from 1592 to 1598. It was a military conflict between Korea under the Joseon Dynasty and Japan under Toyotomi Hideyoshi. Here are some key events:\n\n1. Battle of Okpo (1592) - Korean Admiral Yi Sun-sin defeats Japanese navy.\n2. Battle of Hansan Island (1592) - Korean navy again defeats Japanese navy.\n3. Siege of Jinju (1592) - Korean forces hold off Japanese attack.\n4. Battle of Haengju (1593) - Korean forces repel Japanese attack.\n5. Battle of Myeongnyang (1597) - Korean navy defeats Japanese navy despite being outnumbered.\n6. Battle of Noryang (1598) - Korean and Chinese navies defeat Japanese navy, marking the end of the war."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/0545ad69-158c-4eae-991d-a360dee7f49c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "OpenWeatherMap_get_current_weather",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/0545ad69-158c-4eae-991d-a360dee7f49c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/0545ad69-158c-4eae-991d-a360dee7f49c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "최근 임진왜란에 대한 정보를 찾고 싶어요. 인터넷에서 '임진왜란'이라는 키워드로 검색해 주세요. 결과는 텍스트 형식으로, 최대 10개까지만 보여주세요."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/f0f4e87e-6a0b-4054-978c-15b483b35ce7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I'm sorry for the inconvenience, but I'm unable to provide a list of synthetic locations as I don't have the capability to generate or retrieve such information."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream cannot_answer answer"
+ },
+ {
+  "item_id": "when2call/f0f4e87e-6a0b-4054-978c-15b483b35ce7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "1. Laboratory settings for creating artificial diamonds.\n2. Factories producing synthetic rubber or plastic.\n3. Research facilities for bioengineered organs.\n4. Industrial plants for synthetic fuels.\n5. Pharmaceutical labs for synthetic drugs."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/f0f4e87e-6a0b-4054-978c-15b483b35ce7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "SyntheticSettingsApi_get_synthetic_location",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/f0f4e87e-6a0b-4054-978c-15b483b35ce7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/f0f4e87e-6a0b-4054-978c-15b483b35ce7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "What are the synthetic locations, give me 5?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/d07e1726-29c2-424b-8316-18d488547de3",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Apologies, but I'm unable to provide that information as I don't have real-time access to movie databases."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream cannot_answer answer"
+ },
+ {
+  "item_id": "when2call/d07e1726-29c2-424b-8316-18d488547de3",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I believe you might be referring to Daniel Craig. One of his popular movies is \"Skyfall\" from the James Bond series."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "synthetic: upstream direct answer (no call; wording not graded)"
+ },
+ {
+  "item_id": "when2call/d07e1726-29c2-424b-8316-18d488547de3",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "function": {
+       "name": "Restaurants_2_ReserveRestaurant",
+       "arguments": {}
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: calls a tool anyway"
+ },
+ {
+  "item_id": "when2call/d07e1726-29c2-424b-8316-18d488547de3",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": ""
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: empty reply"
+ },
+ {
+  "item_id": "when2call/d07e1726-29c2-424b-8316-18d488547de3",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I'm looking for a movie that features Daniel Camp in the cast."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "synthetic: echoes the question"
+ },
+ {
+  "item_id": "when2call/47a917c4-d56b-43be-b13b-44c31d4607fa",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_wys9jgl0",
+      "function": {
+       "index": 0,
+       "name": "Movies_3_FindMovies",
+       "arguments": {
+        "directed_by": "Herbert Ross",
+        "cast": "James Shapkoff III",
+        "genre": "dontcare"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/05b9c962-3a77-4646-809d-04455d1561ca",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "You have $60 left.\n\n(100 - 40 = 60)"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/2f167186-d36b-4d2d-b108-fbb14f7a96bb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Hi! How can I help you today?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/87bbc40c-eaf7-4fe3-9f70-c8fd4e0d500b",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_ifol1g4u",
+      "function": {
+       "index": 0,
+       "name": "Services_1_FindProvider",
+       "arguments": {
+        "city": "Fremont, CA"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/f1d7a6f4-5c1c-4c7f-830f-addbc74debcf",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_eonfkh2j",
+      "function": {
+       "index": 0,
+       "name": "weather_get_weather_data",
+       "arguments": {
+        "city": "London",
+        "country": "GB",
+        "units": "metric",
+        "language": "en"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/04f596a9-c595-454d-864f-0816910ad47c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_psixh4yi",
+      "function": {
+       "index": 0,
+       "name": "get_sensor_readings_latest",
+       "arguments": {
+        "perPage": "10"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/aca425e9-a4cb-486d-810d-3e59ff4ee6bd",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_ouqce3f9",
+      "function": {
+       "index": 0,
+       "name": "Services_1_FindProvider",
+       "arguments": {
+        "city": "Berkeley, CA",
+        "is_unisex": "True"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/12e5a40a-2741-4118-8b8c-9464bfb94efb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I cannot initiate this payment because I do not have access to your savings account, and the available payment methods are limited to \"app balance,\" \"debit card,\" or \"credit card.\" Additionally, please specify the amount you wish to send."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/d752d08c-628c-4f0f-8f20-46526cd16b40",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_o27v8h8u",
+      "function": {
+       "index": 0,
+       "name": "ControlAppliance_execute",
+       "arguments": {
+        "command": "다용도실, 통돌이, 중지"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/28436671-879f-4a7a-be5e-6b12fa3437e4",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_sswar5u1",
+      "function": {
+       "index": 0,
+       "name": "search_products",
+       "arguments": {
+        "category": "clothing",
+        "size": "XL"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/19e84158-cf09-4c81-bfa6-b0eb20669b7d",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Sure! To help you find a suitable house, I'll need to know the destination where you're planning to stay. Could you please provide the city and state (or country) for your vacation?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/0e25cbd9-325e-4bba-94b4-e671cd1fe228",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I will search your calendar for upcoming gym sessions.",
+    "tool_calls": [
+     {
+      "id": "call_voosu97c",
+      "function": {
+       "index": 0,
+       "name": "EventQuery",
+       "arguments": {
+        "search_string": "gym"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/9d749b36-3530-42a2-9137-00dc581e77e6",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_56873k88",
+      "function": {
+       "index": 0,
+       "name": "Music_3_LookupMusic",
+       "arguments": {
+        "artist": "Alec Benjamin",
+        "genre": "Pop",
+        "year": "dontcare",
+        "album": "dontcare"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/ea7006e3-9a2c-4074-9afd-d13f145addd7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_p4sqmor3",
+      "function": {
+       "index": 0,
+       "name": "add_postgres_server",
+       "arguments": {
+        "nickname": "EnterpriseDB",
+        "host": "localhost",
+        "database": "sales_data",
+        "username": "dbadmin",
+        "password": "secure*pwd123"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/1e333361-f2cd-4ea9-8ce6-8bb89d6824ac",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_b7o5qv0s",
+      "function": {
+       "index": 0,
+       "name": "set_alarm",
+       "arguments": {
+        "alarm_time": "2023-04-01 12:01:00",
+        "purpose": "Meeting reminder"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/8750943a-0388-43c3-b083-757cd2a4a9ba",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_u9gjvp3z",
+      "function": {
+       "index": 0,
+       "name": "view_service_provider_profile",
+       "arguments": {
+        "professional_id": "BKK-PHT-BC-001"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/2b3590cd-7433-434a-921a-f238ade89d5c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I cannot determine the API version of Instana from the provided information. The available tools do not include any endpoint or method to retrieve API version details. You may need to check Instana's official documentation or contact their support for this information."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/0545ad69-158c-4eae-991d-a360dee7f49c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_kjpyd4rf",
+      "function": {
+       "index": 0,
+       "name": "HNA_NEWS_search",
+       "arguments": {
+        "keyword": "임진왜란"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/f0f4e87e-6a0b-4054-978c-15b483b35ce7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I cannot directly list synthetic locations as there is no tool available to retrieve a list of all locations. However, if you have specific location IDs, I can retrieve their configuration details for you."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/d07e1726-29c2-424b-8316-18d488547de3",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I cannot search for movies or actors directly as I don't have access to a movie database tool. However, you can check platforms like IMDb, Rotten Tomatoes, or JustWatch by searching for \"Daniel Camp\" to find films he has appeared in."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.6:35b-a3b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/47a917c4-d56b-43be-b13b-44c31d4607fa",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_agadgrr4",
+      "function": {
+       "index": 0,
+       "name": "Movies_3_FindMovies",
+       "arguments": {
+        "directed_by": "Herbert Ross",
+        "cast": "James Shapkoff III"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/05b9c962-3a77-4646-809d-04455d1561ca",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_tt7t843u",
+      "function": {
+       "index": 0,
+       "name": "multiply",
+       "arguments": {
+        "a": "100",
+        "b": "40"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/2f167186-d36b-4d2d-b108-fbb14f7a96bb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "Hello! How can I help you today?"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/87bbc40c-eaf7-4fe3-9f70-c8fd4e0d500b",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_uu6ubw6i",
+      "function": {
+       "index": 0,
+       "name": "Services_1_FindProvider",
+       "arguments": {
+        "city": "Fremont, CA"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/f1d7a6f4-5c1c-4c7f-830f-addbc74debcf",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_xa2727g9",
+      "function": {
+       "index": 0,
+       "name": "weather_get_weather_data",
+       "arguments": {
+        "city": "London",
+        "country": "GB",
+        "units": "metric",
+        "language": "en"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/04f596a9-c595-454d-864f-0816910ad47c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_uepi4fkh",
+      "function": {
+       "index": 0,
+       "name": "get_sensor_readings_latest",
+       "arguments": {
+        "perPage": "10"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/aca425e9-a4cb-486d-810d-3e59ff4ee6bd",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_fs6hqlon",
+      "function": {
+       "index": 0,
+       "name": "Services_1_FindProvider",
+       "arguments": {
+        "city": "Berkeley, CA",
+        "is_unisex": "True"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/12e5a40a-2741-4118-8b8c-9464bfb94efb",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_it6wf6uw",
+      "function": {
+       "index": 0,
+       "name": "Payment_1_RequestPayment",
+       "arguments": {
+        "receiver": "amelia@example.com",
+        "amount": "0.01",
+        "private_visibility": "true"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/d752d08c-628c-4f0f-8f20-46526cd16b40",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_e3udohc0",
+      "function": {
+       "index": 0,
+       "name": "ControlAppliance_execute",
+       "arguments": {
+        "command": "다용도실, 통돌이, 중지"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/28436671-879f-4a7a-be5e-6b12fa3437e4",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_19kqdrw6",
+      "function": {
+       "index": 0,
+       "name": "search_products",
+       "arguments": {
+        "category": "clothing",
+        "size": "XL"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/19e84158-cf09-4c81-bfa6-b0eb20669b7d",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_udeq5bhc",
+      "function": {
+       "index": 0,
+       "name": "Hotels_2_SearchHouse",
+       "arguments": {
+        "where_to": "San Francisco, CA",
+        "rating": "3.8",
+        "number_of_adults": "1"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/0e25cbd9-325e-4bba-94b4-e671cd1fe228",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I don't have access to your personal calendar or fitness schedule. To find out when your upcoming gym session is, you would need to check:\n\n1.  **Your Personal Calendar App:** Open the app on your phone (e.g., Apple Calendar, Google Calendar) and look for events related to \"gym,\" \"fitness,\" or \"workout.\"\n2.  **A Fitness App:** Apps like Strava, Fitbit, or MyFitnessPal often track workout schedules.\n3.  **Your Gym's Website or App:** Check the schedule on your gym's official website or their dedicated mobile app.\n\nIf you have a specific event ID from one of these sources, I can help you reschedule it if needed!"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/9d749b36-3530-42a2-9137-00dc581e77e6",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_lffy3waz",
+      "function": {
+       "index": 0,
+       "name": "Music_3_LookupMusic",
+       "arguments": {
+        "artist": "Alec Benjamin",
+        "genre": "Pop"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/ea7006e3-9a2c-4074-9afd-d13f145addd7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_u5ncjxns",
+      "function": {
+       "index": 0,
+       "name": "add_postgres_server",
+       "arguments": {
+        "nickname": "EnterpriseDB",
+        "host": "localhost",
+        "database": "sales_data",
+        "username": "dbadmin",
+        "password": "secure*pwd123"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/1e333361-f2cd-4ea9-8ce6-8bb89d6824ac",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_db6vk6f4",
+      "function": {
+       "index": 0,
+       "name": "set_alarm",
+       "arguments": {
+        "alarm_time": "2023-12-06 09:00:00",
+        "purpose": "Meeting reminder"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/8750943a-0388-43c3-b083-757cd2a4a9ba",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I cannot directly access real-time databases or browse the internet to search for specific service providers based on their \"past history\" or current ratings. However, I can guide you on how to find a highly-rated bathroom cleaning service provider in Bangkok's Phaya Thai District using reliable methods.\n\nHere are the best ways to find a trustworthy provider:\n\n### 1. Use Verified Review Platforms\nThese platforms aggregate reviews from multiple sources and often highlight providers with strong historical performance.\n*   **Google Maps:** Search for \"Bathroom Cleaning Service\" or \"Household Cleaning Services\" in Phaya Thai. Look for businesses with high ratings (4.5+ stars) and recent positive reviews mentioning cleanliness and punctuality.\n*   **Facebook Groups:** Join local groups like \"Bangkok Home Cleaners,\" \"Phaya Thai Community,\" or \"Bangkok Living.\" Members often share recommendations based on their personal experiences.\n*   **Local Directories:** Check directories specific to Bangkok, such as:\n    *   **Bangkok City Guide** (if available in your region)\n    *   **Lazada Thailand** (Search for \"Cleaning Services\" and filter by location).\n\n### 2. Ask for Recommendations from Neighbors\nSince Phaya Thai is a densely populated area with many residents, word-of-mouth is powerful.\n*   Ask friends, family, or colleagues in the neighborhood if they have used any cleaning services recently.\n*   Look for businesses that are frequently mentioned in local community forums or social media posts.\n\n### 3. Check Professional Profiles (If Available)\nSome platforms allow you to view a service provider's profile before booking. If you find one on a platform like **Lazada** or **Grab**, check their:\n*   **Response Rate:** How quickly do they reply to inquiries?\n*   **Reviews:** Look at the history of reviews for that specific professional ID.\n*   **Service Area:** Ensure they list Phaya Thai as their service area.\n\n### 4. Verify Credentials\nBefore hiring, ensure the provider is legitimate:\n*   Ask for a business license or proof of insurance.\n*   Confirm if they offer a warranty on their work (e.g., \"If you aren't happy with the cleaning, we will redo it\").\n\n**Would you like me to help you draft a message to ask a neighbor or friend in Phaya Thai for their recommendation?**"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/2b3590cd-7433-434a-921a-f238ade89d5c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I am unable to determine the specific API version being used by Instana today because I don't have access to real-time information about their current service status or active endpoints.\n\nHowever, based on general knowledge, Instana's API has evolved over time. The most recent major versions are typically:\n*   **v10**: Released around 2023-2024 (often the latest stable version).\n*   **v9**: A previous stable version.\n\nIf you need to interact with their API, it is highly recommended to check their official documentation or use a tool like `curl` to test connectivity and verify the specific endpoint versions available for your current environment."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/0545ad69-158c-4eae-991d-a360dee7f49c",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_2awj80ti",
+      "function": {
+       "index": 0,
+       "name": "HNA_NEWS_search",
+       "arguments": {
+        "keyword": "임진왜란",
+        "category": "History",
+        "date_range": "2024-01-01 to 2024-12-31",
+        "sort_by": "relevance"
+       }
+      }
+     }
+    ]
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": false,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/f0f4e87e-6a0b-4054-978c-15b483b35ce7",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I cannot provide a list of 5 specific synthetic locations because I do not have access to a database containing all available location IDs. The tools available to me only allow me to retrieve details for a **specific** location if you provide its unique identifier (ID).\n\nTo get the information you need, please provide one of the following:\n1.  The **unique ID** of a specific synthetic location.\n2.  A list of IDs if you have them.\n\nOnce you provide an ID, I can retrieve the configuration details for that location for you."
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ },
+ {
+  "item_id": "when2call/d07e1726-29c2-424b-8316-18d488547de3",
+  "response": {
+   "message": {
+    "role": "assistant",
+    "content": "I cannot provide information about movies featuring Daniel Camp because I don't have access to a database of film listings or cast details.\n\nTo help you find a movie with Daniel Camp, you might try:\n*   Searching on streaming platforms like Netflix, Hulu, or Amazon Prime Video.\n*   Checking the official websites of major studios (e.g., Warner Bros., Universal, Paramount).\n*   Looking at local theater listings or online ticketing sites like Ticketmaster or Fandango.\n\nIf you have any other questions about movies or dining reservations, feel free to ask!"
+   },
+   "done_reason": "stop"
+  },
+  "official_passed": true,
+  "note": "real: qwen3.5:2b-q4_K_M, think off, temperature 0"
+ }
+]

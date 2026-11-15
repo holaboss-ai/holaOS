@@ -674,6 +674,7 @@
     "version": "1.0"
   },
   "test_agent": {
+    "engine_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "executor": "holaeval@1.2.0",
     "judge": "holaeval@1.2.0",
     "settings": {

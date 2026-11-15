@@ -8,6 +8,8 @@ import json
 import math
 from pathlib import Path
 
+from benchclub import pinned
+
 RUN_RECORD_SCHEMA = "benchclub.run-record/0.2"
 
 
@@ -207,6 +209,7 @@ def build_run_record(*, run_id, job_id, placement, bench, subject, digest, evide
         },
         "test_agent": {
             **bench["test_agent"],
+            "engine_sha256": pinned.fingerprint(),
             "settings": {
                 **bench["request"],
                 "warmup_load_ms": bench["warmup_load_ms"],
@@ -269,7 +272,8 @@ def build_api_run_record(*, run_id, job_id, placement, bench, subject, engine, b
             "digest_registered": bool(subject.get("registered")),
             "capabilities": bench["capabilities"],
         },
-        "test_agent": {**bench["test_agent"], "settings": dict(bench["request"])},
+        "test_agent": {**bench["test_agent"], "engine_sha256": pinned.fingerprint(),
+                       "settings": dict(bench["request"])},
         "runtime": {
             "backend": "api",
             "profile": runtime_profile({"engine": engine, "version": HOSTED_PROVIDER_VERSION}),

@@ -1,3 +1,4 @@
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -19,3 +20,11 @@ class EngineSyncTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FingerprintTest(unittest.TestCase):
+    def test_an_untouched_engine_fingerprints_as_its_manifest(self):
+        from benchclub import pinned
+        manifest = (pinned.ENGINE / "MANIFEST.json").read_bytes()
+        self.assertEqual(pinned.fingerprint(), hashlib.sha256(manifest).hexdigest())
+

@@ -27,8 +27,12 @@ except ImportError:
     account = submit = None
 
 CODING_SUITES = {suite for suite, spec in pinned.SUITES.items() if spec["command"] == "code"}
-TASK_LABELS = {"code-intervals": "code", "tool-flight": "tool call", "needle-8k": "8K recall"}
-SPEED_LABELS = {"speed@0": "generation", "speed@8k": "generation with 8K context"}
+TASK_LABELS = {"code-intervals": "code", "tool-flight": "tool call", "needle-8k": "8K recall",
+               "bfcl": "BFCL tool calls", "when2call": "When2Call", "ifbench": "IFBench", "ifeval": "IFEval",
+               "jsonschema": "JSON schema", "reasoning": "Reasoning Gym", "simpleqa": "SimpleQA"}
+SPEED_LABELS = {"speed@0": "generation", "speed@8k": "generation with 8K context",
+                "pp512": "reading 512 tokens", "tg128": "generation", "pp8192": "reading 8K tokens",
+                "tg128@d8192": "generation with 8K context"}
 LOW_DISK_GB = 10
 FAKE_IP_NET = ipaddress.ip_network("198.18.0.0/15")
 FAKE_IP_NEXT_STEP = ollama.FAKE_IP_NEXT_STEP
@@ -84,6 +88,13 @@ class EvalView(Out):
         self.attempt = None
         self.live_at = 0.0
         self.live_width = 0
+        self.item_bench = None
+        self.item_counts = [0, 0]
+
+    def end_item_bench(self):
+        if self.item_bench is not None:
+            self.finish(f"  {self.item_counts[0]}/{self.item_counts[1]}")
+            self.item_bench = None
 
     def begin(self, text):
         self.end_pending()
@@ -228,7 +239,19 @@ class EvalView(Out):
         elif kind == "task_start" and e.get("kind") == "speed":
             self.begin(f"{self.step} {SPEED_LABELS.get(task, task)} {self.ell}")
         elif kind == "task_done" and e.get("kind") == "speed":
-            self.finish(f" {e['decode_tps']} tok/s" if e.get("decode_tps") is not None else " no reading")
+            tps = e["decode_tps"] if e.get("decode_tps") is not None else e.get("pp_tps")
+            self.finish(f" {tps} tok/s" if tps is not None else " no reading")
+        elif kind == "task_start" and e.get("kind") == "item":
+            if e.get("bench") != self.item_bench:
+                self.end_item_bench()
+                self.item_bench, self.item_counts = e.get("bench"), [0, 0]
+                self.begin(f"{self.step} {TASK_LABELS.get(self.item_bench, self.item_bench)} ")
+        elif kind == "sample_done" and self.item_bench is not None:
+            self.item_counts[0] += bool(e.get("passed"))
+            self.item_counts[1] += 1
+            self.add(self.passed if e.get("passed") else self.missed)
+        elif kind == "done":
+            self.end_item_bench()
         elif kind == "task_start" and e.get("kind") == "task":
             self.begin(f"{self.step} {TASK_LABELS.get(task, task)} ")
         elif kind == "sample_done":
@@ -577,7 +600,7 @@ def parser():
     p = sub.add_parser("eval", help="benchmark a model offline; the run stays on this machine")
     p.add_argument("subject", help="a model id or alias from `benchclub list`, e.g. minicpm5-2b")
     p.add_argument("--suite", default=pinned.DEFAULT_SUITE,
-                   help="suite-standard@1.0 (speed and three checks, the default) or suite-coding@1.0 (macOS only)")
+                   help="suite-standard@1.0 (speed and three checks, the default), suite-standard@1.1 (speed and 180 public-benchmark items, in preview) or suite-coding@1.0 (macOS only)")
     p.add_argument("--json", action="store_true", help="print one JSON result instead of progress")
     p.add_argument("--ollama-url", help="run on your own Ollama server (the run stays local)")
     p.add_argument("--keep-model", action="store_true", help="keep a model this run downloaded")
