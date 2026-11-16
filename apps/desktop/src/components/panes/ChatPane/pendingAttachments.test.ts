@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  admitPendingAttachmentFiles,
   createPendingExplorerAttachment,
   createPendingLocalAttachment,
+  MAX_COMPOSER_ATTACHMENT_BYTES,
+  MAX_COMPOSER_ATTACHMENT_COUNT,
   pendingAttachmentsToListItems,
   stagePendingFileAttachments,
 } from "./pendingAttachments";
@@ -19,6 +22,68 @@ function staged(id: string): SessionInputAttachmentPayload {
     workspace_path: `/staged/${id}.txt`,
   };
 }
+
+test("applies the same size and image gates to local and Explorer files", () => {
+  for (const source of ["local-file", "explorer-path"] as const) {
+    const candidates = [
+      {
+        source,
+        name: "at-limit.txt",
+        size: MAX_COMPOSER_ATTACHMENT_BYTES,
+        image: false,
+      },
+      {
+        source,
+        name: "too-large.txt",
+        size: MAX_COMPOSER_ATTACHMENT_BYTES + 1,
+        image: false,
+      },
+      { source, name: "photo.png", size: 1, image: true },
+    ];
+
+    const result = admitPendingAttachmentFiles(candidates, {
+      currentAttachmentCount: 0,
+      imageInputSupported: false,
+      modelLabel: "",
+      getSizeBytes: (file) => file.size,
+      isImage: (file) => file.image,
+    });
+
+    assert.deepEqual(
+      result.acceptedFiles.map((file) => file.name),
+      ["at-limit.txt"],
+    );
+    assert.equal(result.rejectedImageCount, 1);
+    assert.equal(result.oversizedCount, 1);
+    assert.equal(result.overflowCount, 0);
+    assert.equal(
+      result.gateMessage,
+      "The selected model can't read images. Skipped 1 image attachment. Skipped 1 file over 100MB.",
+    );
+  }
+});
+
+test("preserves input order while enforcing the shared attachment count", () => {
+  const candidates = [
+    { name: "first.txt", size: 1 },
+    { name: "second.txt", size: 1 },
+    { name: "third.txt", size: 1 },
+  ];
+
+  const result = admitPendingAttachmentFiles(candidates, {
+    currentAttachmentCount: MAX_COMPOSER_ATTACHMENT_COUNT - 1,
+    imageInputSupported: true,
+    modelLabel: "Vision model",
+    getSizeBytes: (file) => file.size,
+    isImage: () => false,
+  });
+
+  assert.deepEqual(result.acceptedFiles, [candidates[0]]);
+  assert.equal(result.rejectedImageCount, 0);
+  assert.equal(result.oversizedCount, 0);
+  assert.equal(result.overflowCount, 2);
+  assert.equal(result.gateMessage, "Limit 50 attachments — skipped 2.");
+});
 
 test("stages mixed pending files concurrently and preserves composer order", async () => {
   const localFile = {

@@ -14,6 +14,7 @@ import { Composer } from "@/components/panes/ChatPane/Composer";
 import type { ComposerEditorHandle } from "@/components/panes/ChatPane/Composer/editor/ComposerEditor";
 import { ImageAttachmentPreviewModal } from "@/components/panes/ChatPane/ImageAttachmentPreviewModal";
 import {
+  admitPendingAttachmentFiles,
   attachmentUploadPayload,
   createPendingExplorerAttachment,
   createPendingLocalAttachment,
@@ -326,50 +327,17 @@ export function ProjectLanding({
     (files: File[]) => {
       if (files.length === 0) return;
 
-      const maxAttachmentBytes = 100 * 1024 * 1024;
-      const maxAttachmentCount = 50;
-      const acceptedFiles: File[] = [];
-      let rejectedImageCount = 0;
-      let oversizedCount = 0;
-      for (const file of files) {
-        if (
-          harnessUsesHolaModelCatalog &&
-          !selectedModelSupportsImageInput &&
-          attachmentLooksLikeImage(file.name, file.type)
-        ) {
-          rejectedImageCount += 1;
-          continue;
-        }
-        if (file.size > maxAttachmentBytes) {
-          oversizedCount += 1;
-          continue;
-        }
-        acceptedFiles.push(file);
-      }
-
-      const remainingSlots = Math.max(
-        0,
-        maxAttachmentCount - pendingAttachments.length,
-      );
-      const filesToAdd = acceptedFiles.slice(0, remainingSlots);
-      const overflowCount = acceptedFiles.length - filesToAdd.length;
-      const gateParts: string[] = [];
-      if (rejectedImageCount > 0) {
-        gateParts.push(
-          `${imageInputUnsupportedMessage(selectedModelDisplayLabel)} Skipped ${rejectedImageCount} image attachment${rejectedImageCount === 1 ? "" : "s"}.`,
-        );
-      }
-      if (oversizedCount > 0) {
-        gateParts.push(
-          `Skipped ${oversizedCount} file${oversizedCount === 1 ? "" : "s"} over 100MB.`,
-        );
-      }
-      if (overflowCount > 0) {
-        gateParts.push(
-          `Limit ${maxAttachmentCount} attachments — skipped ${overflowCount}.`,
-        );
-      }
-      setAttachmentGateMessage(gateParts.join(" "));
+      const { acceptedFiles: filesToAdd, gateMessage } =
+        admitPendingAttachmentFiles(files, {
+          currentAttachmentCount: pendingAttachments.length,
+          imageInputSupported:
+            !harnessUsesHolaModelCatalog || selectedModelSupportsImageInput,
+          modelLabel: selectedModelDisplayLabel,
+          getSizeBytes: (file) => file.size,
+          isImage: (file) =>
+            attachmentLooksLikeImage(file.name, file.type),
+        });
+      setAttachmentGateMessage(gateMessage);
 
       if (filesToAdd.length === 0) return;
       setPendingAttachments((current) => [
@@ -389,39 +357,16 @@ export function ProjectLanding({
     (files: ExplorerAttachmentDragPayload[]) => {
       if (files.length === 0) return;
 
-      const maxAttachmentCount = 50;
-      const acceptedFiles: ExplorerAttachmentDragPayload[] = [];
-      let rejectedImageCount = 0;
-      for (const file of files) {
-        if (
-          harnessUsesHolaModelCatalog &&
-          !selectedModelSupportsImageInput &&
-          resolveExplorerAttachmentKind(file) === "image"
-        ) {
-          rejectedImageCount += 1;
-          continue;
-        }
-        acceptedFiles.push(file);
-      }
-
-      const remainingSlots = Math.max(
-        0,
-        maxAttachmentCount - pendingAttachments.length,
-      );
-      const filesToAdd = acceptedFiles.slice(0, remainingSlots);
-      const overflowCount = acceptedFiles.length - filesToAdd.length;
-      const gateParts: string[] = [];
-      if (rejectedImageCount > 0) {
-        gateParts.push(
-          `${imageInputUnsupportedMessage(selectedModelDisplayLabel)} Skipped ${rejectedImageCount} image attachment${rejectedImageCount === 1 ? "" : "s"}.`,
-        );
-      }
-      if (overflowCount > 0) {
-        gateParts.push(
-          `Limit ${maxAttachmentCount} attachments — skipped ${overflowCount}.`,
-        );
-      }
-      setAttachmentGateMessage(gateParts.join(" "));
+      const { acceptedFiles: filesToAdd, gateMessage } =
+        admitPendingAttachmentFiles(files, {
+          currentAttachmentCount: pendingAttachments.length,
+          imageInputSupported:
+            !harnessUsesHolaModelCatalog || selectedModelSupportsImageInput,
+          modelLabel: selectedModelDisplayLabel,
+          getSizeBytes: (file) => file.size,
+          isImage: (file) => resolveExplorerAttachmentKind(file) === "image",
+        });
+      setAttachmentGateMessage(gateMessage);
 
       if (filesToAdd.length === 0) return;
       setPendingAttachments((current) => [
