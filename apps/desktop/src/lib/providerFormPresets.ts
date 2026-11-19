@@ -26,6 +26,14 @@ export const PROVIDER_FORM_PRESETS = [
     apiHost: "https://api.atlascloud.ai/v1",
     keyPlaceholder: "sk-…",
   },
+  {
+    id: "runcrate",
+    label: "Runcrate",
+    displayName: "Runcrate",
+    providerType: "openai_compatible",
+    apiHost: "https://api.runcrate.ai/v1",
+    keyPlaceholder: "rc_…",
+  },
 ] as const satisfies readonly ProviderFormPreset[];
 
 export function providerFormPreset(presetId: string): ProviderFormPreset {
