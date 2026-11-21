@@ -45,6 +45,7 @@ $ benchclub run qwen3.5:2b
 | `benchclub login [--hub URL]` | Signs in with a code you approve on any device, so it works over SSH. `--hub` points every later command at another BenchClub, e.g. a local one. |
 | `benchclub run <model> [--suite S] [--yes] [--unload] [--keep-model] [--json]` | Runs a model from `benchclub list` and submits the run. `<model>` is an id, an alias or an Ollama tag (`qwen3:8b` finds the Q4_K_M build). |
 | `benchclub run <code> [--json]` | Runs the job a code on the website stands for, e.g. a run someone set up for you. |
+| `benchclub run-set <set> --model <model> [--version N] [--pull] [--json]` | Answers a BenchClub question set with a model on your own Ollama (`OLLAMA_HOST`, else port 11434). BenchClub sends each question as the request its cloud would send, reads and judges every reply itself, and keeps the run under your account. `<set>` is the id on the set's page; the model must be in `benchclub list`, and your copy must be the build BenchClub lists. `--pull` downloads it first. Not open to everyone yet. |
 | `benchclub list [--json]` | Models you can run, from BenchClub (or the list bundled with benchclub when BenchClub can't be reached). |
 | `benchclub runs [--json]` | Runs saved on this machine, newest first. |
 | `benchclub doctor [--json]` | Checks Python, Ollama and whether its version counts, disk, memory, GPUs, your own Ollama, the private port, background load, the network and proxy, and BenchClub, and says what to fix. |
